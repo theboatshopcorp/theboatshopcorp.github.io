@@ -673,6 +673,14 @@ function renderAccessRestricted(content, actions){
 
 function uid(prefix){ return prefix+'_'+Math.random().toString(36).slice(2,9); }
 function fmt(n){ n = Number(n)||0; return '₱'+n.toLocaleString('en-PH',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+// Groups line items (each with .cat and .total) by category and sums their
+// totals — used in the printed quotation so item-detail sections read as
+// one line per category (no qty/unit breakdown), sorted alphabetically.
+function sumByCategory(rows){
+  const map = new Map();
+  (rows||[]).forEach(r=>{ const cat = r.cat || 'Uncategorized'; map.set(cat, (map.get(cat)||0) + (Number(r.total)||0)); });
+  return Array.from(map.entries()).map(([cat,total])=>({cat,total})).sort((a,b)=>a.cat.localeCompare(b.cat));
+}
 function fmtNum(n,d=2){ n=Number(n)||0; return n.toLocaleString('en-PH',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function ftInToDec(ft, inch){ return (Number(ft)||0) + (Number(inch)||0)/12; }
 function decToFtIn(dec){ dec = Number(dec)||0; let ft = Math.floor(dec); let inch = Math.round((dec-ft)*12); if(inch>=12){ inch-=12; ft+=1; } return {ft, inch}; }
@@ -790,6 +798,14 @@ function compareStructuralItems(a, b){
 // the Pricing Database). When a preset is applied to a quote, look up each
 // component's current unit price by matching category + name; if no catalog
 // entry matches, default to 0 so the user can pick/set it manually.
+// Returns the Pricing Database's structural catalog sorted by category then
+// name for easy browsing, while keeping each item's original index (so it
+// can still be looked up in PRICING.structuralCatalog by that index).
+function sortedStructuralCatalog(){
+  return (PRICING.structuralCatalog||[])
+    .map((a,i)=>({...a, i}))
+    .sort((a,b)=> (a.cat||'').localeCompare(b.cat||'') || (a.name||'').localeCompare(b.name||''));
+}
 function lookupStructuralPrice(cat, name){
   const hit = (PRICING.structuralCatalog||[]).find(a=>
     (a.name||'').trim().toLowerCase()===(name||'').trim().toLowerCase() &&
@@ -1549,9 +1565,15 @@ function renderTemplates(content, actions){
             <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
             <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
-            <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
+            <div style="display:flex;gap:8px;">
+              <select id="compCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;">
+                <option value="">+ Add from catalog…</option>
+                ${sortedStructuralCatalog().map(a=>`<option value="${a.i}">${esc(a.cat)} — ${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
+              </select>
+              <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Custom Item</button>
+            </div>
           </div>
           <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th></th></tr></thead>
           <tbody id="compRows"></tbody></table>
@@ -1593,6 +1615,14 @@ function renderTemplates(content, actions){
       });
     }
     drawComponents();
+    document.getElementById('compCatalogPick').onchange = (e)=>{
+      if(e.target.value==='') return;
+      const item = PRICING.structuralCatalog[Number(e.target.value)];
+      if(!t.components) t.components = [];
+      t.components.push({cat:item.cat, name:item.name, unit:item.unit, qty:1});
+      e.target.value='';
+      drawComponents();
+    };
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
       t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1});
@@ -2047,7 +2077,7 @@ function tabHull(host, q){
         <div style="display:flex;gap:8px;">
           <select id="structCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;">
             <option value="">+ Add from catalog…</option>
-            ${PRICING.structuralCatalog.map((a,i)=>`<option value="${i}">${esc(a.cat)} — ${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
+            ${sortedStructuralCatalog().map(a=>`<option value="${a.i}">${esc(a.cat)} — ${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
           </select>
           <button class="btn btn-sm" id="addBlankStruct">${icon('plus')} Custom Item</button>
         </div>
@@ -3118,17 +3148,17 @@ function tabOutput(host, q){
 
         <div class="doc-section-title">II. Structural Components &amp; Core Materials</div>
         <table class="doc-item-table">
-          <thead><tr><th>Category</th><th>Item</th><th>Unit</th><th class="right">Qty</th><th class="right">Amount</th></tr></thead>
+          <thead><tr><th>Category</th><th class="right">Amount</th></tr></thead>
           <tbody>
-            ${c.structural.rows.length? c.structural.rows.map(r=>`<tr><td>${esc(r.cat)}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="right">${r.qty}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('') : `<tr><td colspan="5">No structural items listed.</td></tr>`}
+            ${(()=>{ const g = sumByCategory(c.structural.rows); return g.length? g.map(r=>`<tr><td>${esc(r.cat)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('') : `<tr><td colspan="2">No structural items listed.</td></tr>`; })()}
           </tbody>
         </table>
 
         <div class="doc-section-title">III. Accessories &amp; Components</div>
         <table class="doc-item-table">
-          <thead><tr><th>Category</th><th>Item</th><th class="right">Qty</th><th class="right">Amount</th></tr></thead>
+          <thead><tr><th>Category</th><th class="right">Amount</th></tr></thead>
           <tbody>
-            ${c.acc.rows.length? c.acc.rows.map(r=>`<tr><td>${esc(r.cat)}</td><td>${esc(r.name)}</td><td class="right">${r.qty}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('') : `<tr><td colspan="4">No accessory items listed.</td></tr>`}
+            ${(()=>{ const g = sumByCategory(c.acc.rows); return g.length? g.map(r=>`<tr><td>${esc(r.cat)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('') : `<tr><td colspan="2">No accessory items listed.</td></tr>`; })()}
           </tbody>
         </table>
 
