@@ -634,23 +634,28 @@ function subscribeRemote(){
 
 /* ============================================================
    ACCESS CONTROL — Quotations, Boat Presets, Pricing Database, and
-   Settings are restricted to users listed in Supabase's admin_users
-   table. Dashboard and Customers stay open to everyone signed in.
-   Nav items stay visible to everyone (per request) — non-selected
-   users see a clear "Access Restricted" screen instead of the tab
-   disappearing.
+   Settings are each independently restricted, based on rows in
+   Supabase's user_permissions table (one row per email+section granted).
+   Dashboard and Customers stay open to everyone signed in.
+   Nav items stay visible to everyone (per request) — a user without
+   access to a given section sees a clear "Access Restricted" screen
+   instead of the tab disappearing.
    ============================================================ */
-let CURRENT_ROLE = 'viewer'; // safe default until checkAdminStatus() resolves after login
+let CURRENT_PERMISSIONS = new Set(); // populated after login by checkUserPermissions()
 const ADMIN_ONLY_VIEWS = ['quotes','editor','templates','pricing','settings'];
+// 'editor' (the quote editor) is governed by the same permission as 'quotes',
+// since opening/editing a quote is part of the Quotations section.
+function permissionKeyFor(view){ return view==='editor' ? 'quotes' : view; }
+function hasAccess(view){ return CURRENT_PERMISSIONS.has(permissionKeyFor(view)); }
 
-async function checkAdminStatus(email){
+async function checkUserPermissions(email){
   try{
-    const { data, error } = await supabaseClient.from('admin_users').select('email').eq('email', (email||'').toLowerCase()).maybeSingle();
+    const { data, error } = await supabaseClient.from('user_permissions').select('section').eq('email', (email||'').toLowerCase());
     if(error) throw error;
-    CURRENT_ROLE = data ? 'admin' : 'viewer';
+    CURRENT_PERMISSIONS = new Set((data||[]).map(r=>r.section));
   }catch(e){
-    console.error('Admin check failed, defaulting to restricted access', e);
-    CURRENT_ROLE = 'viewer';
+    console.error('Permission check failed, defaulting to no restricted access', e);
+    CURRENT_PERMISSIONS = new Set();
   }
 }
 
@@ -1198,7 +1203,7 @@ function renderAll(){
   const content = document.getElementById('content');
   const actions = document.getElementById('topbarActions');
   actions.innerHTML='';
-  if(ADMIN_ONLY_VIEWS.includes(CURRENT.view) && CURRENT_ROLE !== 'admin'){ renderAccessRestricted(content, actions); return; }
+  if(ADMIN_ONLY_VIEWS.includes(CURRENT.view) && !hasAccess(CURRENT.view)){ renderAccessRestricted(content, actions); return; }
   if(CURRENT.view==='dashboard') renderDashboard(content, actions);
   else if(CURRENT.view==='editor') renderEditor(content, actions);
   else if(CURRENT.view==='quotes') renderQuotesList(content, actions);
@@ -1716,7 +1721,7 @@ function renderPricing(content, actions){
    QUOTATION EDITOR
    ============================================================ */
 function openEditor(quoteId, templateId){
-  if(CURRENT_ROLE !== 'admin'){ CURRENT.view = 'editor'; renderAll(); return; }
+  if(!hasAccess('editor')){ CURRENT.view = 'editor'; renderAll(); return; }
   CURRENT.view = 'editor'; CURRENT.tab='client';
   if(quoteId){ CURRENT.quoteId = quoteId; }
   else {
@@ -3352,7 +3357,7 @@ async function startApp(session){
   CURRENT_USER = { email: session.user.email, isOwner:false };
   document.getElementById('loginScreen').style.display = 'none';
   document.querySelectorAll('#bootScreen').forEach(function(node){ node.remove(); });
-  await checkAdminStatus(session.user.email);
+  await checkUserPermissions(session.user.email);
   updateSidebarFoot();
   renderAll();
   pullAllFromRemote().then(subscribeRemote);
