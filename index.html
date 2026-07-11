@@ -1377,9 +1377,11 @@ function escNl(s){ return esc(s).split('\n').map(l=>l.trim()).filter(Boolean).jo
 /* ============================================================
    BOAT PRESETS
    ============================================================ */
+let _presetOpenModel = null;
+
 function renderTemplates(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Boat Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} Add Boat Model</button>`;
-  content.innerHTML = `<div class="section-lead">Each card is a Boat Model with its own standard measurements, painting specs, and structural components. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Boat Presets" — same as the Pricing Database.</div>
+  content.innerHTML = `<div class="section-lead">Click a Boat Model's card to open and edit its standard measurements, painting specs, and structural components. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Boat Presets" — same as the Pricing Database.</div>
   <div id="presetGrid"></div>`;
   const grid = document.getElementById('presetGrid');
 
@@ -1393,6 +1395,7 @@ function renderTemplates(content, actions){
     if(!trimmed) return;
     if(getBoatModelList().includes(trimmed)){ toast('That Boat Model already exists'); return; }
     TEMPLATES.push(blankPreset(trimmed));
+    _presetOpenModel = trimmed;
     draw();
   };
 
@@ -1409,87 +1412,114 @@ function renderTemplates(content, actions){
 
   function draw(){
     const models = getBoatModelList();
-    grid.innerHTML = models.map(m=>{
+    if(_presetOpenModel && !models.includes(_presetOpenModel)) _presetOpenModel = null;
+
+    if(!_presetOpenModel){
+      drawPreviewGrid(models);
+    } else {
+      drawDetail(_presetOpenModel);
+    }
+  }
+
+  function drawPreviewGrid(models){
+    grid.innerHTML = `<div class="grid g4">${models.map(m=>{
       const t = getPreset(m);
       return `
-      <div class="card" style="margin-bottom:16px;" data-model="${esc(m)}">
+      <div class="card preset-preview-card" data-openmodel="${esc(m)}" style="cursor:pointer;transition:box-shadow .15s, transform .15s;">
+        <div class="card-body">
+          <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;">${esc(m)}</div>
+          <div style="display:flex;gap:14px;font-size:11.5px;color:var(--ink-soft);">
+            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">LOA</div><div style="font-weight:600;color:var(--ink);">${t.loa||0} ft</div></div>
+            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Beam</div><div style="font-weight:600;color:var(--ink);">${t.beam||0} ft</div></div>
+            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Depth</div><div style="font-weight:600;color:var(--ink);">${t.depth||0} ft</div></div>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+    grid.querySelectorAll('.preset-preview-card').forEach(el=>{
+      el.onmouseenter = ()=>{ el.style.boxShadow = '0 4px 14px -4px rgba(15,23,42,.18)'; el.style.transform='translateY(-1px)'; };
+      el.onmouseleave = ()=>{ el.style.boxShadow=''; el.style.transform=''; };
+      el.onclick = ()=>{ _presetOpenModel = el.dataset.openmodel; draw(); };
+    });
+  }
+
+  function drawDetail(m){
+    const t = getPreset(m);
+    grid.innerHTML = `
+      <button class="btn btn-ghost btn-sm" id="btnBackToModels" style="margin-bottom:14px;">← Back to Boat Models</button>
+      <div class="card" data-model="${esc(m)}">
         <div class="card-head">
           <h3 style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(m)}</h3>
           <button class="btn btn-ghost btn-sm" data-delmodel="${esc(m)}" style="color:var(--danger);">Remove Model</button>
         </div>
         <div class="card-body">
           <div class="grid g4">
-            <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-model="${esc(m)}" data-f="loa" value="${t.loa||0}"></div>
-            <div class="field"><label>Beam (ft)</label><input type="number" step="any" class="tpl-f" data-model="${esc(m)}" data-f="beam" value="${t.beam||0}"></div>
-            <div class="field"><label>Depth (ft)</label><input type="number" step="any" class="tpl-f" data-model="${esc(m)}" data-f="depth" value="${t.depth||0}"></div>
-            <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-model="${esc(m)}" data-f="numHulls" value="${t.numHulls||1}"></div>
+            <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
+            <div class="field"><label>Beam (ft)</label><input type="number" step="any" class="tpl-f" data-f="beam" value="${t.beam||0}"></div>
+            <div class="field"><label>Depth (ft)</label><input type="number" step="any" class="tpl-f" data-f="depth" value="${t.depth||0}"></div>
+            <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
           </div>
           <div class="grid g3">
-            <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-model="${esc(m)}" data-f="layers" value="${t.layers||0}"></div>
-            <div class="field"><label>Glass per Layer (kg/sqm)</label><input type="number" step="any" class="tpl-f" data-model="${esc(m)}" data-f="glassPerLayer" value="${t.glassPerLayer||0}"></div>
-            <div class="field"><label>Hull Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-model="${esc(m)}" data-f="hullAreaOverride" value="${t.hullAreaOverride??''}" placeholder="auto"></div>
+            <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-f="layers" value="${t.layers||0}"></div>
+            <div class="field"><label>Glass per Layer (kg/sqm)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" value="${t.glassPerLayer||0}"></div>
+            <div class="field"><label>Hull Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" value="${t.hullAreaOverride??''}" placeholder="auto"></div>
           </div>
           <div class="grid g3">
-            <div class="field"><label>Paint Type</label><input class="tpl-f" data-model="${esc(m)}" data-f="paintType" value="${esc(t.paintType||'')}"></div>
-            <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-model="${esc(m)}" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
-            <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-model="${esc(m)}" data-f="coats" value="${t.coats||0}"></div>
+            <div class="field"><label>Paint Type</label><input class="tpl-f" data-f="paintType" value="${esc(t.paintType||'')}"></div>
+            <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
+            <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
-            <button class="btn btn-ghost btn-sm" data-addcomp="${esc(m)}">${icon('plus')} Add Component</button>
+            <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
           </div>
           <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th></th></tr></thead>
-          <tbody id="compRows_${models.indexOf(m)}"></tbody></table>
+          <tbody id="compRows"></tbody></table>
         </div>
       </div>`;
-    }).join('');
 
-    models.forEach((m,mi)=>{
-      const t = getPreset(m);
-      const body = document.getElementById(`compRows_${mi}`);
-      if(!body) return;
-      function drawComponents(){
-        body.innerHTML = (t.components||[]).map((c,idx)=>`
-          <tr>
-            <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="cat" value="${esc(c.cat)}"></td>
-            <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="name" value="${esc(c.name)}"></td>
-            <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="unit" value="${esc(c.unit)}"></td>
-            <td><input class="tbl-input num comp-f" data-idx="${idx}" data-f="qty" type="number" step="any" value="${c.qty}"></td>
-            <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
-          </tr>`).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No components yet.</td></tr>`;
-        body.querySelectorAll('.comp-f').forEach(i=>i.onchange=()=>{
-          const c = t.components[Number(i.dataset.idx)];
-          c[i.dataset.f] = i.dataset.f==='qty' ? Number(i.value) : i.value;
-        });
-        body.querySelectorAll('[data-delcomp]').forEach(b=>b.onclick=()=>{
-          t.components.splice(Number(b.dataset.idx),1); drawComponents();
-        });
+    document.getElementById('btnBackToModels').onclick = ()=>{ _presetOpenModel = null; draw(); };
+    document.querySelector('[data-delmodel]').onclick = ()=>{
+      if(!confirm(`Remove "${m}" as a Boat Model? Its saved preset will be deleted once you click Save Boat Presets.`)) return;
+      TEMPLATES = TEMPLATES.filter(t=>t.boatModel!==m);
+      if(LEGACY_BOAT_MODELS.includes(m)){
+        toast('Removed — it will still appear as a default option elsewhere until removed from the code.');
       }
-      drawComponents();
-      const addBtn = document.querySelector(`[data-addcomp="${CSS.escape(m)}"]`);
-      if(addBtn) addBtn.onclick = ()=>{
-        if(!t.components) t.components = [];
-        t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1});
-        drawComponents();
-      };
-    });
-
+      _presetOpenModel = null; draw();
+    };
     grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
-      const t = getPreset(i.dataset.model);
       const f = i.dataset.f;
       if(['loa','beam','depth','numHulls','layers','glassPerLayer','coats'].includes(f)) t[f] = Number(i.value)||0;
       else if(['hullAreaOverride','paintArea'].includes(f)) t[f] = i.value===''? null : Number(i.value);
       else t[f] = i.value;
     });
-    grid.querySelectorAll('[data-delmodel]').forEach(b=>b.onclick=()=>{
-      if(!confirm(`Remove "${b.dataset.delmodel}" as a Boat Model? Its saved preset will be deleted once you click Save Boat Presets.`)) return;
-      TEMPLATES = TEMPLATES.filter(t=>t.boatModel!==b.dataset.delmodel);
-      if(LEGACY_BOAT_MODELS.includes(b.dataset.delmodel)){
-        toast('Removed from presets — it will still appear as a default option elsewhere until removed from the code.');
-      }
-      draw();
-    });
+
+    const body = document.getElementById('compRows');
+    function drawComponents(){
+      body.innerHTML = (t.components||[]).map((c,idx)=>`
+        <tr>
+          <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="cat" value="${esc(c.cat)}"></td>
+          <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="name" value="${esc(c.name)}"></td>
+          <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="unit" value="${esc(c.unit)}"></td>
+          <td><input class="tbl-input num comp-f" data-idx="${idx}" data-f="qty" type="number" step="any" value="${c.qty}"></td>
+          <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
+        </tr>`).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No components yet.</td></tr>`;
+      body.querySelectorAll('.comp-f').forEach(i=>i.onchange=()=>{
+        const c = t.components[Number(i.dataset.idx)];
+        c[i.dataset.f] = i.dataset.f==='qty' ? Number(i.value) : i.value;
+      });
+      body.querySelectorAll('[data-delcomp]').forEach(b=>b.onclick=()=>{
+        t.components.splice(Number(b.dataset.idx),1); drawComponents();
+      });
+    }
+    drawComponents();
+    document.getElementById('btnAddComp').onclick = ()=>{
+      if(!t.components) t.components = [];
+      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1});
+      drawComponents();
+    };
   }
+
   draw();
 }
 
