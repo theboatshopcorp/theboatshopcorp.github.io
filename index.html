@@ -633,11 +633,38 @@ function subscribeRemote(){
 }
 
 /* ============================================================
-   ACCESS CONTROL — removed. The app no longer gates access behind
-   a password; everyone has full (admin-level) access to all views.
+   ACCESS CONTROL — Quotations, Boat Presets, Pricing Database, and
+   Settings are restricted to users listed in Supabase's admin_users
+   table. Dashboard and Customers stay open to everyone signed in.
+   Nav items stay visible to everyone (per request) — non-selected
+   users see a clear "Access Restricted" screen instead of the tab
+   disappearing.
    ============================================================ */
-let CURRENT_ROLE = 'admin';
-const ADMIN_ONLY_VIEWS = [];
+let CURRENT_ROLE = 'viewer'; // safe default until checkAdminStatus() resolves after login
+const ADMIN_ONLY_VIEWS = ['quotes','editor','templates','pricing','settings'];
+
+async function checkAdminStatus(email){
+  try{
+    const { data, error } = await supabaseClient.from('admin_users').select('email').eq('email', (email||'').toLowerCase()).maybeSingle();
+    if(error) throw error;
+    CURRENT_ROLE = data ? 'admin' : 'viewer';
+  }catch(e){
+    console.error('Admin check failed, defaulting to restricted access', e);
+    CURRENT_ROLE = 'viewer';
+  }
+}
+
+function renderAccessRestricted(content, actions){
+  actions.innerHTML = '';
+  content.innerHTML = `
+    <div class="card" style="max-width:480px;margin:60px auto;text-align:center;">
+      <div class="card-body" style="padding:40px 32px;">
+        <div style="font-size:32px;margin-bottom:12px;">🔒</div>
+        <h3 style="margin-bottom:8px;">Access Restricted</h3>
+        <div class="section-lead" style="margin-bottom:0;">This section is limited to selected team members. If you believe you should have access, ask an admin to add your account.</div>
+      </div>
+    </div>`;
+}
 
 function uid(prefix){ return prefix+'_'+Math.random().toString(36).slice(2,9); }
 function fmt(n){ n = Number(n)||0; return '₱'+n.toLocaleString('en-PH',{minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -1135,7 +1162,7 @@ function icon(name){
 
 function renderNav(){
   const nav = document.getElementById('navList');
-  const visibleRoutes = ROUTES.filter(r=>!r.adminOnly || CURRENT_ROLE==='admin');
+  const visibleRoutes = ROUTES;
   nav.innerHTML = visibleRoutes.map((r,i)=>`
     <div class="nav-item ${CURRENT.view===r.id?'active':''}" data-route="${r.id}">
       ${icon(r.icon)}<span>${r.label}</span>
@@ -1165,13 +1192,13 @@ document.getElementById('menuBtn').addEventListener('click', ()=>{
 document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
 
 function renderAll(){
-  if(ADMIN_ONLY_VIEWS.includes(CURRENT.view) && CURRENT_ROLE !== 'admin'){ CURRENT.view = 'dashboard'; }
   renderNav();
   const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', customers:'Customer Database', templates:'Boat Presets', pricing:'Pricing Database', settings:'Settings'};
   document.getElementById('topbarTitle').textContent = titleMap[CURRENT.view] || '';
   const content = document.getElementById('content');
   const actions = document.getElementById('topbarActions');
   actions.innerHTML='';
+  if(ADMIN_ONLY_VIEWS.includes(CURRENT.view) && CURRENT_ROLE !== 'admin'){ renderAccessRestricted(content, actions); return; }
   if(CURRENT.view==='dashboard') renderDashboard(content, actions);
   else if(CURRENT.view==='editor') renderEditor(content, actions);
   else if(CURRENT.view==='quotes') renderQuotesList(content, actions);
@@ -1689,6 +1716,7 @@ function renderPricing(content, actions){
    QUOTATION EDITOR
    ============================================================ */
 function openEditor(quoteId, templateId){
+  if(CURRENT_ROLE !== 'admin'){ CURRENT.view = 'editor'; renderAll(); return; }
   CURRENT.view = 'editor'; CURRENT.tab='client';
   if(quoteId){ CURRENT.quoteId = quoteId; }
   else {
@@ -3324,6 +3352,7 @@ async function startApp(session){
   CURRENT_USER = { email: session.user.email, isOwner:false };
   document.getElementById('loginScreen').style.display = 'none';
   document.querySelectorAll('#bootScreen').forEach(function(node){ node.remove(); });
+  await checkAdminStatus(session.user.email);
   updateSidebarFoot();
   renderAll();
   pullAllFromRemote().then(subscribeRemote);
