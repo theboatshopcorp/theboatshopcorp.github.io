@@ -1381,7 +1381,7 @@ let _presetOpenModel = null;
 
 function renderTemplates(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Boat Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} Add Boat Model</button>`;
-  content.innerHTML = `<div class="section-lead">Click a Boat Model's card to open and edit its standard measurements, painting specs, and structural components. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Boat Presets" — same as the Pricing Database.</div>
+  content.innerHTML = `<div class="section-lead">Click a Boat Model's card to open and edit its standard measurements, painting specs, and structural components. Drag a card by its ⠿ handle to rearrange the order. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Boat Presets" — same as the Pricing Database.</div>
   <div id="presetGrid"></div>`;
   const grid = document.getElementById('presetGrid');
 
@@ -1414,20 +1414,30 @@ function renderTemplates(content, actions){
     const models = getBoatModelList();
     if(_presetOpenModel && !models.includes(_presetOpenModel)) _presetOpenModel = null;
 
+    // Every displayed model needs a real preset object (auto-created by
+    // getPreset), and every preset needs an `order` number so card position
+    // is stable and can be rearranged by drag-and-drop, persisting the same
+    // way as any other preset edit (staged until "Save Boat Presets").
+    models.forEach(m=>getPreset(m));
+    let maxOrder = Math.max(-1, ...TEMPLATES.map(t=>Number.isFinite(t.order)?t.order:-1));
+    TEMPLATES.forEach(t=>{ if(!Number.isFinite(t.order)){ maxOrder++; t.order = maxOrder; } });
+    const orderedModels = [...models].sort((a,b)=> getPreset(a).order - getPreset(b).order);
+
     if(!_presetOpenModel){
-      drawPreviewGrid(models);
+      drawPreviewGrid(orderedModels);
     } else {
       drawDetail(_presetOpenModel);
     }
   }
 
   function drawPreviewGrid(models){
-    grid.innerHTML = `<div class="grid g4">${models.map(m=>{
+    grid.innerHTML = `<div class="grid g4" id="previewCardsWrap">${models.map(m=>{
       const t = getPreset(m);
       return `
-      <div class="card preset-preview-card" data-openmodel="${esc(m)}" style="cursor:pointer;transition:box-shadow .15s, transform .15s;">
-        <div class="card-body">
-          <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;">${esc(m)}</div>
+      <div class="card preset-preview-card" draggable="true" data-openmodel="${esc(m)}" style="cursor:pointer;transition:box-shadow .15s, transform .15s, opacity .15s;position:relative;">
+        <div class="card-body" style="padding-top:26px;">
+          <div class="drag-handle" title="Drag to reorder" style="position:absolute;top:8px;right:10px;cursor:grab;color:var(--ink-faint);font-size:13px;letter-spacing:2px;line-height:1;user-select:none;">⠿</div>
+          <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;padding-right:16px;">${esc(m)}</div>
           <div style="display:flex;gap:14px;font-size:11.5px;color:var(--ink-soft);">
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">LOA</div><div style="font-weight:600;color:var(--ink);">${t.loa||0} ft</div></div>
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Beam</div><div style="font-weight:600;color:var(--ink);">${t.beam||0} ft</div></div>
@@ -1436,10 +1446,48 @@ function renderTemplates(content, actions){
         </div>
       </div>`;
     }).join('')}</div>`;
+
+    let dragModel = null;
     grid.querySelectorAll('.preset-preview-card').forEach(el=>{
-      el.onmouseenter = ()=>{ el.style.boxShadow = '0 4px 14px -4px rgba(15,23,42,.18)'; el.style.transform='translateY(-1px)'; };
+      el.onmouseenter = ()=>{ if(!dragModel){ el.style.boxShadow = '0 4px 14px -4px rgba(15,23,42,.18)'; el.style.transform='translateY(-1px)'; } };
       el.onmouseleave = ()=>{ el.style.boxShadow=''; el.style.transform=''; };
-      el.onclick = ()=>{ _presetOpenModel = el.dataset.openmodel; draw(); };
+      el.onclick = ()=>{ if(dragModel) return; _presetOpenModel = el.dataset.openmodel; draw(); };
+
+      el.addEventListener('dragstart', e=>{
+        dragModel = el.dataset.openmodel;
+        el.style.opacity = '0.4';
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragModel);
+      });
+      el.addEventListener('dragend', ()=>{
+        el.style.opacity = '';
+        grid.querySelectorAll('.preset-preview-card').forEach(c=>c.style.outline='');
+        dragModel = null;
+      });
+      el.addEventListener('dragover', e=>{
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if(el.dataset.openmodel!==dragModel) el.style.outline = '2px solid var(--teal)';
+      });
+      el.addEventListener('dragleave', ()=>{ el.style.outline = ''; });
+      el.addEventListener('drop', e=>{
+        e.preventDefault();
+        el.style.outline = '';
+        const droppedOn = el.dataset.openmodel;
+        const dragged = e.dataTransfer.getData('text/plain') || dragModel;
+        if(!dragged || dragged===droppedOn) return;
+        // Reorder: pull the dragged model out and insert it right before the
+        // card it was dropped on, then reassign sequential order values to
+        // every preset so this new arrangement is what gets saved.
+        const arr = models.slice();
+        const fromIdx = arr.indexOf(dragged);
+        const toIdx = arr.indexOf(droppedOn);
+        if(fromIdx===-1 || toIdx===-1) return;
+        arr.splice(fromIdx,1);
+        arr.splice(arr.indexOf(droppedOn), 0, dragged);
+        arr.forEach((mm,i)=>{ getPreset(mm).order = i; });
+        draw();
+      });
     });
   }
 
