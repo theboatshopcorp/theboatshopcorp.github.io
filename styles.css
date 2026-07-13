@@ -272,6 +272,7 @@ tr:hover td{background:var(--paper);}
 .doc-kv-row .v{font-weight:600;text-align:right;color:var(--doc-ink);}
 .doc-kv-row.hi{margin-top:6px;padding-top:12px;border-top:1px solid var(--doc-ink);border-bottom:none;}
 .doc-kv-row.hi .v{color:var(--doc-accent-dark);font-size:14.5px;}
+.doc-kv-row .v.doc-na{color:var(--doc-ink-faint);font-style:italic;font-weight:500;}
 
 /* Centered project statement — quiet rule above/below instead of a bold block */
 .doc-project-bar{
