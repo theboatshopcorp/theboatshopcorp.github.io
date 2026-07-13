@@ -872,7 +872,7 @@ function renderQuotesList(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
   content.innerHTML = `
     <div class="pill-row">
-      <div class="search"><span>${icon('search')}</span><input id="qSearch" placeholder="Search by ref no., client, boat type…" style="width:280px;padding:8px 10px 8px 30px;border:1px solid var(--paper-line);border-radius:7px;"></div>
+      <div class="search"><span>${icon('search')}</span><input id="qSearch" placeholder="Search by ref no., client, boat type, prepared by…" style="width:280px;padding:8px 10px 8px 30px;border:1px solid var(--paper-line);border-radius:7px;"></div>
       <select id="qFilterStatus" style="padding:8px 10px;border:1px solid var(--paper-line);border-radius:7px;">
         <option value="">All statuses</option>
         <option value="draft">Draft</option>
@@ -888,17 +888,21 @@ function renderQuotesList(content, actions){
     const term = document.getElementById('qSearch').value.toLowerCase();
     const st = document.getElementById('qFilterStatus').value;
     let rows = [...QUOTES].sort((a,b)=>b.updatedAt-a.updatedAt).filter(q=>{
-      const hay = (q.refNo+' '+customerDisplayName(q.customerSnap)+' '+(q.customerSnap.clientName||'')+' '+q.hull.boatType+' '+(q.project.boatModel||'')+' '+(q.project.boatApplication||'')).toLowerCase();
+      const preparer = profileByEmail(q.createdByEmail);
+      const hay = (q.refNo+' '+customerDisplayName(q.customerSnap)+' '+(q.customerSnap.clientName||'')+' '+q.hull.boatType+' '+(q.project.boatModel||'')+' '+(q.project.boatApplication||'')+' '+(q.createdByEmail||'')+' '+((preparer&&preparer.full_name)||'')).toLowerCase();
       return hay.includes(term) && (!st || q.status===st);
     });
-    wrap.innerHTML = rows.length? `<table><thead><tr><th>Ref No.</th><th>Date</th><th>Client</th><th>Boat</th><th class="right">Total</th><th>Status</th><th></th></tr></thead><tbody>
+    wrap.innerHTML = rows.length? `<table><thead><tr><th>Ref No.</th><th>Date</th><th>Client</th><th>Boat</th><th>Prepared By</th><th class="right">Total</th><th>Status</th><th></th></tr></thead><tbody>
       ${rows.map(q=>{
         const t = computeAll(q).finalTotal;
+        const preparer = profileByEmail(q.createdByEmail);
+        const preparerLabel = (preparer && preparer.full_name) || q.createdByEmail || '—';
         return `<tr>
           <td class="mono">${q.refNo}</td>
           <td class="mono">${q.date}</td>
           <td>${esc(customerDisplayName(q.customerSnap))||'—'}</td>
           <td>${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</td>
+          <td>${esc(preparerLabel)}</td>
           <td class="right mono">${fmt(t)}</td>
           <td><span class="badge ${q.status}">${q.status}</span></td>
           <td class="right" style="white-space:nowrap;">
@@ -1477,7 +1481,7 @@ function renderEditor(content, actions){
                 ${q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="" style="height:36px;max-width:80px;object-fit:contain;">` : ``}
                 <div>
                   <div style="font-weight:600;font-size:12.5px;">${esc(q.approvedBy.name)}</div>
-                  <div class="hint">Approved ${(()=>{ const d = new Date(q.approvedBy.date); return isNaN(d) ? esc(q.approvedBy.date) : (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); })()}</div>
+                  <div class="hint">${esc(q.approvedBy.position)||'Position not set'}</div>
                 </div>
               </div>
               ${CURRENT_IS_ADMIN ? `<button class="btn btn-sm btn-ghost" id="btnUnapprove" style="margin-top:10px;">Revoke Approval</button>` : ``}
@@ -1508,6 +1512,7 @@ function renderEditor(content, actions){
     q.approvedBy = {
       email: (CURRENT_USER.email||'').toLowerCase(),
       name: (me && me.full_name) || CURRENT_USER.email,
+      position: (me && me.position) || '',
       esign: (me && me.esign) || '',
       date: todayISO()
     };
@@ -2798,16 +2803,7 @@ function tabOutput(host, q){
           <input type="checkbox" id="toggleInternal" ${q.output.showInternalCosts?'checked':''} style="width:auto;">
           Include internal cost breakdown in printed output
         </label>
-        <span class="hint">VAT and discount are set in the "VAT &amp; Discount" panel next to Live Total. Approval is there too.</span>
-      </div>
-      <div class="card" style="margin-bottom:0;">
-        <div class="card-head"><h3>Client Signatory (CONFORME)</h3></div>
-        <div class="card-body">
-          <div class="section-lead" style="margin-bottom:12px;">"Prepared By" and "Approved By" fill in automatically. This is just the client's signature line, signed physically on the printed copy.</div>
-          <div class="siggrid" id="sigGrid">
-            ${sigCardHtml('received','CONFORME', true)}
-          </div>
-        </div>
+        <span class="hint">VAT and discount are set in the "VAT &amp; Discount" panel next to Live Total. Approval is there too. Prepared By, Approved By, and CONFORME all fill in automatically below — nothing to edit here.</span>
       </div>
     </div>
 
@@ -2924,12 +2920,12 @@ function tabOutput(host, q){
           <div data-sigprev="approved">
             <div class="role">Approved By</div>
             <div class="imgslot">${q.approvedBy && q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="">` : ''}</div>
-            <div class="ln"><div class="nm">${esc(q.approvedBy && q.approvedBy.name || '')||'&nbsp;'}</div><span class="ttl">${(()=>{ if(!q.approvedBy) return ''; const d = new Date(q.approvedBy.date); return isNaN(d) ? esc(q.approvedBy.date) : (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); })()}</span></div>
+            <div class="ln"><div class="nm">${esc(q.approvedBy && q.approvedBy.name || '')||'&nbsp;'}</div><span class="ttl">${esc(q.approvedBy && q.approvedBy.position || '')}</span></div>
           </div>
           <div data-sigprev="received">
             <div class="role">CONFORME</div>
             <div class="imgslot"></div>
-            <div class="ln"><div class="nm">${esc(SIGNATORIES.received.name)||'&nbsp;'}</div><span class="ttl">${esc(SIGNATORIES.received.title)||''}</span></div>
+            <div class="ln"><div class="nm">${esc(q.customerSnap.clientName)||'&nbsp;'}</div><span class="ttl">${esc(q.customerSnap.clientPosition)||''}</span></div>
           </div>
         </div>
 
@@ -2999,7 +2995,6 @@ function tabOutput(host, q){
     q.output.showInternalCosts = e.target.checked; persistQuote(q);
     tabOutput(host, q);
   };
-  bindSigCards(document.getElementById('sigGrid'), q);
 }
 
 /* ============================================================
