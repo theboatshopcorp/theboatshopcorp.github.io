@@ -495,7 +495,8 @@ function blankQuote(){
     date: todayISO(),
     validityDays: 30,
     customerId: null,
-    customerSnap: { name:'', companyName:'', clientName:'', email:'', address:'', contact:'', contactPerson:'', contactPersonNA:false },
+    customerSnap: { name:'', companyName:'', clientName:'', clientPosition:'', companyTin:'', email:'', address:'', contact:'',
+      repName:'', repPosition:'', repContact:'', repEmail:'', repNA:false },
     project: { title:'', notes:'', numBoats:1, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
     hull: { boatType:'Passenger Boat', loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false },
     structural: { items:[] },
@@ -1286,8 +1287,13 @@ function ensureQuoteDefaults(q){
   if(!q.structural) q.structural = { items:[] };
   if(q.customerSnap.companyName===undefined) q.customerSnap.companyName = '';
   if(q.customerSnap.clientName===undefined) q.customerSnap.clientName = '';
-  if(q.customerSnap.contactPerson===undefined) q.customerSnap.contactPerson = '';
-  if(q.customerSnap.contactPersonNA===undefined) q.customerSnap.contactPersonNA = false;
+  if(q.customerSnap.clientPosition===undefined) q.customerSnap.clientPosition = '';
+  if(q.customerSnap.companyTin===undefined) q.customerSnap.companyTin = '';
+  if(q.customerSnap.repName===undefined) q.customerSnap.repName = '';
+  if(q.customerSnap.repPosition===undefined) q.customerSnap.repPosition = '';
+  if(q.customerSnap.repContact===undefined) q.customerSnap.repContact = '';
+  if(q.customerSnap.repEmail===undefined) q.customerSnap.repEmail = '';
+  if(q.customerSnap.repNA===undefined) q.customerSnap.repNA = false;
   if(q.project.numBoats===undefined) q.project.numBoats = 1;
   if(q.project.multiplyPrice===undefined) q.project.multiplyPrice = false;
   if(q.project.buildType===undefined) q.project.buildType = 'Standard Build';
@@ -1463,22 +1469,33 @@ function tabClient(host, q){
         </div>
         <div class="grid g2">
           <div class="field"><label>Client Name</label><input id="cClientName" value="${esc(q.customerSnap.clientName)}" placeholder="Individual person's name"></div>
-          <div class="field"><label>Company Name</label><input id="cCompanyName" value="${esc(q.customerSnap.companyName)}" placeholder="Business / organization name"></div>
+          <div class="field"><label>Client Position</label><input id="cClientPosition" value="${esc(q.customerSnap.clientPosition)}" placeholder="e.g. Operations Manager"></div>
         </div>
         <div class="grid g2">
-          <div class="field">
-            <label>Contact Person</label>
-            <input id="cContactPerson" value="${esc(q.customerSnap.contactPerson)}" ${q.customerSnap.contactPersonNA?'disabled':''}>
-            <label class="field-inline" style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;margin-top:6px;">
-              <input type="checkbox" id="cContactPersonNA" ${q.customerSnap.contactPersonNA?'checked':''} style="width:auto;">
-              Not Applicable
-            </label>
-          </div>
-          <div class="field"><label>Email Address</label><input id="cEmail" value="${esc(q.customerSnap.email)}"></div>
+          <div class="field"><label>Company Name</label><input id="cCompanyName" value="${esc(q.customerSnap.companyName)}" placeholder="Business / organization name"></div>
+          <div class="field"><label>Company TIN</label><input id="cCompanyTin" value="${esc(q.customerSnap.companyTin)}"></div>
         </div>
+        <div class="field"><label>Address</label><input id="cAddress" value="${esc(q.customerSnap.address)}"></div>
         <div class="grid g2">
           <div class="field"><label>Contact Number</label><input id="cContact" value="${esc(q.customerSnap.contact)}"></div>
-          <div class="field"><label>Address</label><input id="cAddress" value="${esc(q.customerSnap.address)}"></div>
+          <div class="field"><label>Email Address</label><input id="cEmail" value="${esc(q.customerSnap.email)}"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h3>Client's Representative</h3></div>
+      <div class="card-body">
+        <label class="field-inline" style="font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <input type="checkbox" id="cRepNA" ${q.customerSnap.repNA?'checked':''} style="width:auto;">
+          Not Applicable
+        </label>
+        <div class="grid g2">
+          <div class="field"><label>Name</label><input id="cRepName" value="${esc(q.customerSnap.repName)}" ${q.customerSnap.repNA?'disabled':''}></div>
+          <div class="field"><label>Position</label><input id="cRepPosition" value="${esc(q.customerSnap.repPosition)}" ${q.customerSnap.repNA?'disabled':''}></div>
+        </div>
+        <div class="grid g2">
+          <div class="field"><label>Contact Number</label><input id="cRepContact" value="${esc(q.customerSnap.repContact)}" ${q.customerSnap.repNA?'disabled':''}></div>
+          <div class="field"><label>Email Address</label><input id="cRepEmail" value="${esc(q.customerSnap.repEmail)}" ${q.customerSnap.repNA?'disabled':''}></div>
         </div>
       </div>
     </div>
@@ -1519,17 +1536,23 @@ function tabClient(host, q){
     if(c){ q.customerId=c.id; q.customerSnap={...q.customerSnap, companyName:c.name, email:c.email, contact:c.contact, address:c.address}; persistQuote(q); renderEditor(document.getElementById('content'), document.getElementById('topbarActions')); }
   };
   bindText('cClientName', v=>q.customerSnap.clientName=v, q);
+  bindText('cClientPosition', v=>q.customerSnap.clientPosition=v, q);
   bindText('cCompanyName', v=>q.customerSnap.companyName=v, q);
-  bindText('cContactPerson', v=>q.customerSnap.contactPerson=v, q);
-  document.getElementById('cContactPersonNA').addEventListener('change', (e)=>{
-    q.customerSnap.contactPersonNA = e.target.checked;
-    document.getElementById('cContactPerson').disabled = e.target.checked;
-    if(e.target.checked){ q.customerSnap.contactPerson=''; document.getElementById('cContactPerson').value=''; }
-    persistQuote(q);
-  });
+  bindText('cCompanyTin', v=>q.customerSnap.companyTin=v, q);
   bindText('cEmail', v=>q.customerSnap.email=v, q);
   bindText('cContact', v=>q.customerSnap.contact=v, q);
   bindText('cAddress', v=>q.customerSnap.address=v, q);
+  bindText('cRepName', v=>q.customerSnap.repName=v, q);
+  bindText('cRepPosition', v=>q.customerSnap.repPosition=v, q);
+  bindText('cRepContact', v=>q.customerSnap.repContact=v, q);
+  bindText('cRepEmail', v=>q.customerSnap.repEmail=v, q);
+  document.getElementById('cRepNA').addEventListener('change', (e)=>{
+    q.customerSnap.repNA = e.target.checked;
+    ['cRepName','cRepPosition','cRepContact','cRepEmail'].forEach(id=>{
+      document.getElementById(id).disabled = e.target.checked;
+    });
+    persistQuote(q);
+  });
   document.getElementById('pBuildType').addEventListener('change', (e)=>{ q.project.buildType = e.target.value; persistQuote(q); updateLiveSummary(q); });
   document.getElementById('pBoatApp').addEventListener('change', (e)=>{
     q.project.boatApplication = e.target.value;
@@ -2580,22 +2603,29 @@ function tabOutput(host, q){
           <div class="col">
             <div class="doc-band-head">Client Information</div>
             <div class="doc-band-body">
-              <div class="doc-kv-row"><span class="k">Company Name</span><span class="v">${esc(q.customerSnap.companyName)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Client Name</span><span class="v">${esc(q.customerSnap.clientName)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Contact Person</span><span class="v">${q.customerSnap.contactPersonNA? 'Not Applicable' : (esc(q.customerSnap.contactPerson)||'—')}</span></div>
+              <div class="doc-kv-row"><span class="k">Client Position</span><span class="v">${esc(q.customerSnap.clientPosition)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Company</span><span class="v">${esc(q.customerSnap.companyName)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Address</span><span class="v">${esc(q.customerSnap.address)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Phone</span><span class="v">${esc(q.customerSnap.contact)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Email</span><span class="v">${esc(q.customerSnap.email)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Valid Until</span><span class="v">${validUntil.toISOString().slice(0,10)}</span></div>
+              <div class="doc-kv-row"><span class="k">Contact Number</span><span class="v">${esc(q.customerSnap.contact)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Email Address</span><span class="v">${esc(q.customerSnap.email)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Company TIN</span><span class="v">${esc(q.customerSnap.companyTin)||'—'}</span></div>
             </div>
           </div>
           <div class="col">
-            <div class="doc-band-head">Contract Value Summary</div>
+            <div class="doc-band-head">Client's Representative</div>
             <div class="doc-band-body">
-              <div class="doc-kv-row"><span class="k">Contract Amount</span><span class="v mono">${fmt(inv.contractAmount)}</span></div>
-              ${inv.discountAmount>0 ? `<div class="doc-kv-row"><span class="k">Discount${inv.discountType==='pct'? ` (${inv.discountValue}%)` : ''}</span><span class="v mono">-${fmt(inv.discountAmount)}</span></div>` : ``}
-              <div class="doc-kv-row"><span class="k">VAT ${inv.vatPct}%</span><span class="v mono">${fmt(inv.vatAmount)}</span></div>
-              <div class="doc-kv-row hi"><span class="k">Total Contract Amount</span><span class="v mono">${fmt(inv.totalContractAmount)}</span></div>
+              ${q.customerSnap.repNA ? `
+              <div class="doc-kv-row"><span class="k">Name</span><span class="v doc-na">Not Applicable</span></div>
+              <div class="doc-kv-row"><span class="k">Position</span><span class="v doc-na">Not Applicable</span></div>
+              <div class="doc-kv-row"><span class="k">Contact Number</span><span class="v doc-na">Not Applicable</span></div>
+              <div class="doc-kv-row"><span class="k">Email Address</span><span class="v doc-na">Not Applicable</span></div>
+              ` : `
+              <div class="doc-kv-row"><span class="k">Name</span><span class="v">${esc(q.customerSnap.repName)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Position</span><span class="v">${esc(q.customerSnap.repPosition)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Contact Number</span><span class="v">${esc(q.customerSnap.repContact)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Email Address</span><span class="v">${esc(q.customerSnap.repEmail)||'—'}</span></div>
+              `}
             </div>
           </div>
         </div>
