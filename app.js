@@ -1469,6 +1469,24 @@ function renderEditor(content, actions){
             </div>
           </div>
         </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-head"><h3>Approval</h3></div>
+          <div class="card-body">
+            ${q.approvedBy ? `
+              <div style="display:flex;gap:10px;align-items:center;">
+                ${q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="" style="height:36px;max-width:80px;object-fit:contain;">` : ``}
+                <div>
+                  <div style="font-weight:600;font-size:12.5px;">${esc(q.approvedBy.name)}</div>
+                  <div class="hint">Approved ${(()=>{ const d = new Date(q.approvedBy.date); return isNaN(d) ? esc(q.approvedBy.date) : (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); })()}</div>
+                </div>
+              </div>
+              ${CURRENT_IS_ADMIN ? `<button class="btn btn-sm btn-ghost" id="btnUnapprove" style="margin-top:10px;">Revoke Approval</button>` : ``}
+            ` : `
+              <div class="hint" style="margin-bottom:${CURRENT_IS_ADMIN?'10px':'0'};">Not yet approved.</div>
+              ${CURRENT_IS_ADMIN ? `<button class="btn btn-primary btn-sm" id="btnApprove">✓ Approve Quotation</button>` : ``}
+            `}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -1484,6 +1502,23 @@ function renderEditor(content, actions){
   document.getElementById('btnBackList').onclick = ()=>{ CURRENT.view='quotes'; renderAll(); };
   document.getElementById('btnGoOutput').onclick = ()=>{ CURRENT.tab='output'; renderEditor(content,actions); };
   document.getElementById('statusSel').onchange = (e)=>{ q.status = e.target.value; persistQuote(q); toast('Status updated'); };
+  const approveBtn = document.getElementById('btnApprove');
+  if(approveBtn) approveBtn.onclick = ()=>{
+    const me = profileByEmail(CURRENT_USER.email);
+    q.approvedBy = {
+      email: (CURRENT_USER.email||'').toLowerCase(),
+      name: (me && me.full_name) || CURRENT_USER.email,
+      esign: (me && me.esign) || '',
+      date: todayISO()
+    };
+    persistQuote(q); toast('Quotation approved'); renderEditor(content, actions);
+  };
+  const unapproveBtn = document.getElementById('btnUnapprove');
+  if(unapproveBtn) unapproveBtn.onclick = ()=>{
+    if(!confirm('Revoke this approval? The Approved By section will be cleared.')) return;
+    q.approvedBy = null;
+    persistQuote(q); toast('Approval revoked'); renderEditor(content, actions);
+  };
 
   const tabsEl = document.getElementById('editTabs');
   tabsEl.innerHTML = EDITOR_TABS.map(t=>`<div class="tab ${CURRENT.tab===t.id?'active':''}" data-tab="${t.id}"><span class="n">${t.n}</span>${t.label}</div>`).join('');
@@ -2763,41 +2798,13 @@ function tabOutput(host, q){
           <input type="checkbox" id="toggleInternal" ${q.output.showInternalCosts?'checked':''} style="width:auto;">
           Include internal cost breakdown in printed output
         </label>
-        <span class="hint">VAT and discount are set in the "VAT &amp; Discount" panel next to Live Total.</span>
+        <span class="hint">VAT and discount are set in the "VAT &amp; Discount" panel next to Live Total. Approval is there too.</span>
       </div>
       <div class="card" style="margin-bottom:0;">
-        <div class="card-head"><h3>Signatories &amp; Signatures</h3></div>
+        <div class="card-head"><h3>Client Signatory (CONFORME)</h3></div>
         <div class="card-body">
-          <div class="section-lead" style="margin-bottom:12px;">"Prepared By" and "Approved By" fill in automatically from user profiles — no manual entry needed. "CONFORME" is signed physically by the client, so it stays editable below.</div>
+          <div class="section-lead" style="margin-bottom:12px;">"Prepared By" and "Approved By" fill in automatically. This is just the client's signature line, signed physically on the printed copy.</div>
           <div class="siggrid" id="sigGrid">
-            ${(()=>{
-              const preparer = profileByEmail(q.createdByEmail);
-              return `
-              <div class="sigcard sigcard-readonly">
-                <div class="role">Prepared By</div>
-                <div class="prev ${preparer && preparer.esign?'':'empty'}">${preparer && preparer.esign? `<img src="${esc(preparer.esign)}" alt="">` : 'No signature on file'}</div>
-                <div style="font-weight:600;font-size:13px;margin-top:8px;">${esc(preparer && preparer.full_name || '')||'—'}</div>
-                <div class="hint">${esc(preparer && preparer.position || '')||'Position not set'}</div>
-              </div>`;
-            })()}
-            ${(()=>{
-              if(q.approvedBy){
-                return `
-                <div class="sigcard sigcard-readonly">
-                  <div class="role">Approved By</div>
-                  <div class="prev ${q.approvedBy.esign?'':'empty'}">${q.approvedBy.esign? `<img src="${esc(q.approvedBy.esign)}" alt="">` : 'No signature on file'}</div>
-                  <div style="font-weight:600;font-size:13px;margin-top:8px;">${esc(q.approvedBy.name)||'—'}</div>
-                  <div class="hint">Approved ${(()=>{ const d = new Date(q.approvedBy.date); return isNaN(d) ? esc(q.approvedBy.date) : (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); })()}</div>
-                  ${CURRENT_IS_ADMIN ? `<button class="btn btn-sm btn-ghost" id="btnUnapprove" style="margin-top:8px;">Revoke Approval</button>` : ``}
-                </div>`;
-              }
-              return `
-                <div class="sigcard sigcard-readonly">
-                  <div class="role">Approved By</div>
-                  <div class="prev empty">Not yet approved</div>
-                  ${CURRENT_IS_ADMIN ? `<button class="btn btn-primary btn-sm" id="btnApprove" style="margin-top:8px;">✓ Approve Quotation</button>` : `<div class="hint" style="margin-top:8px;">Awaiting admin approval.</div>`}
-                </div>`;
-            })()}
             ${sigCardHtml('received','CONFORME', true)}
           </div>
         </div>
@@ -2993,23 +3000,6 @@ function tabOutput(host, q){
     tabOutput(host, q);
   };
   bindSigCards(document.getElementById('sigGrid'), q);
-  const approveBtn = document.getElementById('btnApprove');
-  if(approveBtn) approveBtn.onclick = ()=>{
-    const me = profileByEmail(CURRENT_USER.email);
-    q.approvedBy = {
-      email: (CURRENT_USER.email||'').toLowerCase(),
-      name: (me && me.full_name) || CURRENT_USER.email,
-      esign: (me && me.esign) || '',
-      date: todayISO()
-    };
-    persistQuote(q); tabOutput(host, q); toast('Quotation approved');
-  };
-  const unapproveBtn = document.getElementById('btnUnapprove');
-  if(unapproveBtn) unapproveBtn.onclick = ()=>{
-    if(!confirm('Revoke this approval? The Approved By section will be cleared.')) return;
-    q.approvedBy = null;
-    persistQuote(q); tabOutput(host, q); toast('Approval revoked');
-  };
 }
 
 /* ============================================================
