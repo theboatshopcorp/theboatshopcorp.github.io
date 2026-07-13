@@ -292,8 +292,12 @@ tr:hover td{background:var(--paper);}
 /* Centered project statement — quiet rule above/below instead of a bold block */
 .doc-project-bar{
   text-align:center;font-weight:600;font-size:13px;letter-spacing:.005em;
-  padding:16px 0;margin:0 0 32px;color:var(--doc-ink);
+  padding:16px 0;margin:0 0 8px;color:var(--doc-ink);
   border-top:1px solid var(--doc-line);border-bottom:1px solid var(--doc-line);
+}
+.doc-project-note{
+  text-align:center;font-size:11px;color:var(--doc-ink-soft);
+  padding:10px 24px 0;margin:0 0 24px;line-height:1.6;
 }
 
 /* Logo manager card (editing UI, hidden on print) */
@@ -673,6 +677,29 @@ function renderAccessRestricted(content, actions){
 
 function uid(prefix){ return prefix+'_'+Math.random().toString(36).slice(2,9); }
 function fmt(n){ n = Number(n)||0; return '₱'+n.toLocaleString('en-PH',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+// Prefers Company Name, falls back to Client Name, then to the old combined
+// .name field (for quotes saved before Client/Company were split).
+function customerDisplayName(snap){
+  return snap.companyName || snap.clientName || snap.name || '';
+}
+// Builds the project title automatically: "{LOA}ft {Boat Application} {Boat
+// Model} with {Engine Brand} {HP}HP {OBM/IBM}" — e.g. "64ft Passenger Boat
+// Embassy Series with Isuzu 340HP IBM".
+function generateProjectTitle(q){
+  const loa = q.hull.loa || 0;
+  const app = q.project.boatApplication==='Other' ? (q.project.boatApplicationOther||'') : (q.project.boatApplication||'');
+  const model = q.project.boatModel || '';
+  const brand = (q.engine.brand||'').trim();
+  const hp = q.engine.hp || 0;
+  const type = q.engine.type || 'IBM';
+  const parts = [`${loa}ft`];
+  if(app) parts.push(app);
+  if(model) parts.push(model);
+  let title = parts.join(' ');
+  const enginePart = [brand, hp? `${hp}HP` : '', type].filter(Boolean).join(' ');
+  if(enginePart) title += ` with ${enginePart}`;
+  return title.trim();
+}
 function fmtNum(n,d=2){ n=Number(n)||0; return n.toLocaleString('en-PH',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function ftInToDec(ft, inch){ return (Number(ft)||0) + (Number(inch)||0)/12; }
 function decToFtIn(dec){ dec = Number(dec)||0; let ft = Math.floor(dec); let inch = Math.round((dec-ft)*12); if(inch>=12){ inch-=12; ft+=1; } return {ft, inch}; }
@@ -956,13 +983,13 @@ function blankQuote(){
     date: todayISO(),
     validityDays: 30,
     customerId: null,
-    customerSnap: { name:'', email:'', address:'', contact:'' },
+    customerSnap: { name:'', companyName:'', clientName:'', email:'', address:'', contact:'', contactPerson:'', contactPersonNA:false },
     project: { title:'', notes:'', numBoats:1, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
     hull: { boatType:'Passenger Boat', loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false },
     structural: { items:[] },
     paint: { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' },
     accessories: [],
-    engine: { model:'', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'',
+    engine: { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'',
       description:"Dual Installation of Yamaha 250HP, Model: F250HETX, Model: FL250HETX\nFuel Injection, 4 Stroke, 24 Valve, Double Overhead Camshaft, V6, Standard Rotation and Counter Rotation, Shaft length 25 inches, Built-in Power trim & Tilt assy., Brand New complete with the following;",
       inclusions: ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"],
       steeringItems: ['Hydraulic Helm 2.4','Front Mount Cylinder','Hydraulic Hose','Hydraulic Oil','Tie Bar Kit for Twin Cylinder','Tee Fittings','Steering Wheel','Control Cable','Ext. Wire Harness','See-through Water Separator Assy.','Fuel Hose','Rigging Kit','Battery Tray 3sm','Battery Terminal']
@@ -1239,7 +1266,7 @@ function renderDashboard(content, actions){
               const t = computeAll(q).finalTotal;
               return `<tr>
                 <td class="mono">${q.refNo}</td>
-                <td>${q.customerSnap.name||'—'}</td>
+                <td>${esc(customerDisplayName(q.customerSnap))||'—'}</td>
                 <td>${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</td>
                 <td class="right mono">${fmt(t)}</td>
                 <td><span class="badge ${q.status}">${q.status}</span></td>
@@ -1294,7 +1321,7 @@ function renderQuotesList(content, actions){
     const term = document.getElementById('qSearch').value.toLowerCase();
     const st = document.getElementById('qFilterStatus').value;
     let rows = [...QUOTES].sort((a,b)=>b.updatedAt-a.updatedAt).filter(q=>{
-      const hay = (q.refNo+' '+q.customerSnap.name+' '+q.hull.boatType+' '+(q.project.boatModel||'')+' '+(q.project.boatApplication||'')).toLowerCase();
+      const hay = (q.refNo+' '+customerDisplayName(q.customerSnap)+' '+(q.customerSnap.clientName||'')+' '+q.hull.boatType+' '+(q.project.boatModel||'')+' '+(q.project.boatApplication||'')).toLowerCase();
       return hay.includes(term) && (!st || q.status===st);
     });
     wrap.innerHTML = rows.length? `<table><thead><tr><th>Ref No.</th><th>Date</th><th>Client</th><th>Boat</th><th class="right">Total</th><th>Status</th><th></th></tr></thead><tbody>
@@ -1303,7 +1330,7 @@ function renderQuotesList(content, actions){
         return `<tr>
           <td class="mono">${q.refNo}</td>
           <td class="mono">${q.date}</td>
-          <td>${q.customerSnap.name||'—'}</td>
+          <td>${esc(customerDisplayName(q.customerSnap))||'—'}</td>
           <td>${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</td>
           <td class="right mono">${fmt(t)}</td>
           <td><span class="badge ${q.status}">${q.status}</span></td>
@@ -1745,13 +1772,19 @@ function openEditor(quoteId, templateId){
 function getCurrentQuote(){ return QUOTES.find(q=>q.id===CURRENT.quoteId); }
 function ensureQuoteDefaults(q){
   if(!q.structural) q.structural = { items:[] };
+  if(q.customerSnap.companyName===undefined) q.customerSnap.companyName = '';
+  if(q.customerSnap.clientName===undefined) q.customerSnap.clientName = '';
+  if(q.customerSnap.contactPerson===undefined) q.customerSnap.contactPerson = '';
+  if(q.customerSnap.contactPersonNA===undefined) q.customerSnap.contactPersonNA = false;
   if(q.project.numBoats===undefined) q.project.numBoats = 1;
   if(q.project.multiplyPrice===undefined) q.project.multiplyPrice = false;
   if(q.project.buildType===undefined) q.project.buildType = 'Standard Build';
   if(q.project.boatModel===undefined) q.project.boatModel = 'Apple Series';
   if(q.project.boatApplication===undefined) q.project.boatApplication = 'Passenger Boat';
   if(q.project.boatApplicationOther===undefined) q.project.boatApplicationOther = '';
-  if(!q.engine) q.engine = { model:'', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', description:'', inclusions:[], steeringItems:[] };
+  if(!q.engine) q.engine = { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', description:'', inclusions:[], steeringItems:[] };
+  if(q.engine.brand===undefined) q.engine.brand = '';
+  if(q.engine.type===undefined) q.engine.type = 'IBM';
   if(q.engine.description===undefined) q.engine.description = '';
   if(!Array.isArray(q.engine.inclusions)) q.engine.inclusions = [];
   if(!Array.isArray(q.engine.steeringItems)) q.engine.steeringItems = [];
@@ -1917,8 +1950,21 @@ function tabClient(host, q){
           <select id="custPick"><option value="">— Select or fill manually below —</option>${CUSTOMERS.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
         </div>
         <div class="grid g2">
-          <div class="field"><label>Client / Company Name</label><input id="cName" value="${esc(q.customerSnap.name)}"></div>
+          <div class="field"><label>Client Name</label><input id="cClientName" value="${esc(q.customerSnap.clientName)}" placeholder="Individual person's name"></div>
+          <div class="field"><label>Company Name</label><input id="cCompanyName" value="${esc(q.customerSnap.companyName)}" placeholder="Business / organization name"></div>
+        </div>
+        <div class="grid g2">
+          <div class="field">
+            <label>Contact Person</label>
+            <input id="cContactPerson" value="${esc(q.customerSnap.contactPerson)}" ${q.customerSnap.contactPersonNA?'disabled':''}>
+            <label class="field-inline" style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;margin-top:6px;">
+              <input type="checkbox" id="cContactPersonNA" ${q.customerSnap.contactPersonNA?'checked':''} style="width:auto;">
+              Not Applicable
+            </label>
+          </div>
           <div class="field"><label>Email Address</label><input id="cEmail" value="${esc(q.customerSnap.email)}"></div>
+        </div>
+        <div class="grid g2">
           <div class="field"><label>Contact Number</label><input id="cContact" value="${esc(q.customerSnap.contact)}"></div>
           <div class="field"><label>Address</label><input id="cAddress" value="${esc(q.customerSnap.address)}"></div>
         </div>
@@ -1927,7 +1973,7 @@ function tabClient(host, q){
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Project Information</h3></div>
       <div class="card-body">
-        <div class="field"><label>Project Title</label><input id="pTitle" value="${esc(q.project.title)}" placeholder="e.g. 64ft 80-Pax Passenger Boat"></div>
+        <div class="section-lead" style="margin-top:0;">The project title is generated automatically in the printed quotation from the Hull Particulars, Boat Application, Boat Model, and Engine details — no need to type it here.</div>
         <div class="grid g2">
           <div class="field"><label>Build Type</label>
             <select id="pBuildType">${BUILD_TYPES.map(o=>`<option ${q.project.buildType===o?'selected':''}>${o}</option>`).join('')}</select>
@@ -1952,19 +1998,26 @@ function tabClient(host, q){
             </label>
           </div>
         </div>
-        <div class="field"><label>Notes</label><textarea id="pNotes" rows="3">${esc(q.project.notes)}</textarea></div>
+        <div class="field"><label>Project Note</label><textarea id="pNotes" rows="3" placeholder="Shown below the project title in the printed quotation">${esc(q.project.notes)}</textarea></div>
       </div>
     </div>
   `;
   document.getElementById('custPick').onchange = (e)=>{
     const c = CUSTOMERS.find(x=>x.id===e.target.value);
-    if(c){ q.customerId=c.id; q.customerSnap={name:c.name,email:c.email,contact:c.contact,address:c.address}; persistQuote(q); renderEditor(document.getElementById('content'), document.getElementById('topbarActions')); }
+    if(c){ q.customerId=c.id; q.customerSnap={...q.customerSnap, companyName:c.name, email:c.email, contact:c.contact, address:c.address}; persistQuote(q); renderEditor(document.getElementById('content'), document.getElementById('topbarActions')); }
   };
-  bindText('cName', v=>q.customerSnap.name=v, q);
+  bindText('cClientName', v=>q.customerSnap.clientName=v, q);
+  bindText('cCompanyName', v=>q.customerSnap.companyName=v, q);
+  bindText('cContactPerson', v=>q.customerSnap.contactPerson=v, q);
+  document.getElementById('cContactPersonNA').addEventListener('change', (e)=>{
+    q.customerSnap.contactPersonNA = e.target.checked;
+    document.getElementById('cContactPerson').disabled = e.target.checked;
+    if(e.target.checked){ q.customerSnap.contactPerson=''; document.getElementById('cContactPerson').value=''; }
+    persistQuote(q);
+  });
   bindText('cEmail', v=>q.customerSnap.email=v, q);
   bindText('cContact', v=>q.customerSnap.contact=v, q);
   bindText('cAddress', v=>q.customerSnap.address=v, q);
-  bindText('pTitle', v=>q.project.title=v, q);
   document.getElementById('pBuildType').addEventListener('change', (e)=>{ q.project.buildType = e.target.value; persistQuote(q); updateLiveSummary(q); });
   document.getElementById('pBoatApp').addEventListener('change', (e)=>{
     q.project.boatApplication = e.target.value;
@@ -2396,7 +2449,11 @@ function tabEngine(host, q){
           <select id="engPick"><option value="">— Custom entry —</option>${PRICING.engineDb.map(p=>`<option value="${p.id}">${esc(p.name)} (₱${p.price.toLocaleString()})</option>`).join('')}</select>
         </div>
         <div class="grid g3">
+          <div class="field"><label>Engine Brand</label><input id="eBrand" value="${esc(e.brand||'')}" placeholder="e.g. Isuzu, Yamaha"><div class="hint">Used in the auto-generated project title.</div></div>
           <div class="field"><label>Engine Model / Description</label><input id="eModel" value="${esc(e.model)}"></div>
+          <div class="field"><label>Motor Type</label>
+            <select id="eType"><option value="IBM" ${e.type==='IBM'?'selected':''}>Inboard Motor (IBM)</option><option value="OBM" ${e.type==='OBM'?'selected':''}>Outboard Motor (OBM)</option></select>
+          </div>
           <div class="field"><label>Horsepower (HP)</label><input type="number" id="eHp" value="${e.hp}"></div>
           <div class="field"><label>Number of Engines</label><input type="number" id="eQty" value="${e.qty}"></div>
           <div class="field"><label>Unit Price (₱)</label><input type="number" id="ePrice" value="${e.unitPrice}"></div>
@@ -2444,8 +2501,9 @@ function tabEngine(host, q){
     const pkg = PRICING.engineDb.find(x=>x.id===ev.target.value);
     if(pkg){ e.model=pkg.name; e.hp=pkg.hp; e.unitPrice=pkg.price; persistQuote(q); tabEngine(host,q); updateLiveSummary(q); }
   };
-  ['eModel','eHp','eQty','ePrice','eTrans','eProp','eInstall','eDesc'].forEach(id=>{
+  ['eBrand','eModel','eHp','eQty','ePrice','eTrans','eProp','eInstall','eDesc'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=>{
+      e.brand = document.getElementById('eBrand').value;
       e.model = document.getElementById('eModel').value;
       e.hp = Number(document.getElementById('eHp').value);
       e.qty = Number(document.getElementById('eQty').value);
@@ -2456,6 +2514,10 @@ function tabEngine(host, q){
       e.description = document.getElementById('eDesc').value;
       persistQuote(q); drawEng(); updateLiveSummary(q);
     });
+  });
+  document.getElementById('eType').addEventListener('change', ()=>{
+    e.type = document.getElementById('eType').value;
+    persistQuote(q); updateLiveSummary(q);
   });
 
   // Generic item-list renderer, used for both Inclusions and Steering System —
@@ -3006,9 +3068,11 @@ function tabOutput(host, q){
           <div class="col">
             <div class="doc-band-head">Client Information</div>
             <div class="doc-band-body">
-              <div class="doc-kv-row"><span class="k">Client Name</span><span class="v">${esc(q.customerSnap.name)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Company Name</span><span class="v">${esc(q.customerSnap.companyName)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Client Name</span><span class="v">${esc(q.customerSnap.clientName)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Contact Person</span><span class="v">${q.customerSnap.contactPersonNA? 'Not Applicable' : (esc(q.customerSnap.contactPerson)||'—')}</span></div>
               <div class="doc-kv-row"><span class="k">Address</span><span class="v">${esc(q.customerSnap.address)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Contact Person / Phone</span><span class="v">${esc(q.customerSnap.contact)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Phone</span><span class="v">${esc(q.customerSnap.contact)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Email</span><span class="v">${esc(q.customerSnap.email)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Valid Until</span><span class="v">${validUntil.toISOString().slice(0,10)}</span></div>
             </div>
@@ -3024,7 +3088,8 @@ function tabOutput(host, q){
           </div>
         </div>
 
-        <div class="doc-project-bar">${esc(q.project.title)||'Boat Construction Project'}</div>
+        <div class="doc-project-bar" ${q.project.notes?'':'style="margin-bottom:32px;"'}>${esc(generateProjectTitle(q))||'Boat Construction Project'}</div>
+        ${q.project.notes ? `<div class="doc-project-note">${escNl(q.project.notes)}</div>` : ``}
 
         <!-- ===== FRONT PAGE: Cost Summary ===== -->
         <div class="doc-section-title">Cost Summary</div>
