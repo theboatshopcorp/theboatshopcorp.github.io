@@ -158,11 +158,15 @@ function subscribeRemote(){
    instead of the tab disappearing.
    ============================================================ */
 let CURRENT_PERMISSIONS = new Set(); // populated after login by checkUserPermissions()
+let CURRENT_IS_ADMIN = false; // populated after login by loadMyProfile()
+let ALL_PROFILES = []; // every known user_profiles row, used to look up Prepared By / Approved By
 const ADMIN_ONLY_VIEWS = ['quotes','editor','templates','pricing','settings'];
 // 'editor' (the quote editor) is governed by the same permission as 'quotes',
 // since opening/editing a quote is part of the Quotations section.
 function permissionKeyFor(view){ return view==='editor' ? 'quotes' : view; }
-function hasAccess(view){ return CURRENT_PERMISSIONS.has(permissionKeyFor(view)); }
+// Admins bypass per-section permissions entirely — they always have full access.
+function hasAccess(view){ return CURRENT_IS_ADMIN || CURRENT_PERMISSIONS.has(permissionKeyFor(view)); }
+function profileByEmail(email){ return ALL_PROFILES.find(p=>p.email===(email||'').toLowerCase()) || null; }
 
 async function checkUserPermissions(email){
   try{
@@ -172,6 +176,52 @@ async function checkUserPermissions(email){
   }catch(e){
     console.error('Permission check failed, defaulting to no restricted access', e);
     CURRENT_PERMISSIONS = new Set();
+  }
+}
+
+// Ensures the current user has a user_profiles row (creating a blank one on
+// first login), determines whether they're an admin, and loads every known
+// profile so Prepared By / Approved By can look up any user's name and
+// e-signature, not just the current person's.
+async function loadMyProfile(email){
+  const lower = (email||'').toLowerCase();
+  try{
+    const { data: existing, error: selErr } = await supabaseClient.from('user_profiles').select('*').eq('email', lower).maybeSingle();
+    if(selErr) throw selErr;
+    if(!existing){
+      const { error: insErr } = await supabaseClient.from('user_profiles').insert({ email: lower });
+      if(insErr) throw insErr;
+    }
+    CURRENT_IS_ADMIN = existing ? !!existing.is_admin : false;
+  }catch(e){
+    console.error('Profile load/create failed, defaulting to non-admin', e);
+    CURRENT_IS_ADMIN = false;
+  }
+  await refreshAllProfiles();
+}
+
+async function refreshAllProfiles(){
+  try{
+    const { data, error } = await supabaseClient.from('user_profiles').select('*');
+    if(error) throw error;
+    ALL_PROFILES = data || [];
+    const mine = profileByEmail(CURRENT_USER.email);
+    if(mine) CURRENT_IS_ADMIN = !!mine.is_admin;
+  }catch(e){
+    console.error('Loading profiles failed', e);
+  }
+}
+
+async function saveMyProfile(fields){
+  const email = (CURRENT_USER.email||'').toLowerCase();
+  try{
+    const { error } = await supabaseClient.from('user_profiles').update({ ...fields, updated_at: new Date().toISOString() }).eq('email', email);
+    if(error) throw error;
+    await refreshAllProfiles();
+    return true;
+  }catch(e){
+    console.error('Saving profile failed', e);
+    return false;
   }
 }
 
@@ -495,6 +545,8 @@ function blankQuote(){
     date: todayISO(),
     validityDays: 30,
     customerId: null,
+    createdByEmail: (CURRENT_USER.email||'').toLowerCase(),
+    approvedBy: null, // {email, name, esign, date} — set when an admin clicks Approve Quotation
     customerSnap: { name:'', companyName:'', clientName:'', clientPosition:'', companyTin:'', email:'', address:'', contact:'',
       repName:'', repPosition:'', repContact:'', repEmail:'', repNA:false },
     project: { title:'', notes:'', numBoats:1, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
@@ -687,6 +739,7 @@ const ROUTES = [
   {id:'customers', label:'Customers', icon:'user'},
   {id:'templates', label:'Boat Presets', icon:'ship', adminOnly:true},
   {id:'pricing', label:'Pricing Database', icon:'db', adminOnly:true},
+  {id:'profile', label:'My Profile', icon:'user'},
   {id:'settings', label:'Settings', icon:'settings', adminOnly:true},
 ];
 let CURRENT = { view:'dashboard', quoteId:null, tab:'client' };
@@ -738,7 +791,7 @@ document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar
 
 function renderAll(){
   renderNav();
-  const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', customers:'Customer Database', templates:'Boat Presets', pricing:'Pricing Database', settings:'Settings'};
+  const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', customers:'Customer Database', templates:'Boat Presets', pricing:'Pricing Database', profile:'My Profile', settings:'Settings'};
   document.getElementById('topbarTitle').textContent = titleMap[CURRENT.view] || '';
   const content = document.getElementById('content');
   const actions = document.getElementById('topbarActions');
@@ -750,6 +803,7 @@ function renderAll(){
   else if(CURRENT.view==='customers') renderCustomers(content, actions);
   else if(CURRENT.view==='templates') renderTemplates(content, actions);
   else if(CURRENT.view==='pricing') renderPricing(content, actions);
+  else if(CURRENT.view==='profile') renderMyProfile(content, actions);
   else if(CURRENT.view==='settings') renderSettings(content, actions);
 }
 
@@ -1263,7 +1317,13 @@ function renderPricing(content, actions){
 function openEditor(quoteId, templateId){
   if(!hasAccess('editor')){ CURRENT.view = 'editor'; renderAll(); return; }
   CURRENT.view = 'editor'; CURRENT.tab='client';
-  if(quoteId){ CURRENT.quoteId = quoteId; }
+  if(quoteId){
+    CURRENT.quoteId = quoteId;
+    const existing = QUOTES.find(x=>x.id===quoteId);
+    if(existing && CURRENT_IS_ADMIN && existing.createdByEmail && existing.createdByEmail !== (CURRENT_USER.email||'').toLowerCase()){
+      CURRENT.tab = 'output';
+    }
+  }
   else {
     const q = blankQuote();
     if(templateId){
@@ -1285,6 +1345,8 @@ function openEditor(quoteId, templateId){
 function getCurrentQuote(){ return QUOTES.find(q=>q.id===CURRENT.quoteId); }
 function ensureQuoteDefaults(q){
   if(!q.structural) q.structural = { items:[] };
+  if(q.createdByEmail===undefined) q.createdByEmail = '';
+  if(q.approvedBy===undefined) q.approvedBy = null;
   if(q.customerSnap.companyName===undefined) q.customerSnap.companyName = '';
   if(q.customerSnap.clientName===undefined) q.customerSnap.clientName = '';
   if(q.customerSnap.clientPosition===undefined) q.customerSnap.clientPosition = '';
@@ -2375,7 +2437,7 @@ function sigCardHtml(role, label, noUpload){
     </div>`;
 }
 function bindSigCards(host, q){
-  host.querySelectorAll('.sigcard').forEach(card=>{
+  host.querySelectorAll('.sigcard:not(.sigcard-readonly)').forEach(card=>{
     const role = card.dataset.role;
     const s = SIGNATORIES[role];
     card.querySelector('.sig-name').addEventListener('input', e=>{
@@ -2500,10 +2562,139 @@ function bindLogoCardStandalone(host, onChange){
   });
 }
 
+/* ============================================================
+   MY PROFILE — every signed-in user's own Name, Contact Number, and
+   E-Signature (self-editable). Position and admin status are set by
+   an admin in Settings → User Management, shown here read-only.
+   ============================================================ */
+function renderMyProfile(content, actions){
+  actions.innerHTML = `<button class="btn btn-primary" id="btnSaveProfile">Save My Profile</button>`;
+  const p = profileByEmail(CURRENT_USER.email) || { email:CURRENT_USER.email, full_name:'', position:'', contact_number:'', esign:'', is_admin:false };
+  content.innerHTML = `
+    <div class="section-lead">This information automatically appears as "Prepared By" on any quotation you create, and — if you're an admin — as "Approved By" when you approve someone else's quotation.</div>
+    <div class="card" style="max-width:640px;">
+      <div class="card-body">
+        <div class="grid g2">
+          <div class="field"><label>Full Name</label><input id="myName" value="${esc(p.full_name)}"></div>
+          <div class="field"><label>Position</label><input value="${esc(p.position)||'Not yet assigned'}" disabled><div class="hint">Set by an admin in Settings → User Management.</div></div>
+        </div>
+        <div class="grid g2">
+          <div class="field"><label>Contact Number</label><input id="myContact" value="${esc(p.contact_number)}"></div>
+          <div class="field"><label>Email</label><input value="${esc(CURRENT_USER.email)}" disabled></div>
+        </div>
+        <div class="field"><label>E-Signature</label>
+          <div class="prev ${p.esign?'':'empty'}" style="margin-bottom:8px;">${p.esign? `<img src="${esc(p.esign)}" alt="">` : 'No signature uploaded'}</div>
+          <div class="row2" style="display:flex;gap:8px;">
+            <button class="btn btn-sm" type="button" id="myEsignUpload">⬆ Upload image</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="myEsignClear">Clear</button>
+          </div>
+          <input type="file" id="myEsignFile" accept="image/*" style="display:none;">
+          <div class="field" style="margin:8px 0 0;">
+            <div class="field-inline" style="display:flex;gap:8px;">
+              <input type="text" id="myEsignDrive" placeholder="Paste Google Drive image share link…" style="flex:1;">
+              <button class="btn btn-sm" type="button" id="myEsignDriveApply">Use</button>
+            </div>
+            <div class="hint">Drive file must be shared as "Anyone with the link".</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  let pendingEsign = p.esign;
+  document.getElementById('myEsignUpload').onclick = ()=> document.getElementById('myEsignFile').click();
+  document.getElementById('myEsignFile').addEventListener('change', async (e)=>{
+    const f = e.target.files[0]; if(!f) return;
+    pendingEsign = await fileToDataURL(f);
+    content.querySelector('.prev').innerHTML = `<img src="${esc(pendingEsign)}" alt="">`;
+  });
+  document.getElementById('myEsignDriveApply').onclick = ()=>{
+    const link = document.getElementById('myEsignDrive').value;
+    if(!link){ toast('Paste a Google Drive link first'); return; }
+    pendingEsign = driveImgUrl(link);
+    content.querySelector('.prev').innerHTML = `<img src="${esc(pendingEsign)}" alt="">`;
+  };
+  document.getElementById('myEsignClear').onclick = ()=>{
+    pendingEsign = '';
+    content.querySelector('.prev').innerHTML = 'No signature uploaded';
+  };
+  document.getElementById('btnSaveProfile').onclick = async ()=>{
+    const ok = await saveMyProfile({
+      full_name: document.getElementById('myName').value,
+      contact_number: document.getElementById('myContact').value,
+      esign: pendingEsign
+    });
+    toast(ok ? 'Profile saved' : 'Save failed — check your connection');
+  };
+}
+
+async function drawUserManagement(){
+  const tbody = document.getElementById('userMgmtRows');
+  if(!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="7" class="empty">Loading…</td></tr>`;
+  let permsRows = [];
+  try{
+    const { data, error } = await supabaseClient.from('user_permissions').select('email,section');
+    if(error) throw error;
+    permsRows = data || [];
+  }catch(e){ console.error('Loading permissions failed', e); }
+
+  const permsByEmail = {};
+  permsRows.forEach(r=>{ (permsByEmail[r.email] = permsByEmail[r.email]||new Set()).add(r.section); });
+
+  const rows = ALL_PROFILES.slice().sort((a,b)=>a.email.localeCompare(b.email));
+  tbody.innerHTML = rows.map(p=>{
+    const perms = permsByEmail[p.email] || new Set();
+    const sections = ['quotes','templates','pricing','settings'];
+    return `
+    <tr data-email="${esc(p.email)}">
+      <td>${esc(p.email)}</td>
+      <td><input class="tbl-input um-position" value="${esc(p.position)}" style="min-width:140px;"></td>
+      <td class="right"><input type="checkbox" class="um-admin" ${p.is_admin?'checked':''}></td>
+      ${sections.map(s=>`<td class="right"><input type="checkbox" class="um-perm" data-section="${s}" ${perms.has(s)?'checked':''}></td>`).join('')}
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" class="empty">No one has logged in yet.</td></tr>`;
+
+  tbody.querySelectorAll('tr[data-email]').forEach(tr=>{
+    const email = tr.dataset.email;
+    tr.querySelector('.um-position').addEventListener('change', async (e)=>{
+      const { error } = await supabaseClient.from('user_profiles').update({ position: e.target.value, updated_at: new Date().toISOString() }).eq('email', email);
+      if(error){ toast('Failed to save position'); console.error(error); } else { toast('Position updated'); await refreshAllProfiles(); }
+    });
+    tr.querySelector('.um-admin').addEventListener('change', async (e)=>{
+      const { error } = await supabaseClient.from('user_profiles').update({ is_admin: e.target.checked, updated_at: new Date().toISOString() }).eq('email', email);
+      if(error){ toast('Failed to update admin status'); console.error(error); e.target.checked=!e.target.checked; }
+      else { toast(e.target.checked? `${email} is now an admin` : `${email} is no longer an admin`); await refreshAllProfiles(); }
+    });
+    tr.querySelectorAll('.um-perm').forEach(cb=>{
+      cb.addEventListener('change', async (e)=>{
+        const section = e.target.dataset.section;
+        if(e.target.checked){
+          const { error } = await supabaseClient.from('user_permissions').insert({ email, section });
+          if(error){ toast('Failed to grant access'); console.error(error); e.target.checked=false; }
+        } else {
+          const { error } = await supabaseClient.from('user_permissions').delete().eq('email', email).eq('section', section);
+          if(error){ toast('Failed to remove access'); console.error(error); e.target.checked=true; }
+        }
+      });
+    });
+  });
+}
+
 function renderSettings(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveCompany">Save Settings</button>`;
   const c = COMPANY;
   content.innerHTML = `
+    ${CURRENT_IS_ADMIN ? `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head"><h3>User Management</h3></div>
+      <div class="card-body">
+        <div class="section-lead" style="margin-top:0;">Assign each person's Position and which sections they can access. Admins automatically get full access to everything, regardless of the checkboxes below. Changes save immediately.</div>
+        <div style="overflow-x:auto;">
+        <table><thead><tr><th>Email</th><th>Position</th><th class="right">Admin</th><th class="right">Quotations</th><th class="right">Boat Presets</th><th class="right">Pricing DB</th><th class="right">Settings</th></tr></thead>
+        <tbody id="userMgmtRows"></tbody></table>
+        </div>
+      </div>
+    </div>` : ``}
     <div class="section-lead">This logo and company information appear on the letterhead of every printed quotation and invoice.</div>
     <div class="grid g2">
       <div class="card">
@@ -2529,6 +2720,8 @@ function renderSettings(content, actions){
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Bank Name</th><th>Branch</th><th>Account Name</th><th>Account Number</th><th></th></tr></thead><tbody id="bankRows"></tbody></table></div>
     </div>
   `;
+
+  if(CURRENT_IS_ADMIN) drawUserManagement();
 
   bindLogoCardStandalone(content, ()=>renderSettings(content, actions));
 
@@ -2575,10 +2768,36 @@ function tabOutput(host, q){
       <div class="card" style="margin-bottom:0;">
         <div class="card-head"><h3>Signatories &amp; Signatures</h3></div>
         <div class="card-body">
-          <div class="section-lead" style="margin-bottom:12px;">Upload a signature image from this device, or paste a Google Drive image link (file must be shared "Anyone with the link"). Saved here and reused on every quotation.</div>
+          <div class="section-lead" style="margin-bottom:12px;">"Prepared By" and "Approved By" fill in automatically from user profiles — no manual entry needed. "CONFORME" is signed physically by the client, so it stays editable below.</div>
           <div class="siggrid" id="sigGrid">
-            ${sigCardHtml('prepared','Prepared By')}
-            ${sigCardHtml('approved','Approved By')}
+            ${(()=>{
+              const preparer = profileByEmail(q.createdByEmail);
+              return `
+              <div class="sigcard sigcard-readonly">
+                <div class="role">Prepared By</div>
+                <div class="prev ${preparer && preparer.esign?'':'empty'}">${preparer && preparer.esign? `<img src="${esc(preparer.esign)}" alt="">` : 'No signature on file'}</div>
+                <div style="font-weight:600;font-size:13px;margin-top:8px;">${esc(preparer && preparer.full_name || '')||'—'}</div>
+                <div class="hint">${esc(preparer && preparer.position || '')||'Position not set'}</div>
+              </div>`;
+            })()}
+            ${(()=>{
+              if(q.approvedBy){
+                return `
+                <div class="sigcard sigcard-readonly">
+                  <div class="role">Approved By</div>
+                  <div class="prev ${q.approvedBy.esign?'':'empty'}">${q.approvedBy.esign? `<img src="${esc(q.approvedBy.esign)}" alt="">` : 'No signature on file'}</div>
+                  <div style="font-weight:600;font-size:13px;margin-top:8px;">${esc(q.approvedBy.name)||'—'}</div>
+                  <div class="hint">Approved ${(()=>{ const d = new Date(q.approvedBy.date); return isNaN(d) ? esc(q.approvedBy.date) : (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); })()}</div>
+                  ${CURRENT_IS_ADMIN ? `<button class="btn btn-sm btn-ghost" id="btnUnapprove" style="margin-top:8px;">Revoke Approval</button>` : ``}
+                </div>`;
+              }
+              return `
+                <div class="sigcard sigcard-readonly">
+                  <div class="role">Approved By</div>
+                  <div class="prev empty">Not yet approved</div>
+                  ${CURRENT_IS_ADMIN ? `<button class="btn btn-primary btn-sm" id="btnApprove" style="margin-top:8px;">✓ Approve Quotation</button>` : `<div class="hint" style="margin-top:8px;">Awaiting admin approval.</div>`}
+                </div>`;
+            })()}
             ${sigCardHtml('received','CONFORME', true)}
           </div>
         </div>
@@ -2692,13 +2911,13 @@ function tabOutput(host, q){
         <div class="doc-sign">
           <div data-sigprev="prepared">
             <div class="role">Prepared By</div>
-            <div class="imgslot">${SIGNATORIES.prepared.img?`<img src="${esc(SIGNATORIES.prepared.img)}" alt="">`:''}</div>
-            <div class="ln"><div class="nm">${esc(SIGNATORIES.prepared.name)||'&nbsp;'}</div><span class="ttl">${esc(SIGNATORIES.prepared.title)||''}</span></div>
+            <div class="imgslot">${(()=>{ const pr = profileByEmail(q.createdByEmail); return pr && pr.esign ? `<img src="${esc(pr.esign)}" alt="">` : ''; })()}</div>
+            <div class="ln"><div class="nm">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.full_name || '')||'&nbsp;'; })()}</div><span class="ttl">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.position || ''); })()}</span></div>
           </div>
           <div data-sigprev="approved">
             <div class="role">Approved By</div>
-            <div class="imgslot">${SIGNATORIES.approved.img?`<img src="${esc(SIGNATORIES.approved.img)}" alt="">`:''}</div>
-            <div class="ln"><div class="nm">${esc(SIGNATORIES.approved.name)||'&nbsp;'}</div><span class="ttl">${esc(SIGNATORIES.approved.title)||''}</span></div>
+            <div class="imgslot">${q.approvedBy && q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="">` : ''}</div>
+            <div class="ln"><div class="nm">${esc(q.approvedBy && q.approvedBy.name || '')||'&nbsp;'}</div><span class="ttl">${(()=>{ if(!q.approvedBy) return ''; const d = new Date(q.approvedBy.date); return isNaN(d) ? esc(q.approvedBy.date) : (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); })()}</span></div>
           </div>
           <div data-sigprev="received">
             <div class="role">CONFORME</div>
@@ -2774,6 +2993,23 @@ function tabOutput(host, q){
     tabOutput(host, q);
   };
   bindSigCards(document.getElementById('sigGrid'), q);
+  const approveBtn = document.getElementById('btnApprove');
+  if(approveBtn) approveBtn.onclick = ()=>{
+    const me = profileByEmail(CURRENT_USER.email);
+    q.approvedBy = {
+      email: (CURRENT_USER.email||'').toLowerCase(),
+      name: (me && me.full_name) || CURRENT_USER.email,
+      esign: (me && me.esign) || '',
+      date: todayISO()
+    };
+    persistQuote(q); tabOutput(host, q); toast('Quotation approved');
+  };
+  const unapproveBtn = document.getElementById('btnUnapprove');
+  if(unapproveBtn) unapproveBtn.onclick = ()=>{
+    if(!confirm('Revoke this approval? The Approved By section will be cleared.')) return;
+    q.approvedBy = null;
+    persistQuote(q); tabOutput(host, q); toast('Approval revoked');
+  };
 }
 
 /* ============================================================
@@ -2964,6 +3200,7 @@ async function startApp(session){
   document.getElementById('loginScreen').style.display = 'none';
   document.querySelectorAll('#bootScreen').forEach(function(node){ node.remove(); });
   await checkUserPermissions(session.user.email);
+  await loadMyProfile(session.user.email);
   updateSidebarFoot();
   renderAll();
   pullAllFromRemote().then(subscribeRemote);
