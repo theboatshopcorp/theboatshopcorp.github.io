@@ -2599,29 +2599,28 @@ function tabOutput(host, q){
           </div>
         </div>
 
-        <div class="doc-band-row">
+        <div class="doc-band-head">Client Information</div>
+        <div class="doc-band-row" style="margin-top:14px;">
           <div class="col">
-            <div class="doc-band-head">Client Information</div>
             <div class="doc-band-body">
+              <div class="doc-kv-row"><span class="k">Company Name</span><span class="v">${esc(q.customerSnap.companyName)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Client Name</span><span class="v">${esc(q.customerSnap.clientName)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Client Position</span><span class="v">${esc(q.customerSnap.clientPosition)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Company</span><span class="v">${esc(q.customerSnap.companyName)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Position</span><span class="v">${esc(q.customerSnap.clientPosition)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Address</span><span class="v">${esc(q.customerSnap.address)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Contact Number</span><span class="v">${esc(q.customerSnap.contact)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Email Address</span><span class="v">${esc(q.customerSnap.email)||'—'}</span></div>
-              <div class="doc-kv-row"><span class="k">Company TIN</span><span class="v">${esc(q.customerSnap.companyTin)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Company Tax Identification Number</span><span class="v">${esc(q.customerSnap.companyTin)||'—'}</span></div>
             </div>
           </div>
           <div class="col">
-            <div class="doc-band-head">Client's Representative</div>
             <div class="doc-band-body">
               ${q.customerSnap.repNA ? `
-              <div class="doc-kv-row"><span class="k">Name</span><span class="v doc-na">Not Applicable</span></div>
+              <div class="doc-kv-row"><span class="k">Client Representative</span><span class="v doc-na">Not Applicable</span></div>
               <div class="doc-kv-row"><span class="k">Position</span><span class="v doc-na">Not Applicable</span></div>
               <div class="doc-kv-row"><span class="k">Contact Number</span><span class="v doc-na">Not Applicable</span></div>
               <div class="doc-kv-row"><span class="k">Email Address</span><span class="v doc-na">Not Applicable</span></div>
               ` : `
-              <div class="doc-kv-row"><span class="k">Name</span><span class="v">${esc(q.customerSnap.repName)||'—'}</span></div>
+              <div class="doc-kv-row"><span class="k">Client Representative</span><span class="v">${esc(q.customerSnap.repName)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Position</span><span class="v">${esc(q.customerSnap.repPosition)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Contact Number</span><span class="v">${esc(q.customerSnap.repContact)||'—'}</span></div>
               <div class="doc-kv-row"><span class="k">Email Address</span><span class="v">${esc(q.customerSnap.repEmail)||'—'}</span></div>
