@@ -554,7 +554,7 @@ function blankQuote(){
     structural: { items:[] },
     paint: { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' },
     accessories: [],
-    engine: { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'',
+    engine: { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', speed:'', fuelCapacity:'',
       description:"Dual Installation of Yamaha 250HP, Model: F250HETX, Model: FL250HETX\nFuel Injection, 4 Stroke, 24 Valve, Double Overhead Camshaft, V6, Standard Rotation and Counter Rotation, Shaft length 25 inches, Built-in Power trim & Tilt assy., Brand New complete with the following;",
       inclusions: ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"],
       steeringItems: ['Hydraulic Helm 2.4','Front Mount Cylinder','Hydraulic Hose','Hydraulic Oil','Tie Bar Kit for Twin Cylinder','Tee Fittings','Steering Wheel','Control Cable','Ext. Wire Harness','See-through Water Separator Assy.','Fuel Hose','Rigging Kit','Battery Tray 3sm','Battery Terminal']
@@ -1409,6 +1409,8 @@ function ensureQuoteDefaults(q){
   if(!q.engine) q.engine = { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', description:'', inclusions:[], steeringItems:[] };
   if(q.engine.brand===undefined) q.engine.brand = '';
   if(q.engine.type===undefined) q.engine.type = 'IBM';
+  if(q.engine.speed===undefined) q.engine.speed = '';
+  if(q.engine.fuelCapacity===undefined) q.engine.fuelCapacity = '';
   if(q.engine.description===undefined) q.engine.description = '';
   if(!Array.isArray(q.engine.inclusions)) q.engine.inclusions = [];
   if(!Array.isArray(q.engine.steeringItems)) q.engine.steeringItems = [];
@@ -2201,6 +2203,8 @@ function tabEngine(host, q){
           <div class="field"><label>Unit Price (₱)</label><input type="number" id="ePrice" value="${e.unitPrice}"></div>
           <div class="field"><label>Transmission</label><input id="eTrans" value="${esc(e.transmission)}"></div>
           <div class="field"><label>Propeller</label><input id="eProp" value="${esc(e.propeller)}"></div>
+          <div class="field"><label>Engine Speed</label><input id="eSpeed" value="${esc(e.speed||'')}" placeholder="e.g. 25 knots"></div>
+          <div class="field"><label>Fuel Capacity</label><input id="eFuelCap" value="${esc(e.fuelCapacity||'')}" placeholder="e.g. 200 liters"></div>
         </div>
         <div class="field"><label>Installation Cost (₱)</label><input type="number" id="eInstall" value="${e.installation}"></div>
         <div class="field"><label>Intro / Spec Paragraph</label><textarea id="eDesc" rows="4" placeholder="e.g. Dual Installation of Yamaha 250HP, Model: F250HETX...">${esc(e.description||'')}</textarea>
@@ -2243,7 +2247,7 @@ function tabEngine(host, q){
     const pkg = PRICING.engineDb.find(x=>x.id===ev.target.value);
     if(pkg){ e.model=pkg.name; e.hp=pkg.hp; e.unitPrice=pkg.price; persistQuote(q); tabEngine(host,q); updateLiveSummary(q); }
   };
-  ['eBrand','eModel','eHp','eQty','ePrice','eTrans','eProp','eInstall','eDesc'].forEach(id=>{
+  ['eBrand','eModel','eHp','eQty','ePrice','eTrans','eProp','eSpeed','eFuelCap','eInstall','eDesc'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=>{
       e.brand = document.getElementById('eBrand').value;
       e.model = document.getElementById('eModel').value;
@@ -2252,6 +2256,8 @@ function tabEngine(host, q){
       e.unitPrice = Number(document.getElementById('ePrice').value);
       e.transmission = document.getElementById('eTrans').value;
       e.propeller = document.getElementById('eProp').value;
+      e.speed = document.getElementById('eSpeed').value;
+      e.fuelCapacity = document.getElementById('eFuelCap').value;
       e.installation = Number(document.getElementById('eInstall').value);
       e.description = document.getElementById('eDesc').value;
       persistQuote(q); drawEng(); updateLiveSummary(q);
@@ -3041,10 +3047,10 @@ function tabOutput(host, q){
         <table>
           <tbody>
             <tr><td>Boat Model</td><td class="right mono">${esc(q.project.boatModel)||'—'}</td><td>Build Type</td><td class="right mono">${esc(q.project.buildType)||'—'}</td></tr>
-            <tr><td>Boat Application</td><td class="right mono" colspan="3">${esc(q.project.boatApplication==='Other' ? (q.project.boatApplicationOther||'Other') : q.project.boatApplication)||'—'}</td></tr>
-            <tr><td>Length Overall</td><td class="right mono">${q.hull.loa} ft</td><td>Beam</td><td class="right mono">${q.hull.beam} ft</td></tr>
-            <tr><td>Depth</td><td class="right mono">${q.hull.depth} ft</td><td>Passenger Capacity</td><td class="right mono">${q.project.passengerCapacity||0} pax</td></tr>
-            <tr><td>Engine</td><td class="right mono">${q.engine.qty||0} × ${esc(q.engine.brand)||'—'}</td><td>Engine HP</td><td class="right mono">${q.engine.hp||0} HP (${esc(q.engine.type)||'IBM'})</td></tr>
+            <tr><td>Boat Application</td><td class="right mono">${esc(q.project.boatApplication==='Other' ? (q.project.boatApplicationOther||'Other') : q.project.boatApplication)||'—'}</td><td>Passenger Capacity</td><td class="right mono">${q.project.passengerCapacity||0} pax</td></tr>
+            <tr><td>Length Overall</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.loa); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Engine</td><td class="right mono">${esc(q.engine.brand)||'—'} ${q.engine.hp||0}HP ${esc(q.engine.type)||'IBM'}</td></tr>
+            <tr><td>Beam</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.beam); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Engine Speed</td><td class="right mono">${esc(q.engine.speed)||'—'}</td></tr>
+            <tr><td>Depth</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.depth); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Fuel Capacity</td><td class="right mono">${esc(q.engine.fuelCapacity)||'—'}</td></tr>
             ${c.numBoats>1?`<tr><td>Number of Boats Quoted</td><td class="right mono" colspan="3">${c.numBoats} unit(s)</td></tr>`:``}
           </tbody>
         </table>
