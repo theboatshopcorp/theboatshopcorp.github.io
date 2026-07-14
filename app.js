@@ -597,6 +597,20 @@ function nextRefNo(){
   const n = QUOTES.length + 1;
   return 'Q'+yr+'-'+String(n).padStart(3,'0');
 }
+const STATUS_LABELS = { draft:'Draft', for_approval:'For Approval', for_revision:'For Revision', approved:'Approved' };
+function statusLabel(s){ return STATUS_LABELS[s] || s; }
+// Appends/increments a " REV NN" suffix on a reference number, e.g.
+// "Q26-017" → "Q26-017 REV 01" → "Q26-017 REV 02" …
+function incrementRevisionRef(refNo){
+  const m = (refNo||'').match(/^(.*) REV (\d+)$/);
+  if(m) return `${m[1]} REV ${String(Number(m[2])+1).padStart(2,'0')}`;
+  return `${refNo} REV 01`;
+}
+function isDuplicateRefNo(refNo, excludeId){
+  const norm = (refNo||'').trim().toLowerCase();
+  if(!norm) return false;
+  return QUOTES.some(x=>x.id!==excludeId && (x.refNo||'').trim().toLowerCase()===norm);
+}
 
 /* ============================================================
    CALCULATION ENGINE
@@ -816,8 +830,20 @@ function renderDashboard(content, actions){
   const approved = QUOTES.filter(q=>q.status==='approved').length;
   const avg = QUOTES.length? totalVal/QUOTES.length : 0;
   const recent = [...QUOTES].sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,6);
+  const myEmail = (CURRENT_USER.email||'').toLowerCase();
+  const needsRevision = QUOTES.filter(q=>q.createdByEmail===myEmail && q.status==='for_revision' && q.revisionChildId);
 
   content.innerHTML = `
+    ${needsRevision.length ? `
+    <div class="card" style="border:1px solid var(--danger);background:var(--danger-soft);margin-bottom:16px;">
+      <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div style="font-weight:700;color:var(--danger);font-size:13px;margin-bottom:2px;">⚠ ${needsRevision.length} quotation${needsRevision.length>1?'s':''} sent back for revision</div>
+          <div class="hint" style="color:var(--danger);">${needsRevision.map(q=>esc(q.refNo)).join(', ')} — an editable copy has been created for each.</div>
+        </div>
+        <button class="btn btn-sm" id="btnViewRevisions">Review Now</button>
+      </div>
+    </div>` : ``}
     <div class="stat-row">
       <div class="stat"><div class="lbl">Total Quotations</div><div class="val">${QUOTES.length}</div></div>
       <div class="stat teal"><div class="lbl">Total Quoted Value</div><div class="val">${fmt(totalVal)}</div></div>
@@ -836,7 +862,7 @@ function renderDashboard(content, actions){
                 <td>${esc(customerDisplayName(q.customerSnap))||'—'}</td>
                 <td>${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</td>
                 <td class="right mono">${fmt(t)}</td>
-                <td><span class="badge ${q.status}">${q.status}</span></td>
+                <td><span class="badge ${q.status}">${statusLabel(q.status)}</span></td>
                 <td class="right"><span class="btn btn-ghost btn-sm" data-open="${q.id}">Open →</span></td>
               </tr>`;
             }).join('')}
@@ -859,6 +885,8 @@ function renderDashboard(content, actions){
   `;
   document.getElementById('btnNewQ').onclick = ()=>openEditor(null);
   document.getElementById('viewAllQ').onclick = ()=>{CURRENT.view='quotes'; renderAll();};
+  const viewRevBtn = document.getElementById('btnViewRevisions');
+  if(viewRevBtn) viewRevBtn.onclick = ()=>{ openEditor(needsRevision[0].revisionChildId); };
   document.getElementById('qaTemplates').onclick = ()=>{CURRENT.view='templates'; renderAll();};
   document.getElementById('qaCustomer').onclick = ()=>{CURRENT.view='customers'; renderAll();};
   document.getElementById('qaPricing').onclick = ()=>{CURRENT.view='pricing'; renderAll();};
@@ -876,7 +904,8 @@ function renderQuotesList(content, actions){
       <select id="qFilterStatus" style="padding:8px 10px;border:1px solid var(--paper-line);border-radius:7px;">
         <option value="">All statuses</option>
         <option value="draft">Draft</option>
-        <option value="sent">Sent</option>
+        <option value="for_approval">For Approval</option>
+        <option value="for_revision">For Revision</option>
         <option value="approved">Approved</option>
       </select>
     </div>
@@ -898,13 +927,13 @@ function renderQuotesList(content, actions){
         const preparer = profileByEmail(q.createdByEmail);
         const preparerLabel = (preparer && preparer.full_name) || q.createdByEmail || '—';
         return `<tr>
-          <td class="mono">${q.refNo}</td>
+          <td class="mono">${isDuplicateRefNo(q.refNo, q.id) ? `<span style="color:var(--danger);border:1.5px solid var(--danger);border-radius:5px;padding:2px 7px;display:inline-block;">${q.refNo}</span>` : q.refNo}${q.revisionChildId? `<br><span class="btn btn-ghost btn-sm" data-open="${q.revisionChildId}" style="margin-top:2px;">→ Open Revision</span>` : ``}</td>
           <td class="mono">${q.date}</td>
           <td>${esc(customerDisplayName(q.customerSnap))||'—'}</td>
           <td>${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</td>
           <td>${esc(preparerLabel)}</td>
           <td class="right mono">${fmt(t)}</td>
-          <td><span class="badge ${q.status}">${q.status}</span></td>
+          <td><span class="badge ${q.status}">${statusLabel(q.status)}</span></td>
           <td class="right" style="white-space:nowrap;">
             <span class="btn btn-ghost btn-sm" data-open="${q.id}">Open</span>
             <span class="btn btn-ghost btn-sm" data-dup="${q.id}">Duplicate</span>
@@ -1351,6 +1380,9 @@ function ensureQuoteDefaults(q){
   if(!q.structural) q.structural = { items:[] };
   if(q.createdByEmail===undefined) q.createdByEmail = '';
   if(q.approvedBy===undefined) q.approvedBy = null;
+  if(q.revisionChildId===undefined) q.revisionChildId = null;
+  if(q.revisionOf===undefined) q.revisionOf = null;
+  if(q.status==='sent') q.status = 'for_approval'; // migrate old 3-status quotes
   if(q.customerSnap.companyName===undefined) q.customerSnap.companyName = '';
   if(q.customerSnap.clientName===undefined) q.customerSnap.clientName = '';
   if(q.customerSnap.clientPosition===undefined) q.customerSnap.clientPosition = '';
@@ -1439,9 +1471,7 @@ function renderEditor(content, actions){
   ensureQuoteDefaults(q);
 
   actions.innerHTML = `
-    <select id="statusSel" style="padding:7px 10px;border:1px solid var(--paper-line);border-radius:7px;margin-right:8px;">
-      ${['draft','sent','approved'].map(s=>`<option value="${s}" ${q.status===s?'selected':''}>${s[0].toUpperCase()+s.slice(1)}</option>`).join('')}
-    </select>
+    <span class="badge ${q.status}" style="margin-right:10px;">${statusLabel(q.status)}</span>
     <button class="btn" id="btnBackList">${icon('list')} All Quotations</button>
     <button class="btn btn-primary" id="btnGoOutput">Preview Output →</button>
   `;
@@ -1474,21 +1504,38 @@ function renderEditor(content, actions){
           </div>
         </div>
         <div class="card" style="margin-top:16px;">
-          <div class="card-head"><h3>Approval</h3></div>
+          <div class="card-head"><h3>Status</h3></div>
           <div class="card-body">
-            ${q.approvedBy ? `
+            <div style="margin-bottom:12px;"><span class="badge ${q.status}">${statusLabel(q.status)}</span></div>
+
+            ${q.status==='draft' ? `
+              <div class="hint" style="margin-bottom:10px;">Still being worked on. Submit when ready for admin review — the quotation locks from editing once submitted.</div>
+              <button class="btn btn-primary btn-sm" id="btnSubmitApproval">Submit for Approval</button>
+            ` : ``}
+
+            ${q.status==='for_approval' ? (CURRENT_IS_ADMIN ? `
+              <div class="hint" style="margin-bottom:10px;">Awaiting your decision.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" id="btnApprove">✓ Approve</button>
+                <button class="btn btn-sm btn-ghost" id="btnRequestRevision">↺ Request Revision</button>
+              </div>
+            ` : `<div class="hint">Submitted — awaiting admin approval. Locked from editing until reviewed.</div>`) : ``}
+
+            ${q.status==='for_revision' ? `
+              <div class="hint" style="margin-bottom:10px;">This version is locked. ${q.revisionChildId ? 'A revised copy was created for editing.' : ''}</div>
+              ${q.revisionChildId ? `<button class="btn btn-sm" data-open="${q.revisionChildId}">Open Revision Copy</button>` : ``}
+            ` : ``}
+
+            ${q.status==='approved' ? `
               <div style="display:flex;gap:10px;align-items:center;">
-                ${q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="" style="height:36px;max-width:80px;object-fit:contain;">` : ``}
+                ${q.approvedBy && q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="" style="height:36px;max-width:80px;object-fit:contain;">` : ``}
                 <div>
-                  <div style="font-weight:600;font-size:12.5px;">${esc(q.approvedBy.name)}</div>
-                  <div class="hint">${esc(q.approvedBy.position)||'Position not set'}</div>
+                  <div style="font-weight:600;font-size:12.5px;">${esc(q.approvedBy && q.approvedBy.name || '')}</div>
+                  <div class="hint">${esc(q.approvedBy && q.approvedBy.position || '')||'Position not set'}</div>
                 </div>
               </div>
               ${CURRENT_IS_ADMIN ? `<button class="btn btn-sm btn-ghost" id="btnUnapprove" style="margin-top:10px;">Revoke Approval</button>` : ``}
-            ` : `
-              <div class="hint" style="margin-bottom:${CURRENT_IS_ADMIN?'10px':'0'};">Not yet approved.</div>
-              ${CURRENT_IS_ADMIN ? `<button class="btn btn-primary btn-sm" id="btnApprove">✓ Approve Quotation</button>` : ``}
-            `}
+            ` : ``}
           </div>
         </div>
       </div>
@@ -1505,7 +1552,13 @@ function renderEditor(content, actions){
   };
   document.getElementById('btnBackList').onclick = ()=>{ CURRENT.view='quotes'; renderAll(); };
   document.getElementById('btnGoOutput').onclick = ()=>{ CURRENT.tab='output'; renderEditor(content,actions); };
-  document.getElementById('statusSel').onchange = (e)=>{ q.status = e.target.value; persistQuote(q); toast('Status updated'); };
+  document.querySelectorAll('.summary-panel [data-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.open));
+
+  const submitBtn = document.getElementById('btnSubmitApproval');
+  if(submitBtn) submitBtn.onclick = ()=>{
+    q.status = 'for_approval'; persistQuote(q); toast('Submitted for approval'); renderEditor(content, actions);
+  };
+
   const approveBtn = document.getElementById('btnApprove');
   if(approveBtn) approveBtn.onclick = ()=>{
     const me = profileByEmail(CURRENT_USER.email);
@@ -1516,12 +1569,35 @@ function renderEditor(content, actions){
       esign: (me && me.esign) || '',
       date: todayISO()
     };
+    q.status = 'approved';
     persistQuote(q); toast('Quotation approved'); renderEditor(content, actions);
   };
+
+  const requestRevisionBtn = document.getElementById('btnRequestRevision');
+  if(requestRevisionBtn) requestRevisionBtn.onclick = ()=>{
+    if(!confirm('Send this quotation back for revision? A new editable copy will be created for the person who made it.')) return;
+    const copy = JSON.parse(JSON.stringify(q));
+    copy.id = uid('q');
+    copy.refNo = incrementRevisionRef(q.refNo);
+    copy.status = 'draft';
+    copy.approvedBy = null;
+    copy.revisionChildId = null;
+    copy.revisionOf = q.id;
+    copy.createdAt = Date.now();
+    copy.updatedAt = Date.now();
+    q.status = 'for_revision';
+    q.revisionChildId = copy.id;
+    QUOTES.push(copy);
+    persistQuote(q); save(DB_KEYS.quotes, QUOTES);
+    toast(`Sent back for revision — ${copy.refNo} created`);
+    CURRENT.view = 'quotes'; renderAll();
+  };
+
   const unapproveBtn = document.getElementById('btnUnapprove');
   if(unapproveBtn) unapproveBtn.onclick = ()=>{
-    if(!confirm('Revoke this approval? The Approved By section will be cleared.')) return;
+    if(!confirm('Revoke this approval? The quotation will return to "For Approval" status.')) return;
     q.approvedBy = null;
+    q.status = 'for_approval';
     persistQuote(q); toast('Approval revoked'); renderEditor(content, actions);
   };
 
@@ -1532,6 +1608,20 @@ function renderEditor(content, actions){
   const host = document.getElementById('tabHost');
   const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, labor:tabLabor, pricing:tabPricing, marina:tabMarina, terms:tabTerms, output:tabOutput };
   renderers[CURRENT.tab](host, q);
+
+  // Once a quotation leaves Draft, it's locked from editing — only viewing
+  // (Print, the internal-cost toggle) and the workflow action buttons stay
+  // interactive. Those live outside #tabHost or are explicitly allow-listed.
+  if(q.status !== 'draft'){
+    const keepEnabled = new Set(['btnPrint','toggleInternal']);
+    host.querySelectorAll('input, select, textarea, button').forEach(el=>{
+      if(!keepEnabled.has(el.id)) el.disabled = true;
+    });
+    ['vatPct','discountType','discountValue'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.disabled = true;
+    });
+  }
 
   updateLiveSummary(q);
 }
@@ -1615,7 +1705,7 @@ function tabClient(host, q){
           </div>
         </div>
         <div class="grid g3">
-          <div class="field"><label>Reference No.</label><input id="pRef" value="${esc(q.refNo)}"></div>
+          <div class="field"><label>Reference No.</label><input id="pRef" value="${esc(q.refNo)}" class="${isDuplicateRefNo(q.refNo, q.id)?'dup-error':''}"><div class="hint" id="pRefWarning" style="color:var(--danger);display:${isDuplicateRefNo(q.refNo, q.id)?'block':'none'};">This reference number is already used by another quotation.</div></div>
           <div class="field"><label>Date</label><input type="date" id="pDate" value="${q.date}"></div>
           <div class="field"><label>Validity (days)</label><input type="number" id="pValid" value="${q.validityDays}"></div>
         </div>
@@ -1663,6 +1753,11 @@ function tabClient(host, q){
   });
   bindText('pBoatAppOther', v=>q.project.boatApplicationOther=v, q);
   bindText('pRef', v=>q.refNo=v, q);
+  document.getElementById('pRef').addEventListener('input', (e)=>{
+    const dup = isDuplicateRefNo(e.target.value, q.id);
+    e.target.classList.toggle('dup-error', dup);
+    document.getElementById('pRefWarning').style.display = dup ? 'block' : 'none';
+  });
   bindText('pDate', v=>q.date=v, q);
   bindText('pValid', v=>q.validityDays=Number(v), q);
   bindText('pNotes', v=>q.project.notes=v, q);
