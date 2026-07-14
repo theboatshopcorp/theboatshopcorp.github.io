@@ -164,8 +164,12 @@ tr:hover td{background:var(--paper);}
 
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10.5px;font-weight:600;text-transform:capitalize;letter-spacing:.01em;}
 .badge.draft{background:var(--amber-soft);color:var(--amber-dark);}
-.badge.sent{background:#eaf1fb;color:#2563a8;}
+.badge.for_approval{background:#eaf1fb;color:#2563a8;}
+.badge.for_revision{background:var(--danger-soft);color:var(--danger);}
 .badge.approved{background:var(--good-soft);color:var(--good);}
+
+/* Duplicate reference number warning */
+.dup-error{border-color:var(--danger)!important;color:var(--danger)!important;box-shadow:0 0 0 2px var(--danger-soft)!important;}
 
 /* ---------- Tabs (editor) ---------- */
 .tabs{display:flex;gap:2px;border-bottom:none;margin-bottom:18px;flex-wrap:wrap;background:var(--surface);border-radius:var(--radius);padding:5px;box-shadow:var(--shadow);}
