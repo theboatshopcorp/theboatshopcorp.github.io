@@ -549,7 +549,7 @@ function blankQuote(){
     approvedBy: null, // {email, name, esign, date} — set when an admin clicks Approve Quotation
     customerSnap: { name:'', companyName:'', clientName:'', clientPosition:'', companyTin:'', email:'', address:'', contact:'',
       repName:'', repPosition:'', repContact:'', repEmail:'', repNA:false },
-    project: { title:'', notes:'', numBoats:1, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
+    project: { title:'', notes:'', numBoats:1, passengerCapacity:0, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
     hull: { boatType:'Passenger Boat', loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false },
     structural: { items:[] },
     paint: { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' },
@@ -898,8 +898,9 @@ function renderDashboard(content, actions){
    ============================================================ */
 function renderQuotesList(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
+  const pendingApproval = CURRENT_IS_ADMIN ? QUOTES.filter(q=>q.status==='for_approval').sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'', undefined, {numeric:true})) : [];
   content.innerHTML = `
-    <div class="pill-row">
+    <div class="pill-row" style="align-items:center;">
       <div class="search"><span>${icon('search')}</span><input id="qSearch" placeholder="Search by ref no., client, boat type, prepared by…" style="width:280px;padding:8px 10px 8px 30px;border:1px solid var(--paper-line);border-radius:7px;"></div>
       <select id="qFilterStatus" style="padding:8px 10px;border:1px solid var(--paper-line);border-radius:7px;">
         <option value="">All statuses</option>
@@ -908,15 +909,21 @@ function renderQuotesList(content, actions){
         <option value="for_revision">For Revision</option>
         <option value="approved">Approved</option>
       </select>
+      ${CURRENT_IS_ADMIN ? `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${pendingApproval.length?'#2563a8':'var(--ink-faint)'};">${pendingApproval.length ? `Awaiting Your Approval:` : `Nothing awaiting approval`}</span>
+        ${pendingApproval.map(q=>`<span class="btn btn-sm" data-open="${q.id}" style="background:#eaf1fb;color:#2563a8;border-color:#eaf1fb;">${esc(q.refNo)}</span>`).join('')}
+      </div>` : ``}
     </div>
     <div class="card"><div class="card-body" style="padding:0;" id="qTableWrap"></div></div>
   `;
   document.getElementById('btnNewQ2').onclick = ()=>openEditor(null);
+  content.querySelectorAll('.pill-row [data-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.open));
   const wrap = document.getElementById('qTableWrap');
   function draw(){
     const term = document.getElementById('qSearch').value.toLowerCase();
     const st = document.getElementById('qFilterStatus').value;
-    let rows = [...QUOTES].sort((a,b)=>b.updatedAt-a.updatedAt).filter(q=>{
+    let rows = [...QUOTES].sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'', undefined, {numeric:true})).filter(q=>{
       const preparer = profileByEmail(q.createdByEmail);
       const hay = (q.refNo+' '+customerDisplayName(q.customerSnap)+' '+(q.customerSnap.clientName||'')+' '+q.hull.boatType+' '+(q.project.boatModel||'')+' '+(q.project.boatApplication||'')+' '+(q.createdByEmail||'')+' '+((preparer&&preparer.full_name)||'')).toLowerCase();
       return hay.includes(term) && (!st || q.status===st);
@@ -1393,6 +1400,7 @@ function ensureQuoteDefaults(q){
   if(q.customerSnap.repEmail===undefined) q.customerSnap.repEmail = '';
   if(q.customerSnap.repNA===undefined) q.customerSnap.repNA = false;
   if(q.project.numBoats===undefined) q.project.numBoats = 1;
+  if(q.project.passengerCapacity===undefined) q.project.passengerCapacity = 0;
   if(q.project.multiplyPrice===undefined) q.project.multiplyPrice = false;
   if(q.project.buildType===undefined) q.project.buildType = 'Standard Build';
   if(q.project.boatModel===undefined) q.project.boatModel = 'Apple Series';
@@ -1709,7 +1717,8 @@ function tabClient(host, q){
           <div class="field"><label>Date</label><input type="date" id="pDate" value="${q.date}"></div>
           <div class="field"><label>Validity (days)</label><input type="number" id="pValid" value="${q.validityDays}"></div>
         </div>
-        <div class="grid g2">
+        <div class="grid g3">
+          <div class="field"><label>Passenger Capacity</label><input type="number" id="pPaxCap" min="0" step="1" value="${q.project.passengerCapacity||0}"></div>
           <div class="field"><label>Number of Boats to be Quoted</label><input type="number" id="pNumBoats" min="1" step="1" value="${q.project.numBoats}"></div>
           <div class="field">
             <label>&nbsp;</label>
@@ -1762,6 +1771,7 @@ function tabClient(host, q){
   bindText('pValid', v=>q.validityDays=Number(v), q);
   bindText('pNotes', v=>q.project.notes=v, q);
   bindText('pNumBoats', v=>q.project.numBoats=Math.max(1, Number(v)||1), q);
+  bindText('pPaxCap', v=>q.project.passengerCapacity=Math.max(0, Number(v)||0), q);
   document.getElementById('pMultiply').addEventListener('change', (e)=>{
     q.project.multiplyPrice = e.target.checked; persistQuote(q); updateLiveSummary(q);
   });
@@ -3033,9 +3043,9 @@ function tabOutput(host, q){
             <tr><td>Boat Model</td><td class="right mono">${esc(q.project.boatModel)||'—'}</td><td>Build Type</td><td class="right mono">${esc(q.project.buildType)||'—'}</td></tr>
             <tr><td>Boat Application</td><td class="right mono" colspan="3">${esc(q.project.boatApplication==='Other' ? (q.project.boatApplicationOther||'Other') : q.project.boatApplication)||'—'}</td></tr>
             <tr><td>Length Overall</td><td class="right mono">${q.hull.loa} ft</td><td>Beam</td><td class="right mono">${q.hull.beam} ft</td></tr>
-            <tr><td>Depth</td><td class="right mono">${q.hull.depth} ft</td><td>Number of Hulls</td><td class="right mono">${q.hull.numHulls}</td></tr>
-            <tr><td>Estimated Hull Area</td><td class="right mono">${fmtNum(c.hull.area,1)} sqm</td><td>Laminate Schedule</td><td class="right mono">${q.hull.layers} layers</td></tr>
-            <tr><td>Paint Type</td><td class="right" colspan="${c.numBoats>1?'1':'3'}">${esc(q.paint.paintType)}</td>${c.numBoats>1?`<td>Number of Boats Quoted</td><td class="right mono">${c.numBoats} unit(s)</td>`:``}</tr>
+            <tr><td>Depth</td><td class="right mono">${q.hull.depth} ft</td><td>Passenger Capacity</td><td class="right mono">${q.project.passengerCapacity||0} pax</td></tr>
+            <tr><td>Engine</td><td class="right mono">${q.engine.qty||0} × ${esc(q.engine.brand)||'—'}</td><td>Engine HP</td><td class="right mono">${q.engine.hp||0} HP (${esc(q.engine.type)||'IBM'})</td></tr>
+            ${c.numBoats>1?`<tr><td>Number of Boats Quoted</td><td class="right mono" colspan="3">${c.numBoats} unit(s)</td></tr>`:``}
           </tbody>
         </table>
 
