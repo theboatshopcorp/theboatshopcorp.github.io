@@ -239,6 +239,16 @@ function renderAccessRestricted(content, actions){
 
 function uid(prefix){ return prefix+'_'+Math.random().toString(36).slice(2,9); }
 function fmt(n){ n = Number(n)||0; return '₱'+n.toLocaleString('en-PH',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+// Groups line items (each with a .cat) into a Map, preserving first-seen order.
+function groupByCat(rows){
+  const map = new Map();
+  (rows||[]).forEach(r=>{
+    const k = r.cat || 'Uncategorized';
+    if(!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  });
+  return map;
+}
 // Prefers Company Name, falls back to Client Name, then to the old combined
 // .name field (for quotes saved before Client/Company were split).
 function customerDisplayName(snap){
@@ -333,7 +343,12 @@ const DEFAULT_PRICING = {
    Items are always DISPLAYED grouped by category (in this fixed, sensible order)
    and alphabetically by name within a category — regardless of the order they
    were added in. "Custom" is the catch-all bucket and always sorts last. */
-const ACCESSORY_CATEGORY_ORDER = ['Hull & Deck Accessories','Electrical System','Navigational Equipment','Anchor & Docking','SOLAS Safety Equipment'];
+const ACCESSORY_CATEGORY_ORDER = ['Hull & Deck Accessories','Electrical System','Navigational Equipment','Anchor & Docking','SOLAS Safety Equipment','Fuel System','Enclosed Toilet','Trailer'];
+// These categories always get their own named section in the printed
+// output (in this order), each with a "Not Applicable" option — even if
+// no items are entered yet. Any other category still prints too, grouped
+// generically afterward.
+const PRINTED_ACCESSORY_SECTIONS = ['Fuel System','Anchor & Docking','SOLAS Safety Equipment','Navigational Equipment','Enclosed Toilet','Trailer'];
 function accessoryCategoryRank(cat){
   if(!cat) return ACCESSORY_CATEGORY_ORDER.length;      // uncategorized: just before Custom
   if(cat === 'Custom') return Infinity;                  // catch-all always last
@@ -554,6 +569,7 @@ function blankQuote(){
     structural: { items:[] },
     paint: { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' },
     accessories: [],
+    accessoryCategoryNA: {},
     engine: { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', speed:'', fuelCapacity:'',
       description:"Dual Installation of Yamaha 250HP, Model: F250HETX, Model: FL250HETX\nFuel Injection, 4 Stroke, 24 Valve, Double Overhead Camshaft, V6, Standard Rotation and Counter Rotation, Shaft length 25 inches, Built-in Power trim & Tilt assy., Brand New complete with the following;",
       inclusions: ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"],
@@ -1389,6 +1405,7 @@ function ensureQuoteDefaults(q){
   if(q.approvedBy===undefined) q.approvedBy = null;
   if(q.revisionChildId===undefined) q.revisionChildId = null;
   if(q.revisionOf===undefined) q.revisionOf = null;
+  if(!q.accessoryCategoryNA) q.accessoryCategoryNA = {};
   if(q.status==='sent') q.status = 'for_approval'; // migrate old 3-status quotes
   if(q.customerSnap.companyName===undefined) q.customerSnap.companyName = '';
   if(q.customerSnap.clientName===undefined) q.customerSnap.clientName = '';
@@ -2081,9 +2098,23 @@ function tabAccessories(host, q){
       </div>
       <div class="section-lead" style="padding:10px 20px 0;">Items are grouped and sorted by category automatically — add them in any order you like.</div>
       <div class="card-body" style="padding:0;">
-        <table><thead><tr><th style="width:18%;">Category</th><th>Item / Description</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th style="width:70px;">Markup %</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
+        <table><thead><tr><th style="width:16%;">Category</th><th>Item / Description</th><th style="width:60px;">Unit</th><th style="width:60px;">Qty</th><th style="width:100px;">Unit Price</th><th style="width:65px;">Markup %</th><th class="right" style="width:100px;">Total</th><th></th></tr></thead>
           <tbody id="accRows"></tbody>
         </table>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h3>Not Applicable Sections</h3></div>
+      <div class="card-body">
+        <div class="section-lead" style="margin-top:0;">Check any section that doesn't apply to this boat — the printed quotation will show "Not Applicable" there instead of an item list.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px 28px;">
+          ${PRINTED_ACCESSORY_SECTIONS.map(cat=>`
+            <label class="field-inline" style="font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" class="naCheck" data-cat="${esc(cat)}" ${q.accessoryCategoryNA[cat]?'checked':''} style="width:auto;">
+              ${esc(cat)}
+            </label>
+          `).join('')}
+        </div>
       </div>
     </div>
   `;
@@ -2109,13 +2140,14 @@ function tabAccessories(host, q){
           <input type="text" class="tbl-input arow-cat-new" data-idx="${idx}" placeholder="Type new category, e.g. Lighting" style="display:none;margin-top:4px;">
         </td>
         <td><input class="tbl-input arow" data-idx="${idx}" data-f="name" value="${esc(a.name)}"></td>
+        <td><input class="tbl-input arow" data-idx="${idx}" data-f="unit" value="${esc(a.unit||'pc')}"></td>
         <td><input class="tbl-input num arow" type="number" data-idx="${idx}" data-f="qty" value="${a.qty}"></td>
         <td><input class="tbl-input num arow" type="number" data-idx="${idx}" data-f="unitPrice" value="${a.unitPrice}"></td>
         <td><input class="tbl-input num arow" type="number" data-idx="${idx}" data-f="markup" value="${a.markup}"></td>
         <td class="right mono">${fmt(total)}</td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-delrow="${idx}" style="color:var(--danger);">✕</span></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="7"><div class="empty">No accessory items yet. Add from the catalog or add a custom line item.</div></td></tr>`;
+    }).join('') : `<tr><td colspan="8"><div class="empty">No accessory items yet. Add from the catalog or add a custom line item.</div></td></tr>`;
 
     rowsBody.querySelectorAll('.arow-cat').forEach(sel=>{
       sel.addEventListener('change', ()=>{
@@ -2170,16 +2202,22 @@ function tabAccessories(host, q){
   document.getElementById('catalogPick').onchange = (e)=>{
     if(e.target.value===''){ return; }
     const item = PRICING.accessoryCatalog[Number(e.target.value)];
-    q.accessories.push({id:uid('ai'), cat:item.cat, name:item.name, qty:1, unitPrice:item.unitPrice, markup:15});
+    q.accessories.push({id:uid('ai'), cat:item.cat, name:item.name, unit:'pc', qty:1, unitPrice:item.unitPrice, markup:15});
     e.target.value=''; persistQuote(q); draw(); updateLiveSummary(q);
   };
   document.getElementById('addBlankItem').onclick = ()=>{
     // No category preselected — the row's dropdown prompts the user to pick
     // a familiar/similar category, or type a new one, right away.
-    q.accessories.push({id:uid('ai'), cat:'', name:'New Item', qty:1, unitPrice:0, markup:15});
+    q.accessories.push({id:uid('ai'), cat:'', name:'New Item', unit:'pc', qty:1, unitPrice:0, markup:15});
     persistQuote(q); draw(); updateLiveSummary(q);
   };
   draw();
+  document.querySelectorAll('.naCheck').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      q.accessoryCategoryNA[cb.dataset.cat] = cb.checked;
+      persistQuote(q);
+    });
+  });
 }
 
 /* ---- Tab: Engine ---- */
@@ -3056,20 +3094,42 @@ function tabOutput(host, q){
         </table>
 
         <div class="doc-section-title">II. Structural Components &amp; Core Materials</div>
-        <table class="doc-item-table">
-          <thead><tr><th>Category</th><th>Item</th><th>Unit</th><th class="right">Qty</th><th class="right">Amount</th></tr></thead>
-          <tbody>
-            ${c.structural.rows.length? c.structural.rows.map(r=>`<tr><td>${esc(r.cat)}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="right">${r.qty}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('') : `<tr><td colspan="5">No structural items listed.</td></tr>`}
-          </tbody>
-        </table>
+        ${(()=>{
+          const groups = groupByCat(c.structural.rows);
+          if(!groups.size) return `<div class="doc-na-block" style="font-style:normal;">No structural items listed.</div>`;
+          return Array.from(groups.entries()).map(([cat, rows])=>`
+            <div class="doc-subcat-title">${esc(cat)}</div>
+            <table class="doc-item-table">
+              <thead><tr><th>Item</th><th class="right">Amount</th></tr></thead>
+              <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
+            </table>`).join('');
+        })()}
 
         <div class="doc-section-title">III. Accessories &amp; Components</div>
-        <table class="doc-item-table">
-          <thead><tr><th>Category</th><th>Item</th><th class="right">Qty</th><th class="right">Amount</th></tr></thead>
-          <tbody>
-            ${c.acc.rows.length? c.acc.rows.map(r=>`<tr><td>${esc(r.cat)}</td><td>${esc(r.name)}</td><td class="right">${r.qty}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('') : `<tr><td colspan="4">No accessory items listed.</td></tr>`}
-          </tbody>
-        </table>
+        ${(()=>{
+          const groups = groupByCat(c.acc.rows);
+          const renderTable = rows => `
+            <table class="doc-item-table">
+              <thead><tr><th class="right" style="width:50px;">Qty</th><th style="width:70px;">Unit</th><th>Item</th><th class="right">Amount</th></tr></thead>
+              <tbody>${rows.map(r=>`<tr><td class="right">${r.qty}</td><td>${esc(r.unit)||'—'}</td><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
+            </table>`;
+          // Fixed named sections always appear, in this order, each
+          // supporting "Not Applicable"; any other category found in the
+          // data prints afterward, grouped the same way.
+          const fixedHtml = PRINTED_ACCESSORY_SECTIONS.map(cat=>{
+            const rows = groups.get(cat);
+            groups.delete(cat);
+            const isNA = !!q.accessoryCategoryNA[cat];
+            return `
+              <div class="doc-subcat-title">${esc(cat)}</div>
+              ${isNA ? `<div class="doc-na-block">Not Applicable</div>`
+                : (rows && rows.length ? renderTable(rows) : `<div class="doc-na-block" style="font-style:normal;">No items listed.</div>`)}`;
+          }).join('');
+          const restHtml = Array.from(groups.entries()).map(([cat, rows])=>`
+            <div class="doc-subcat-title">${esc(cat)}</div>
+            ${renderTable(rows)}`).join('');
+          return fixedHtml + restHtml;
+        })()}
 
         <div class="doc-section-title">IV. Engine &amp; Mechanical System</div>
         <table><tbody>
