@@ -335,9 +335,6 @@ tr:hover td{background:var(--paper);}
 /* MARINA Documents box — bulleted list on the left, price vertically centered on the right */
 .marina-box{border-top:1px solid var(--doc-ink);border-bottom:1px solid var(--doc-ink);padding:14px 0;margin:8px 0 18px;}
 .marina-title{font-weight:700;font-size:11px;letter-spacing:.03em;margin-bottom:10px;}
-.doc-subcat-title{font-weight:700;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;margin:16px 0 8px;color:var(--doc-ink);}
-.doc-subcat-title:first-child{margin-top:0;}
-.doc-na-block{color:var(--doc-ink-faint);font-style:italic;font-size:11px;padding:2px 0 10px;}
 .doc-subcat-title{font-weight:700;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--doc-ink);margin:16px 0 6px;}
 .doc-subcat-title:first-child{margin-top:0;}
 .doc-na-block{color:var(--doc-ink-faint);font-style:italic;font-size:11.5px;padding:2px 0 10px;}
