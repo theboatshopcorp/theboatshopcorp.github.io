@@ -343,12 +343,12 @@ const DEFAULT_PRICING = {
    Items are always DISPLAYED grouped by category (in this fixed, sensible order)
    and alphabetically by name within a category — regardless of the order they
    were added in. "Custom" is the catch-all bucket and always sorts last. */
-const ACCESSORY_CATEGORY_ORDER = ['Hull & Deck Accessories','Electrical System','Navigational Equipment','Anchor & Docking','SOLAS Safety Equipment','Fuel System','Enclosed Toilet','Trailer'];
+const ACCESSORY_CATEGORY_ORDER = ['Hull & Deck Accessories','Electrical System','Navigational Equipment','Anchor & Docking','SOLAS Safety Equipment','Fuel System','Enclosed Toilet'];
 // These categories always get their own named section in the printed
 // output (in this order), each with a "Not Applicable" option — even if
 // no items are entered yet. Any other category still prints too, grouped
 // generically afterward.
-const PRINTED_ACCESSORY_SECTIONS = ['Fuel System','Anchor & Docking','SOLAS Safety Equipment','Navigational Equipment','Enclosed Toilet','Trailer'];
+const PRINTED_ACCESSORY_SECTIONS = ['Fuel System','Anchor & Docking','SOLAS Safety Equipment','Navigational Equipment','Enclosed Toilet'];
 function accessoryCategoryRank(cat){
   if(!cat) return ACCESSORY_CATEGORY_ORDER.length;      // uncategorized: just before Custom
   if(cat === 'Custom') return Infinity;                  // catch-all always last
@@ -371,6 +371,29 @@ function getKnownAccessoryCategories(){
   (QUOTES||[]).forEach(qt=>{ (qt.accessories||[]).forEach(a=>{ if(a.cat && a.cat!=='Custom') set.add(a.cat); }); });
   const rest = [...set].filter(c=>!ACCESSORY_CATEGORY_ORDER.includes(c)).sort((a,b)=>a.localeCompare(b));
   return [...ACCESSORY_CATEGORY_ORDER, ...rest, 'Custom'];
+}
+
+/* ---------- Testing & Delivery: same category/sorting approach as Accessories ---------- */
+const TESTING_DELIVERY_ORDER = ['Trailer','Delivery','Sea Trial'];
+const PRINTED_TESTING_DELIVERY_SECTIONS = ['Trailer','Delivery','Sea Trial'];
+function testingCategoryRank(cat){
+  if(!cat) return TESTING_DELIVERY_ORDER.length;
+  if(cat === 'Custom') return Infinity;
+  const idx = TESTING_DELIVERY_ORDER.indexOf(cat);
+  return idx !== -1 ? idx : TESTING_DELIVERY_ORDER.length;
+}
+function compareTestingItems(a, b){
+  const ra = testingCategoryRank(a.cat), rb = testingCategoryRank(b.cat);
+  if(ra !== rb) return ra - rb;
+  const catCmp = String(a.cat||'').localeCompare(String(b.cat||''));
+  if(catCmp !== 0) return catCmp;
+  return String(a.name||'').localeCompare(String(b.name||''), undefined, {numeric:true, sensitivity:'base'});
+}
+function getKnownTestingCategories(){
+  const set = new Set(TESTING_DELIVERY_ORDER);
+  (QUOTES||[]).forEach(qt=>{ (qt.testingDelivery||[]).forEach(a=>{ if(a.cat && a.cat!=='Custom') set.add(a.cat); }); });
+  const rest = [...set].filter(c=>!TESTING_DELIVERY_ORDER.includes(c)).sort((a,b)=>a.localeCompare(b));
+  return [...TESTING_DELIVERY_ORDER, ...rest, 'Custom'];
 }
 
 /* ---------- Structural Components: same sorting/category approach as accessories ----------
@@ -570,6 +593,8 @@ function blankQuote(){
     paint: { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' },
     accessories: [],
     accessoryCategoryNA: {},
+    testingDelivery: [],
+    testingDeliveryNA: {},
     engine: { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', speed:'', fuelCapacity:'',
       description:"Dual Installation of Yamaha 250HP, Model: F250HETX, Model: FL250HETX\nFuel Injection, 4 Stroke, 24 Valve, Double Overhead Camshaft, V6, Standard Rotation and Counter Rotation, Shaft length 25 inches, Built-in Power trim & Tilt assy., Brand New complete with the following;",
       inclusions: ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"],
@@ -680,6 +705,15 @@ function computeAccessories(q){
   const total = rows.reduce((s,r)=>s+r.total,0);
   return { rows, total };
 }
+function computeTestingDelivery(q){
+  const rows = (q.testingDelivery||[]).map(a=>{
+    const base = (Number(a.qty)||0) * (Number(a.unitPrice)||0);
+    const total = base * (1 + (Number(a.markup)||0)/100);
+    return {...a, base, total};
+  }).sort(compareTestingItems);
+  const total = rows.reduce((s,r)=>s+r.total,0);
+  return { rows, total };
+}
 function computeEngine(q){
   const e = q.engine;
   const unitsCost = (Number(e.qty)||0) * (Number(e.unitPrice)||0);
@@ -699,6 +733,7 @@ function computeAll(q){
   const paint = computePaint(q, hull);
   const structural = computeStructural(q);
   const acc = computeAccessories(q);
+  const testing = computeTestingDelivery(q);
   const eng = computeEngine(q);
   const labor = computeLabor(q);
   const materialCost = hull.total + paint.total + structural.total;
@@ -716,11 +751,11 @@ function computeAll(q){
   const rushFee = isRush ? base * (Number(q.rates.rushFeePct)||0)/100 : 0;
   const deliveryDate = sch.startDate ? new Date(new Date(sch.startDate).getTime() + requestedDays*86400000) : null;
   const marinaCost = (q.marina && Array.isArray(q.marina.items)) ? q.marina.items.reduce((s,it)=>s+(Number(it.price)||0),0) : 0;
-  const unitFinalTotal = materialCost + laborCost + equipmentCost + overheadCost + contingencyCost + marginCost + durationCost + rushFee + marinaCost;
+  const unitFinalTotal = materialCost + laborCost + equipmentCost + overheadCost + contingencyCost + marginCost + durationCost + rushFee + marinaCost + testing.total;
   const numBoats = Math.max(1, Number(q.project.numBoats)||1);
   const multiplyPrice = !!q.project.multiplyPrice;
   const finalTotal = multiplyPrice ? unitFinalTotal * numBoats : unitFinalTotal;
-  return { hull, paint, structural, acc, eng, labor, materialCost, equipmentCost, laborCost, overheadCost, contingencyCost, marginCost, marinaCost, base, standardDays, requestedDays, durationCost, isRush, rushFee, deliveryDate, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
+  return { hull, paint, structural, acc, testing, eng, labor, materialCost, equipmentCost, laborCost, overheadCost, contingencyCost, marginCost, marinaCost, base, standardDays, requestedDays, durationCost, isRush, rushFee, deliveryDate, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
 }
 function computeInvoiceTotals(q, c){
   const inv = q.invoice || { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:0 };
@@ -1406,6 +1441,13 @@ function ensureQuoteDefaults(q){
   if(q.revisionChildId===undefined) q.revisionChildId = null;
   if(q.revisionOf===undefined) q.revisionOf = null;
   if(!q.accessoryCategoryNA) q.accessoryCategoryNA = {};
+  if(!q.testingDelivery) q.testingDelivery = [];
+  if(!q.testingDeliveryNA) q.testingDeliveryNA = {};
+  const oldTrailerItems = (q.accessories||[]).filter(a=>a.cat==='Trailer');
+  if(oldTrailerItems.length){
+    q.testingDelivery = [...q.testingDelivery, ...oldTrailerItems];
+    q.accessories = q.accessories.filter(a=>a.cat!=='Trailer');
+  }
   if(q.status==='sent') q.status = 'for_approval'; // migrate old 3-status quotes
   if(q.customerSnap.companyName===undefined) q.customerSnap.companyName = '';
   if(q.customerSnap.clientName===undefined) q.customerSnap.clientName = '';
@@ -1488,8 +1530,9 @@ const EDITOR_TABS = [
   {id:'labor', n:'06', label:'Labor'},
   {id:'pricing', n:'07', label:'Timeline & Margin'},
   {id:'marina', n:'08', label:'MARINA Documentation'},
-  {id:'terms', n:'09', label:'Terms & Conditions'},
-  {id:'output', n:'10', label:'Quotation Output'},
+  {id:'testing', n:'09', label:'Testing & Delivery'},
+  {id:'terms', n:'10', label:'Terms & Conditions'},
+  {id:'output', n:'11', label:'Quotation Output'},
 ];
 
 function renderEditor(content, actions){
@@ -1633,7 +1676,7 @@ function renderEditor(content, actions){
   tabsEl.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ CURRENT.tab = el.dataset.tab; renderEditor(content,actions); });
 
   const host = document.getElementById('tabHost');
-  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, labor:tabLabor, pricing:tabPricing, marina:tabMarina, terms:tabTerms, output:tabOutput };
+  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, labor:tabLabor, pricing:tabPricing, marina:tabMarina, testing:tabTesting, terms:tabTerms, output:tabOutput };
   renderers[CURRENT.tab](host, q);
 
   // Once a quotation leaves Draft, it's locked from editing — only viewing
@@ -2215,6 +2258,120 @@ function tabAccessories(host, q){
   document.querySelectorAll('.naCheck').forEach(cb=>{
     cb.addEventListener('change', ()=>{
       q.accessoryCategoryNA[cb.dataset.cat] = cb.checked;
+      persistQuote(q);
+    });
+  });
+}
+
+/* ---- Tab: Testing & Delivery ---- */
+function tabTesting(host, q){
+  host.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>Testing &amp; Delivery</h3>
+        <button class="btn btn-sm" id="addTestingItem">${icon('plus')} Add Custom Item</button>
+      </div>
+      <div class="section-lead" style="padding:10px 20px 0;">Covers Trailer, Delivery, and Sea Trial line items — add any others you need too. Items are grouped and sorted by category automatically.</div>
+      <div class="card-body" style="padding:0;">
+        <table><thead><tr><th style="width:16%;">Category</th><th>Item / Description</th><th style="width:60px;">Unit</th><th style="width:60px;">Qty</th><th style="width:100px;">Unit Price</th><th style="width:65px;">Markup %</th><th class="right" style="width:100px;">Total</th><th></th></tr></thead>
+          <tbody id="testRows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h3>Not Applicable Sections</h3></div>
+      <div class="card-body">
+        <div class="section-lead" style="margin-top:0;">Check any section that doesn't apply to this boat — the printed quotation will show "Not Applicable" there instead of an item list.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px 28px;">
+          ${PRINTED_TESTING_DELIVERY_SECTIONS.map(cat=>`
+            <label class="field-inline" style="font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" class="testNaCheck" data-cat="${esc(cat)}" ${q.testingDeliveryNA[cat]?'checked':''} style="width:auto;">
+              ${esc(cat)}
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  const rowsBody = document.getElementById('testRows');
+  function draw(){
+    const order = q.testingDelivery.map((a,i)=>i).sort((i,j)=>compareTestingItems(q.testingDelivery[i], q.testingDelivery[j]));
+    const knownCats = getKnownTestingCategories();
+    rowsBody.innerHTML = order.length ? order.map(idx=>{
+      const a = q.testingDelivery[idx];
+      const total = (Number(a.qty)||0)*(Number(a.unitPrice)||0)*(1+(Number(a.markup)||0)/100);
+      const catIsKnown = a.cat && knownCats.includes(a.cat);
+      const catOptions = knownCats.map(c=>`<option value="${esc(c)}" ${a.cat===c?'selected':''}>${esc(c)}</option>`).join('');
+      return `<tr>
+        <td>
+          <select class="tbl-input trow-cat" data-idx="${idx}">
+            <option value="" ${a.cat?'':'selected'}>— choose category —</option>
+            ${catOptions}
+            ${a.cat && !catIsKnown ? `<option value="${esc(a.cat)}" selected>${esc(a.cat)}</option>` : ''}
+            <option value="__new__">+ New category…</option>
+          </select>
+          <input type="text" class="tbl-input trow-cat-new" data-idx="${idx}" placeholder="Type new category" style="display:none;margin-top:4px;">
+        </td>
+        <td><input class="tbl-input trow" data-idx="${idx}" data-f="name" value="${esc(a.name)}"></td>
+        <td><input class="tbl-input trow" data-idx="${idx}" data-f="unit" value="${esc(a.unit||'pc')}"></td>
+        <td><input class="tbl-input num trow" type="number" data-idx="${idx}" data-f="qty" value="${a.qty}"></td>
+        <td><input class="tbl-input num trow" type="number" data-idx="${idx}" data-f="unitPrice" value="${a.unitPrice}"></td>
+        <td><input class="tbl-input num trow" type="number" data-idx="${idx}" data-f="markup" value="${a.markup}"></td>
+        <td class="right mono">${fmt(total)}</td>
+        <td class="right"><span class="btn btn-ghost btn-sm" data-delrow="${idx}" style="color:var(--danger);">✕</span></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="8"><div class="empty">No items yet. Add a Trailer, Delivery, Sea Trial, or custom line item.</div></td></tr>`;
+
+    rowsBody.querySelectorAll('.trow-cat').forEach(sel=>{
+      sel.addEventListener('change', ()=>{
+        const idx = Number(sel.dataset.idx);
+        const newInput = rowsBody.querySelector(`.trow-cat-new[data-idx="${idx}"]`);
+        if(sel.value === '__new__'){
+          sel.style.display = 'none';
+          newInput.style.display = 'block';
+          newInput.focus();
+          return;
+        }
+        q.testingDelivery[idx].cat = sel.value;
+        persistQuote(q); draw(); updateLiveSummary(q);
+      });
+    });
+    rowsBody.querySelectorAll('.trow-cat-new').forEach(inp=>{
+      const commit = ()=>{
+        const idx = Number(inp.dataset.idx);
+        const v = inp.value.trim();
+        if(v){ q.testingDelivery[idx].cat = v; }
+        persistQuote(q); draw(); updateLiveSummary(q);
+      };
+      inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); commit(); } });
+      inp.addEventListener('blur', commit);
+    });
+    rowsBody.querySelectorAll('.trow').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const idx = Number(inp.dataset.idx);
+        const a = q.testingDelivery[idx];
+        a[inp.dataset.f] = ['qty','unitPrice','markup'].includes(inp.dataset.f) ? Number(inp.value) : inp.value;
+        persistQuote(q); updateLiveSummary(q);
+        const total = (Number(a.qty)||0)*(Number(a.unitPrice)||0)*(1+(Number(a.markup)||0)/100);
+        const tr = inp.closest('tr');
+        if(tr) tr.querySelector('td.right.mono').textContent = fmt(total);
+      });
+      if(inp.dataset.f === 'name'){
+        inp.addEventListener('blur', ()=>{ draw(); updateLiveSummary(q); });
+        inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
+      }
+    });
+    rowsBody.querySelectorAll('[data-delrow]').forEach(b=>b.onclick=()=>{
+      q.testingDelivery.splice(Number(b.dataset.delrow),1); persistQuote(q); draw(); updateLiveSummary(q);
+    });
+  }
+  document.getElementById('addTestingItem').onclick = ()=>{
+    q.testingDelivery.push({id:uid('ti'), cat:'', name:'New Item', unit:'pc', qty:1, unitPrice:0, markup:0});
+    persistQuote(q); draw(); updateLiveSummary(q);
+  };
+  draw();
+  document.querySelectorAll('.testNaCheck').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      q.testingDeliveryNA[cb.dataset.cat] = cb.checked;
       persistQuote(q);
     });
   });
@@ -3013,6 +3170,7 @@ function tabOutput(host, q){
             <tr><td>Accessories &amp; Components</td><td class="right mono">${fmt(c.acc.total)}</td></tr>
             <tr><td>Engine &amp; Mechanical System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
             <tr><td>MARINA Documentation &amp; Regulatory Requirements</td><td class="right mono">${fmt(c.marinaCost)}</td></tr>
+            <tr><td>Testing &amp; Delivery</td><td class="right mono">${fmt(c.testing.total)}</td></tr>
             ${q.output.showInternalCosts ? `
             <tr><td>Labor &amp; Manufacturing</td><td class="right mono">${fmt(c.laborCost)}</td></tr>
             <tr><td>Overhead (${q.rates.overheadPct}%)</td><td class="right mono">${fmt(c.overheadCost)}</td></tr>
@@ -3158,6 +3316,33 @@ function tabOutput(host, q){
           </div>
         </div>
         <div class="doc-terms" style="margin-top:6px;">${esc(q.marina.notes)}</div>
+
+        <div class="doc-section-title">VI. Testing &amp; Delivery</div>
+        ${(()=>{
+          const groups = groupByCat(c.testing.rows);
+          const rowsHtml = (items)=>`
+            <table class="doc-item-table">
+              <thead><tr><th style="width:50px;">Qty</th><th style="width:70px;">Unit</th><th>Item</th><th class="right">Amount</th></tr></thead>
+              <tbody>
+                ${items.map(r=>`<tr><td>${r.qty}</td><td>${esc(r.unit)}</td><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}
+              </tbody>
+            </table>`;
+          const namedHtml = PRINTED_TESTING_DELIVERY_SECTIONS.map(cat=>{
+            const items = groups.get(cat);
+            groups.delete(cat);
+            const isNA = !!q.testingDeliveryNA[cat];
+            return `
+              <div class="doc-subcat-title">${esc(cat)}:</div>
+              ${isNA ? `<div class="doc-na-block">Not Applicable</div>`
+                : (items && items.length ? rowsHtml(items) : `<div class="hint">No items listed.</div>`)}
+            `;
+          }).join('');
+          const otherHtml = Array.from(groups.entries()).map(([cat, items])=>`
+            <div class="doc-subcat-title">${esc(cat)}:</div>
+            ${rowsHtml(items)}
+          `).join('');
+          return namedHtml + otherHtml;
+        })()}
       </div>
     </div>
   `;
