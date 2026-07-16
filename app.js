@@ -3266,22 +3266,26 @@ function tabOutput(host, q){
         <div class="doc-section-title">III. Accessories &amp; Components</div>
         ${(()=>{
           const groups = groupByCat(c.acc.rows);
-          const sumRow = (cat, rows) => {
-            const total = rows.reduce((s,r)=>s+r.total,0);
-            return `<div class="doc-kv-row"><span class="k">${esc(cat)}</span><span class="v mono">${fmt(total)}</span></div>`;
-          };
+          const renderTable = rows => `
+            <table class="doc-item-table">
+              <thead><tr><th class="right" style="width:50px;">Qty</th><th style="width:70px;">Unit</th><th>Item</th><th class="right">Amount</th></tr></thead>
+              <tbody>${rows.map(r=>`<tr><td class="right">${r.qty}</td><td>${esc(r.unit)||'—'}</td><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
+            </table>`;
           // Fixed named sections always appear, in this order, each
           // supporting "Not Applicable"; any other category found in the
-          // data prints afterward, in the same one-line-per-category format.
+          // data prints afterward, grouped the same way.
           const fixedHtml = PRINTED_ACCESSORY_SECTIONS.map(cat=>{
             const rows = groups.get(cat);
             groups.delete(cat);
             const isNA = !!q.accessoryCategoryNA[cat];
-            if(isNA) return `<div class="doc-kv-row"><span class="k">${esc(cat)}</span><span class="v doc-na">Not Applicable</span></div>`;
-            if(!rows || !rows.length) return `<div class="doc-kv-row"><span class="k">${esc(cat)}</span><span class="v" style="color:var(--doc-ink-faint);">No items listed</span></div>`;
-            return sumRow(cat, rows);
+            return `
+              <div class="doc-subcat-title">${esc(cat)}</div>
+              ${isNA ? `<div class="doc-na-block">Not Applicable</div>`
+                : (rows && rows.length ? renderTable(rows) : `<div class="doc-na-block" style="font-style:normal;">No items listed.</div>`)}`;
           }).join('');
-          const restHtml = Array.from(groups.entries()).map(([cat, rows])=>sumRow(cat, rows)).join('');
+          const restHtml = Array.from(groups.entries()).map(([cat, rows])=>`
+            <div class="doc-subcat-title">${esc(cat)}</div>
+            ${renderTable(rows)}`).join('');
           return fixedHtml + restHtml;
         })()}
 
