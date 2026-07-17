@@ -240,6 +240,7 @@ tr:hover td{background:var(--paper);}
 }
 .doc-header-top .co h2{font-size:19px;color:var(--doc-ink);font-weight:700;margin-bottom:4px;letter-spacing:-.01em;}
 .doc-header-top .co .tag{font-size:10.5px;letter-spacing:.01em;color:var(--doc-ink-soft);font-style:normal;}
+.doc-header-top .co .co-meta{font-size:9.3px;color:var(--doc-ink-faint);margin-top:6px;line-height:1.6;max-width:260px;}
 
 /* Draggable / resizable logo */
 .doc-logo-wrap{position:relative;flex:none;cursor:move;user-select:none;}
