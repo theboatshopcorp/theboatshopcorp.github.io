@@ -240,7 +240,9 @@ tr:hover td{background:var(--paper);}
 }
 .doc-header-top .co h2{font-size:19px;color:var(--doc-ink);font-weight:700;margin-bottom:4px;letter-spacing:-.01em;}
 .doc-header-top .co .tag{font-size:10.5px;letter-spacing:.01em;color:var(--doc-ink-soft);font-style:normal;}
-.doc-header-top .co .co-meta{font-size:9.3px;color:var(--doc-ink-faint);margin-top:6px;line-height:1.6;max-width:260px;}
+.doc-company-details{margin:2px 0 20px;padding-bottom:16px;border-bottom:1px solid var(--doc-line);}
+.doc-company-details .co-meta{font-size:9.3px;color:var(--doc-ink-faint);margin-top:4px;line-height:1.6;max-width:340px;}
+.doc-company-details .co-meta:first-child{margin-top:0;}
 
 /* Draggable / resizable logo */
 .doc-logo-wrap{position:relative;flex:none;cursor:move;user-select:none;}
