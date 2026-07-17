@@ -292,6 +292,7 @@ const DEFAULT_PRICING = {
   paintPerLiter: 480,
   paintCoverage: 8,
   laborRates: { fabrication:180, fiberglass:190, painting:160, electrical:200, assembly:170, testing:210 },
+  laborHours: { fabrication:900, fiberglass:600, painting:260, electrical:320, assembly:400, testing:120 },
   overheadPct: 12,
   contingencyPct: 5,
   marginPct: 18,
@@ -446,6 +447,7 @@ const DEFAULT_TEMPLATES = [
 ];
 
 let PRICING = load(DB_KEYS.pricing, null) || JSON.parse(JSON.stringify(DEFAULT_PRICING));
+if(!PRICING.laborHours) PRICING.laborHours = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborHours));
 if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog));
 if(PRICING.dailyRate===undefined) PRICING.dailyRate = DEFAULT_PRICING.dailyRate;
 if(PRICING.standardDurationDays===undefined) PRICING.standardDurationDays = DEFAULT_PRICING.standardDurationDays;
@@ -721,9 +723,11 @@ function computeEngine(q){
   return { unitsCost, total };
 }
 function computeLabor(q){
-  const l = q.labor, rates = q.rates.laborRates;
-  const rows = Object.keys(l).map(k=>({
-    key:k, hours:Number(l[k])||0, rate: Number(rates[k])||0, cost: (Number(l[k])||0)*(Number(rates[k])||0)
+  // Labor hours and rates now come from the Pricing Database only — no more
+  // per-quote override — so every quotation uses the same current standard.
+  const hours = PRICING.laborHours, rates = PRICING.laborRates;
+  const rows = Object.keys(rates).map(k=>({
+    key:k, hours:Number(hours[k])||0, rate: Number(rates[k])||0, cost: (Number(hours[k])||0)*(Number(rates[k])||0)
   }));
   const total = rows.reduce((s,r)=>s+r.cost,0);
   return { rows, total };
@@ -1024,9 +1028,9 @@ function renderQuotesList(content, actions){
    ============================================================ */
 function renderCustomers(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnAddCust">${icon('plus')} Add Customer</button>`;
-  content.innerHTML = `<div class="card"><div class="card-body" style="padding:0;" id="custWrap"></div></div>`;
+  content.innerHTML = `<div class="section-lead">Client's Representative is the point-of-contact person at the client's company — this auto-fills into a quotation's "Client's Representative" fields when you load this customer.</div><div class="card"><div class="card-body" style="padding:0;" id="custWrap"></div></div>`;
   document.getElementById('btnAddCust').onclick = ()=>{
-    CUSTOMERS.push({id:uid('c'), name:'New Customer', email:'', contact:'', address:''});
+    CUSTOMERS.push({id:uid('c'), name:'New Customer', email:'', contact:'', address:'', repName:'', repPosition:'', repContact:'', repEmail:''});
     save(DB_KEYS.customers, CUSTOMERS); draw();
   };
   const wrap = document.getElementById('custWrap');
@@ -1040,6 +1044,15 @@ function draw() {
             <th>Email</th>
             <th>Contact No.</th>
             <th>Address</th>
+            <th colspan="4" style="text-align:center;border-left:1px solid var(--paper-line);">Client's Representative</th>
+            <th></th>
+          </tr>
+          <tr>
+            <th></th><th></th><th></th><th></th>
+            <th style="border-left:1px solid var(--paper-line);font-weight:600;">Name</th>
+            <th style="font-weight:600;">Position</th>
+            <th style="font-weight:600;">Contact No.</th>
+            <th style="font-weight:600;">Email</th>
             <th></th>
           </tr>
         </thead>
@@ -1059,6 +1072,10 @@ function draw() {
     )
   }</textarea>
 </td>
+              <td style="border-left:1px solid var(--paper-line);"><input class="tbl-input" data-f="repName" data-id="${c.id}" value="${esc(c.repName||'')}"></td>
+              <td><input class="tbl-input" data-f="repPosition" data-id="${c.id}" value="${esc(c.repPosition||'')}"></td>
+              <td><input class="tbl-input" data-f="repContact" data-id="${c.id}" value="${esc(c.repContact||'')}"></td>
+              <td><input class="tbl-input" data-f="repEmail" data-id="${c.id}" value="${esc(c.repEmail||'')}"></td>
               <td class="right">
                 <span class="btn btn-ghost btn-sm" data-del="${c.id}" style="color:var(--danger);">Remove</span>
               </td>
@@ -1312,8 +1329,17 @@ function renderPricing(content, actions){
         ${numField('Topcoat Paint (₱/liter)','paintPerLiter',r.paintPerLiter)}
         ${numField('Paint Coverage (sqm/L per coat)','paintCoverage',r.paintCoverage)}
       </div></div>
-      <div class="card"><div class="card-head"><h3>Labor Rates (₱/hour)</h3></div><div class="card-body grid g3">
-        ${Object.keys(r.laborRates).map(k=>numField(cap(k),'labor_'+k,r.laborRates[k])).join('')}
+      <div class="card"><div class="card-head"><h3>Labor Hours &amp; Rates</h3></div><div class="card-body" style="padding:0;">
+        <div class="section-lead" style="padding:14px 20px 0;">Standard hours and hourly rate per category, applied to every quotation automatically. No longer editable per-quotation — change it here to affect all quotations at once.</div>
+        <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:110px;">Hours</th><th style="width:130px;">Rate (₱/hr)</th></tr></thead>
+        <tbody>
+          ${Object.keys(r.laborRates).map(k=>`
+            <tr>
+              <td>${cap(k)}</td>
+              <td><input type="number" step="any" class="pf" data-key="hours_${k}" value="${r.laborHours[k]||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
+              <td><input type="number" step="any" class="pf" data-key="labor_${k}" value="${r.laborRates[k]}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
+            </tr>`).join('')}
+        </tbody></table>
       </div></div>
       <div class="card"><div class="card-head"><h3>Overhead, Contingency &amp; Margin</h3></div><div class="card-body grid g3">
         ${numField('Overhead (%)','overheadPct',r.overheadPct)}
@@ -1393,6 +1419,7 @@ function renderPricing(content, actions){
     document.querySelectorAll('.pf').forEach(i=>{
       const k = i.dataset.key, v = Number(i.value);
       if(k.startsWith('labor_')) r.laborRates[k.replace('labor_','')] = v;
+      else if(k.startsWith('hours_')) r.laborHours[k.replace('hours_','')] = v;
       else r[k] = v;
     });
     save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
@@ -1527,12 +1554,11 @@ const EDITOR_TABS = [
   {id:'paint', n:'03', label:'Paint & Finish'},
   {id:'accessories', n:'04', label:'Accessories'},
   {id:'engine', n:'05', label:'Engine'},
-  {id:'labor', n:'06', label:'Labor'},
-  {id:'pricing', n:'07', label:'Timeline & Margin'},
-  {id:'marina', n:'08', label:'MARINA Documentation'},
-  {id:'testing', n:'09', label:'Testing & Delivery'},
-  {id:'terms', n:'10', label:'Terms & Conditions'},
-  {id:'output', n:'11', label:'Quotation Output'},
+  {id:'testing', n:'06', label:'Testing & Delivery'},
+  {id:'marina', n:'07', label:'MARINA Documentation'},
+  {id:'pricing', n:'08', label:'Timeline & Margin'},
+  {id:'terms', n:'09', label:'Terms & Conditions'},
+  {id:'output', n:'10', label:'Quotation Output'},
 ];
 
 function renderEditor(content, actions){
@@ -1676,7 +1702,7 @@ function renderEditor(content, actions){
   tabsEl.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ CURRENT.tab = el.dataset.tab; renderEditor(content,actions); });
 
   const host = document.getElementById('tabHost');
-  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, labor:tabLabor, pricing:tabPricing, marina:tabMarina, testing:tabTesting, terms:tabTerms, output:tabOutput };
+  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, pricing:tabPricing, marina:tabMarina, testing:tabTesting, terms:tabTerms, output:tabOutput };
   renderers[CURRENT.tab](host, q);
 
   // Once a quotation leaves Draft, it's locked from editing — only viewing
@@ -1796,7 +1822,12 @@ function tabClient(host, q){
   `;
   document.getElementById('custPick').onchange = (e)=>{
     const c = CUSTOMERS.find(x=>x.id===e.target.value);
-    if(c){ q.customerId=c.id; q.customerSnap={...q.customerSnap, companyName:c.name, email:c.email, contact:c.contact, address:c.address}; persistQuote(q); renderEditor(document.getElementById('content'), document.getElementById('topbarActions')); }
+    if(c){
+      q.customerId=c.id;
+      q.customerSnap={...q.customerSnap, companyName:c.name, email:c.email, contact:c.contact, address:c.address,
+        repName:c.repName||'', repPosition:c.repPosition||'', repContact:c.repContact||'', repEmail:c.repEmail||''};
+      persistQuote(q); renderEditor(document.getElementById('content'), document.getElementById('topbarActions'));
+    }
   };
   bindText('cClientName', v=>q.customerSnap.clientName=v, q);
   bindText('cClientPosition', v=>q.customerSnap.clientPosition=v, q);
@@ -1888,11 +1919,10 @@ function tabHull(host, q){
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Laminate Schedule</h3></div>
+      <div class="card-head"><h3>Core Material</h3></div>
       <div class="card-body">
+        <div class="section-lead" style="margin-top:0;">Laminate layers and glass weight are set by the boat model's preset in Boat Presets, not edited per-quotation.</div>
         <div class="grid g3">
-          <div class="field"><label>Number of Layers</label><input type="number" id="hLayers" value="${h.layers}"></div>
-          <div class="field"><label>Glass Weight per Layer (kg/sqm)</label><input type="number" step="any" id="hGlassPerLayer" value="${h.glassPerLayer}"></div>
           <div class="field"><label class="field-inline"><input type="checkbox" id="hCoreOn" ${h.coreEnabled?'checked':''} style="width:auto;"> Core Material</label>
             <input type="number" step="any" id="hCoreArea" value="${h.coreArea}" placeholder="Core area (sqm)" ${h.coreEnabled?'':'disabled'}>
           </div>
@@ -2044,13 +2074,11 @@ function tabHull(host, q){
   ['hDepthFt','hDepthIn'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=> syncFtIn('hDepthFt','hDepthIn', v=>{ h.depth=v; }));
   });
-  ['hHulls','hAreaOv','hLayers','hGlassPerLayer','hCoreArea'].forEach(id=>{
+  ['hHulls','hAreaOv','hCoreArea'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=>{
       h.numHulls = Number(document.getElementById('hHulls').value)||1;
       const ov = document.getElementById('hAreaOv').value;
       h.hullAreaOverride = ov===''? null : Number(ov);
-      h.layers = Number(document.getElementById('hLayers').value);
-      h.glassPerLayer = Number(document.getElementById('hGlassPerLayer').value);
       h.coreArea = Number(document.getElementById('hCoreArea').value);
       persistQuote(q); drawHullCalc(); updateLiveSummary(q);
     });
@@ -2517,49 +2545,6 @@ function tabEngine(host, q){
       </tbody></table>`;
   }
   drawEng();
-}
-
-/* ---- Tab: Labor ---- */
-function tabLabor(host, q){
-  const l = q.labor, rates = q.rates.laborRates;
-  const labels = {fabrication:'Hull Fabrication', fiberglass:'Fiberglass Work', painting:'Painting', electrical:'Electrical Installation', assembly:'Assembly', testing:'Testing & Commissioning'};
-  host.innerHTML = `
-    <div class="card">
-      <div class="card-head"><h3>Labor &amp; Manufacturing Hours</h3></div>
-      <div class="card-body" style="padding:0;">
-        <table><thead><tr><th>Category</th><th style="width:120px;">Hours</th><th style="width:140px;">Rate (₱/hr)</th><th class="right" style="width:130px;">Cost</th></tr></thead>
-        <tbody id="laborRows"></tbody></table>
-      </div>
-    </div>
-  `;
-  function draw(){
-    const c = computeLabor(q);
-    document.getElementById('laborRows').innerHTML = c.rows.map(r=>`
-      <tr>
-        <td>${labels[r.key]}</td>
-        <td><input type="number" class="tbl-input num lrow" data-k="${r.key}" data-f="hours" value="${r.hours}"></td>
-        <td><input type="number" class="tbl-input num lrow" data-k="${r.key}" data-f="rate" value="${r.rate}"></td>
-        <td class="right mono">${fmt(r.cost)}</td>
-      </tr>`).join('') + `<tr><td colspan="3" style="font-weight:700;">Total Labor Cost</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>`;
-    document.querySelectorAll('.lrow').forEach(inp=>{
-      inp.addEventListener('input', ()=>{
-        if(inp.dataset.f==='hours') l[inp.dataset.k] = Number(inp.value);
-        else rates[inp.dataset.k] = Number(inp.value);
-        persistQuote(q); updateLiveSummary(q);
-        // Patch just this row's cost and the grand total in place, instead
-        // of rebuilding the whole table — a full rebuild would destroy and
-        // recreate the focused input, kicking focus out after every
-        // keystroke.
-        const c = computeLabor(q);
-        const row = c.rows.find(r=>r.key===inp.dataset.k);
-        const tr = inp.closest('tr');
-        if(tr) tr.querySelector('td:last-child').textContent = fmt(row.cost);
-        const totalCell = document.querySelector('#laborRows tr:last-child td:last-child');
-        if(totalCell) totalCell.textContent = fmt(c.total);
-      });
-    });
-  }
-  draw();
 }
 
 /* ---- Tab: Overhead & Margin ---- */
@@ -3128,13 +3113,13 @@ function tabOutput(host, q){
         </div>
 
         <div class="doc-company-details">
+          <div class="doc-title-col">
+            <div class="doc-titlebar">QUOTATION</div>
+          </div>
           <div class="co-meta-col">
             <div class="co-meta">${escNl(COMPANY.address)}</div>
             <div class="co-meta">${esc(COMPANY.contact)} &nbsp;·&nbsp; ${esc(COMPANY.email)}</div>
             <div class="co-meta">TIN: ${esc(COMPANY.tin)}</div>
-          </div>
-          <div class="doc-title-col">
-            <div class="doc-titlebar">QUOTATION</div>
             <div class="doc-title-meta">
               <div class="co-meta">Quotation No.: ${esc(q.refNo)}</div>
               <div class="co-meta">Date: ${dateIssuedStr}</div>
