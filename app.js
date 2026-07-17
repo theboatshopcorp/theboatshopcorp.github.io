@@ -3133,7 +3133,14 @@ function tabOutput(host, q){
             <div class="co-meta">${esc(COMPANY.contact)} &nbsp;·&nbsp; ${esc(COMPANY.email)}</div>
             <div class="co-meta">TIN: ${esc(COMPANY.tin)}</div>
           </div>
-          <div class="doc-titlebar">QUOTATION</div>
+          <div class="doc-title-col">
+            <div class="doc-titlebar">QUOTATION</div>
+            <div class="doc-title-meta">
+              <div class="co-meta">Quotation No.: ${esc(q.refNo)}</div>
+              <div class="co-meta">Date: ${dateIssuedStr}</div>
+              <div class="co-meta">Expiry Date: ${(validUntil.getMonth()+1)+'/'+validUntil.getDate()+'/'+validUntil.getFullYear()}</div>
+            </div>
+          </div>
         </div>
 
         <div class="doc-band-head">Client Information</div>
