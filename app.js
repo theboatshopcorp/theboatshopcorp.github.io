@@ -3266,11 +3266,18 @@ function tabOutput(host, q){
         <div class="doc-section-title">III. Accessories &amp; Components</div>
         ${(()=>{
           const groups = groupByCat(c.acc.rows);
-          const renderTable = rows => `
-            <table class="doc-item-table">
-              <thead><tr><th class="right" style="width:50px;">Qty</th><th style="width:70px;">Unit</th><th>Item</th><th class="right">Amount</th></tr></thead>
-              <tbody>${rows.map(r=>`<tr><td class="right">${r.qty}</td><td>${esc(r.unit)||'—'}</td><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
-            </table>`;
+          const renderBox = rows => {
+            const total = rows.reduce((s,r)=>s+r.total,0);
+            return `
+            <div class="marina-box">
+              <div class="marina-row">
+                <ul class="marina-list">
+                  ${rows.map(r=>`<li>${r.qty} ${esc(r.unit)||'pc'} — ${esc(r.name)}</li>`).join('')}
+                </ul>
+                <div class="marina-price">${fmt(total)}</div>
+              </div>
+            </div>`;
+          };
           // Fixed named sections always appear, in this order, each
           // supporting "Not Applicable"; any other category found in the
           // data prints afterward, grouped the same way.
@@ -3281,11 +3288,11 @@ function tabOutput(host, q){
             return `
               <div class="doc-subcat-title">${esc(cat)}</div>
               ${isNA ? `<div class="doc-na-block">Not Applicable</div>`
-                : (rows && rows.length ? renderTable(rows) : `<div class="doc-na-block" style="font-style:normal;">No items listed.</div>`)}`;
+                : (rows && rows.length ? renderBox(rows) : `<div class="doc-na-block" style="font-style:normal;">No items listed.</div>`)}`;
           }).join('');
           const restHtml = Array.from(groups.entries()).map(([cat, rows])=>`
             <div class="doc-subcat-title">${esc(cat)}</div>
-            ${renderTable(rows)}`).join('');
+            ${renderBox(rows)}`).join('');
           return fixedHtml + restHtml;
         })()}
 
