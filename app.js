@@ -3120,6 +3120,9 @@ function tabOutput(host, q){
           <div class="co">
             <h2>${esc(COMPANY.name)}</h2>
             <div class="tag">${esc(COMPANY.tagline)}</div>
+            <div class="co-meta">${escNl(COMPANY.address)}</div>
+            <div class="co-meta">${esc(COMPANY.contact)} &nbsp;·&nbsp; ${esc(COMPANY.email)}</div>
+            <div class="co-meta">TIN: ${esc(COMPANY.tin)}</div>
           </div>
           <div class="doc-logo-wrap" id="docLogoWrap" style="width:${LOGO.width}px;${LOGO.top!=null? `position:absolute;top:${LOGO.top}px;left:${LOGO.left}px;` : ''}">
             ${LOGO.img? `<img src="${esc(LOGO.img)}" alt="Company logo">` : `<div class="logo-placeholder">Upload logo below</div>`}
