@@ -243,7 +243,11 @@ tr:hover td{background:var(--paper);}
 .doc-company-details{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin:2px 0 20px;padding-bottom:16px;border-bottom:1px solid var(--doc-line);}
 .doc-company-details .co-meta-col .co-meta{font-size:9.3px;color:var(--doc-ink-faint);margin-top:4px;line-height:1.6;max-width:320px;}
 .doc-company-details .co-meta-col .co-meta:first-child{margin-top:0;}
-.doc-titlebar{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;letter-spacing:.04em;color:var(--doc-ink);white-space:nowrap;flex:none;}
+.doc-title-col{flex:none;text-align:right;}
+.doc-titlebar{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;letter-spacing:.04em;color:var(--doc-ink);white-space:nowrap;}
+.doc-title-meta{margin-top:6px;}
+.doc-title-meta .co-meta{font-size:9.3px;color:var(--doc-ink-faint);margin-top:3px;line-height:1.6;white-space:nowrap;}
+.doc-title-meta .co-meta:first-child{margin-top:0;}
 
 /* Draggable / resizable logo */
 .doc-logo-wrap{position:relative;flex:none;cursor:move;user-select:none;}
