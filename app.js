@@ -91,7 +91,7 @@ function applyRemoteValue(key, val){
   if(val === null || val === undefined) return;
   if(key === DB_KEYS.quotes){ mergeRecordArray(QUOTES, val||[]); QUOTES.forEach(ensureQuoteDefaults); }
   else if(key === DB_KEYS.customers){ mergeRecordArray(CUSTOMERS, val||[]); }
-  else if(key === DB_KEYS.pricing){ mergeInPlace(PRICING, val); if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog)); }
+  else if(key === DB_KEYS.pricing){ mergeInPlace(PRICING, val); if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog)); if(!PRICING.laborHours) PRICING.laborHours = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborHours)); }
   else if(key === DB_KEYS.templates){ mergeRecordArray(TEMPLATES, val||DEFAULT_TEMPLATES); }
   else if(key === DB_KEYS.signatories){ mergeInPlace(SIGNATORIES, val); ['prepared','approved','received'].forEach(k=>{ if(!SIGNATORIES[k]) SIGNATORIES[k]={name:'',title:'',img:''}; }); }
   else if(key === DB_KEYS.logo){ mergeInPlace(LOGO, val || { img:'', width:100, top:null, left:null }); }
@@ -725,7 +725,7 @@ function computeEngine(q){
 function computeLabor(q){
   // Labor hours and rates now come from the Pricing Database only — no more
   // per-quote override — so every quotation uses the same current standard.
-  const hours = PRICING.laborHours, rates = PRICING.laborRates;
+  const hours = PRICING.laborHours || {}, rates = PRICING.laborRates || {};
   const rows = Object.keys(rates).map(k=>({
     key:k, hours:Number(hours[k])||0, rate: Number(rates[k])||0, cost: (Number(hours[k])||0)*(Number(rates[k])||0)
   }));
@@ -1336,7 +1336,7 @@ function renderPricing(content, actions){
           ${Object.keys(r.laborRates).map(k=>`
             <tr>
               <td>${cap(k)}</td>
-              <td><input type="number" step="any" class="pf" data-key="hours_${k}" value="${r.laborHours[k]||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
+              <td><input type="number" step="any" class="pf" data-key="hours_${k}" value="${(r.laborHours&&r.laborHours[k])||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
               <td><input type="number" step="any" class="pf" data-key="labor_${k}" value="${r.laborRates[k]}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
             </tr>`).join('')}
         </tbody></table>
@@ -1419,7 +1419,7 @@ function renderPricing(content, actions){
     document.querySelectorAll('.pf').forEach(i=>{
       const k = i.dataset.key, v = Number(i.value);
       if(k.startsWith('labor_')) r.laborRates[k.replace('labor_','')] = v;
-      else if(k.startsWith('hours_')) r.laborHours[k.replace('hours_','')] = v;
+      else if(k.startsWith('hours_')){ if(!r.laborHours) r.laborHours = {}; r.laborHours[k.replace('hours_','')] = v; }
       else r[k] = v;
     });
     save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
