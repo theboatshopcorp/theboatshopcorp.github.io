@@ -602,8 +602,9 @@ function blankQuote(){
       inclusions: ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"],
       steeringItems: ['Hydraulic Helm 2.4','Front Mount Cylinder','Hydraulic Hose','Hydraulic Oil','Tie Bar Kit for Twin Cylinder','Tee Fittings','Steering Wheel','Control Cable','Ext. Wire Harness','See-through Water Separator Assy.','Fuel Hose','Rigging Kit','Battery Tray 3sm','Battery Terminal']
     },
-    labor: { fabrication:0, fiberglass:0, painting:0, electrical:0, assembly:0, testing:0 },
-    rates: JSON.parse(JSON.stringify(PRICING)), // snapshot, editable per-quote
+    // Labor hours & rates now live only in the global Pricing Database
+    // (see computeLabor) — no per-quote labor field needed anymore.
+    rates: JSON.parse(JSON.stringify(PRICING)), // snapshot, editable per-quote (overhead/contingency/margin/duration/rush)
     schedule: { startDate: todayISO(), standardDays: PRICING.standardDurationDays, requestedDays: PRICING.standardDurationDays },
     terms: [
       {title:'Completion Time', body:'12 months from date of receipt of downpayment and Purchase Order'},
@@ -927,7 +928,7 @@ function renderDashboard(content, actions){
       <div class="card">
         <div class="card-head"><h3>Quick Actions</h3></div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
-          <button class="btn" id="qaTemplates">${icon('ship')} Start from a Boat Template</button>
+          <button class="btn" id="qaTemplates">${icon('ship')} View Boat Presets</button>
           <button class="btn" id="qaCustomer">${icon('user')} Add a Customer</button>
           <button class="btn" id="qaPricing">${icon('db')} Update Pricing Database</button>
         </div>
@@ -2736,78 +2737,6 @@ function tabTerms(host, q){
 }
 
 /* ---- Tab: Output (printable quotation) ---- */
-function sigCardHtml(role, label, noUpload){
-  const s = SIGNATORIES[role];
-  if(noUpload){
-    return `
-    <div class="sigcard" data-role="${role}">
-      <div class="role">${label}</div>
-      <input type="text" class="sig-name" placeholder="Full name" value="${esc(s.name)}">
-      <input type="text" class="sig-title" placeholder="Title / position" value="${esc(s.title)}">
-      <div class="hint" style="margin-top:8px;">Signed physically on the printed copy — no image upload needed.</div>
-    </div>`;
-  }
-  return `
-    <div class="sigcard" data-role="${role}">
-      <div class="role">${label}</div>
-      <div class="prev ${s.img?'':'empty'}">${s.img? `<img src="${esc(s.img)}" alt="">` : 'No signature'}</div>
-      <input type="text" class="sig-name" placeholder="Full name" value="${esc(s.name)}">
-      <input type="text" class="sig-title" placeholder="Title / position" value="${esc(s.title)}">
-      <div class="row2">
-        <button class="btn btn-sm sig-upload" type="button">⬆ Upload image</button>
-        <button class="btn btn-sm btn-ghost sig-clear" type="button">Clear</button>
-      </div>
-      <input type="file" class="sig-file" accept="image/*" style="display:none;">
-      <div class="field" style="margin:8px 0 0;">
-        <div class="field-inline">
-          <input type="text" class="sig-drive" placeholder="Paste Google Drive image share link…" style="flex:1;">
-          <button class="btn btn-sm sig-drive-apply" type="button">Use</button>
-        </div>
-        <div class="hint">Drive file must be shared as "Anyone with the link".</div>
-      </div>
-    </div>`;
-}
-function bindSigCards(host, q){
-  host.querySelectorAll('.sigcard:not(.sigcard-readonly)').forEach(card=>{
-    const role = card.dataset.role;
-    const s = SIGNATORIES[role];
-    card.querySelector('.sig-name').addEventListener('input', e=>{
-      s.name = e.target.value; saveSignatories();
-      const nm = document.querySelector(`[data-sigprev="${role}"] .nm`);
-      if(nm) nm.textContent = s.name || '\u00A0';
-    });
-    card.querySelector('.sig-title').addEventListener('input', e=>{
-      s.title = e.target.value; saveSignatories();
-      const ttl = document.querySelector(`[data-sigprev="${role}"] .ttl`);
-      if(ttl) ttl.textContent = s.title || '';
-    });
-    const uploadBtn = card.querySelector('.sig-upload');
-    const fileInput = card.querySelector('.sig-file');
-    const driveApplyBtn = card.querySelector('.sig-drive-apply');
-    const clearBtn = card.querySelector('.sig-clear');
-    if(uploadBtn && fileInput){
-      uploadBtn.addEventListener('click', ()=> fileInput.click());
-      fileInput.addEventListener('change', async (e)=>{
-        const f = e.target.files[0]; if(!f) return;
-        s.img = await fileToDataURL(f); saveSignatories(); toast('Signature uploaded'); tabOutput(host.closest('#tabHost')||host.parentElement, q);
-      });
-    }
-    if(driveApplyBtn){
-      driveApplyBtn.addEventListener('click', ()=>{
-        const link = card.querySelector('.sig-drive').value;
-        if(!link){ toast('Paste a Google Drive link first'); return; }
-        s.img = driveImgUrl(link); saveSignatories(); toast('Signature linked from Drive');
-        tabOutput(host.closest('#tabHost')||host.parentElement, q);
-      });
-    }
-    if(clearBtn){
-      clearBtn.addEventListener('click', ()=>{
-        s.img=''; saveSignatories(); tabOutput(host.closest('#tabHost')||host.parentElement, q);
-      });
-    }
-  });
-}
-
 function logoCardHtml(){
   return `
     <div class="logocard" id="logoCard">
