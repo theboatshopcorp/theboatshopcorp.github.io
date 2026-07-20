@@ -3092,29 +3092,26 @@ function tabOutput(host, q){
 
         <!-- ===== FRONT PAGE: Cost Summary ===== -->
         <div class="doc-section-title">Cost Summary</div>
-        <table>
-          <tbody>
-            <tr><td>Hull Material Cost (fiberglass, resin, gelcoat, core)</td><td class="right mono">${fmt(c.hull.total)}</td></tr>
-            <tr><td>Structural Components &amp; Core Materials</td><td class="right mono">${fmt(c.structural.total)}</td></tr>
-            <tr><td>Paint &amp; Finishing Material Cost</td><td class="right mono">${fmt(c.paint.total)}</td></tr>
-            <tr><td>Accessories &amp; Components</td><td class="right mono">${fmt(c.acc.total)}</td></tr>
-            <tr><td>Engine &amp; Mechanical System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
-            <tr><td>MARINA Documentation &amp; Regulatory Requirements</td><td class="right mono">${fmt(c.marinaCost)}</td></tr>
-            <tr><td>Testing &amp; Delivery</td><td class="right mono">${fmt(c.testing.total)}</td></tr>
-            ${q.output.showInternalCosts ? `
-            <tr><td>Labor &amp; Manufacturing</td><td class="right mono">${fmt(c.laborCost)}</td></tr>
-            <tr><td>Overhead (${q.rates.overheadPct}%)</td><td class="right mono">${fmt(c.overheadCost)}</td></tr>
-            <tr><td>Contingency (${q.rates.contingencyPct}%)</td><td class="right mono">${fmt(c.contingencyCost)}</td></tr>
-            <tr><td>Profit Margin (${q.rates.marginPct}%)</td><td class="right mono">${fmt(c.marginCost)}</td></tr>
-            <tr><td>Construction Duration Cost (${c.requestedDays} days)</td><td class="right mono">${fmt(c.durationCost)}</td></tr>
-            <tr><td>Rush Surcharge${c.isRush?'':' (not applicable)'}</td><td class="right mono">${fmt(c.rushFee)}</td></tr>
-            ` : ``}
-            ${c.multiplyPrice && c.numBoats>1 ? `
-            <tr><td style="font-weight:700;">Per-Unit Price</td><td class="right mono" style="font-weight:700;">${fmt(c.unitFinalTotal)}</td></tr>
-            <tr><td style="font-weight:700;">Number of Boats Quoted</td><td class="right mono" style="font-weight:700;">× ${c.numBoats}</td></tr>
-            ` : ``}
-          </tbody>
-        </table>
+        <div class="doc-cost-grid">
+          <div class="doc-cost-row"><span>Hull Material Cost</span><span class="mono">${fmt(c.hull.total)}</span></div>
+          <div class="doc-cost-row"><span>Engine &amp; Mechanical System</span><span class="mono">${fmt(c.eng.total)}</span></div>
+          <div class="doc-cost-row"><span>Structural Components &amp; Core Materials</span><span class="mono">${fmt(c.structural.total)}</span></div>
+          <div class="doc-cost-row"><span>MARINA Documentation &amp; Regulatory</span><span class="mono">${fmt(c.marinaCost)}</span></div>
+          <div class="doc-cost-row"><span>Paint &amp; Finishing Material Cost</span><span class="mono">${fmt(c.paint.total)}</span></div>
+          <div class="doc-cost-row"><span>Testing &amp; Delivery</span><span class="mono">${fmt(c.testing.total)}</span></div>
+          <div class="doc-cost-row"><span>Accessories &amp; Components</span><span class="mono">${fmt(c.acc.total)}</span></div>
+          ${q.output.showInternalCosts ? `
+          <div class="doc-cost-row"><span>Labor &amp; Manufacturing</span><span class="mono">${fmt(c.laborCost)}</span></div>
+          <div class="doc-cost-row"><span>Overhead (${q.rates.overheadPct}%)</span><span class="mono">${fmt(c.overheadCost)}</span></div>
+          <div class="doc-cost-row"><span>Contingency (${q.rates.contingencyPct}%)</span><span class="mono">${fmt(c.contingencyCost)}</span></div>
+          <div class="doc-cost-row"><span>Profit Margin (${q.rates.marginPct}%)</span><span class="mono">${fmt(c.marginCost)}</span></div>
+          <div class="doc-cost-row"><span>Duration Cost (${c.requestedDays} days)</span><span class="mono">${fmt(c.durationCost)}</span></div>
+          <div class="doc-cost-row"><span>Rush Surcharge${c.isRush?'':' (n/a)'}</span><span class="mono">${fmt(c.rushFee)}</span></div>
+          ` : ``}
+        </div>
+        ${c.multiplyPrice && c.numBoats>1 ? `
+        <div class="doc-cost-row" style="font-weight:700;border-top:1px solid var(--doc-ink);margin-top:2px;padding-top:8px;"><span>Per-Unit Price × ${c.numBoats} Boats Quoted</span><span class="mono">${fmt(c.unitFinalTotal)} × ${c.numBoats}</span></div>
+        ` : ``}
 
         <div class="doc-words-row">
           <div class="doc-words-box">Amount in Words: ${esc(numberToWords(inv.totalContractAmount))}</div>
