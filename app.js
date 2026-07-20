@@ -425,6 +425,26 @@ function lookupStructuralPrice(cat, name){
   );
   return hit ? hit.unitPrice : 0;
 }
+// total work cost = ((Qty/Productivity)*Labor Rate) + (Qty*Material Consumption*Material Price)
+// Returned as a per-unit price (totalWorkCost/qty) so the quote's existing
+// qty*unitPrice math reproduces the same total automatically.
+function computeFormulaWorkCost(c){
+  const qty = Number(c.qty)||0;
+  const productivity = Number(c.productivity)||0;
+  const laborRate = Number(c.laborRate)||0;
+  const materialConsumption = Number(c.materialConsumption)||0;
+  const materialPrice = Number(c.materialPrice)||0;
+  const laborCost = productivity>0 ? (qty/productivity)*laborRate : 0;
+  const materialCost = qty*materialConsumption*materialPrice;
+  return laborCost + materialCost;
+}
+function resolveComponentUnitPrice(c){
+  if(c.useFormula){
+    const qty = Number(c.qty)||0;
+    return qty>0 ? computeFormulaWorkCost(c)/qty : 0;
+  }
+  return lookupStructuralPrice(c.cat, c.name);
+}
 function getKnownStructuralCategories(){
   const set = new Set(STRUCTURAL_CATEGORY_ORDER);
   (PRICING.structuralCatalog||[]).forEach(a=>{ if(a.cat) set.add(a.cat); });
@@ -592,7 +612,7 @@ function blankQuote(){
     project: { title:'', notes:'', numBoats:1, passengerCapacity:0, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
     hull: { boatType:'Passenger Boat', loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false },
     structural: { items:[] },
-    paint: { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' },
+    paint: { items: [ {id:uid('pi'), type:'Marine Polyurethane Topcoat', color:'White', area:null, coveragePerLiter:PRICING.paintCoverage, coats:3, pricePerLiter:PRICING.paintPerLiter} ] },
     accessories: [],
     accessoryCategoryNA: {},
     testingDelivery: [],
@@ -682,14 +702,14 @@ function computeHull(q){
   return { area, glassWeight, resinWeight, resinLiters, gelcoatWeight, glassCost, resinCost, gelcoatCost, coreCost, total };
 }
 function computePaint(q, hullCalc){
-  const p = q.paint, r = q.rates;
-  const area = (p.areaOverride!=null && p.areaOverride!=='') ? Number(p.areaOverride) : hullCalc.area;
-  const primerLiters = area / r.primerCoverage;
-  const paintLiters = (area / r.paintCoverage) * (p.coats||1);
-  const primerCost = primerLiters * r.primerPerLiter;
-  const paintCost = paintLiters * r.paintPerLiter;
-  const total = primerCost + paintCost;
-  return { area, primerLiters, paintLiters, primerCost, paintCost, total };
+  const rows = (q.paint.items||[]).map(p=>{
+    const area = (p.area!=null && p.area!=='') ? Number(p.area) : hullCalc.area;
+    const liters = (area / (Number(p.coveragePerLiter)||1)) * (Number(p.coats)||1);
+    const cost = liters * (Number(p.pricePerLiter)||0);
+    return {...p, area, liters, cost};
+  });
+  const total = rows.reduce((s,r)=>s+r.cost,0);
+  return { rows, total };
 }
 function computeStructural(q){
   const rows = (q.structural.items||[]).map(a=>{
@@ -1256,8 +1276,9 @@ function renderTemplates(content, actions){
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
             <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
           </div>
-          <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th></th></tr></thead>
+          <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th style="width:64px;">Formula</th><th></th></tr></thead>
           <tbody id="compRows"></tbody></table>
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = ((Qty ÷ Productivity) × Labor Rate) + (Qty × Material Consumption × Material Price)</em>. Toggle "Formula" on a row to compute its price this way instead of pulling from the Pricing Database.</div>
         </div>
       </div>`;
 
@@ -1279,17 +1300,55 @@ function renderTemplates(content, actions){
 
     const body = document.getElementById('compRows');
     function drawComponents(){
-      body.innerHTML = (t.components||[]).map((c,idx)=>`
+      body.innerHTML = (t.components||[]).map((c,idx)=>{
+        const formulaRow = c.useFormula ? `
+          <tr class="comp-formula-row" data-formula-idx="${idx}">
+            <td colspan="6" style="background:var(--paper);padding:12px;">
+              <div class="grid g4" style="margin:0;">
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Productivity (units/hr)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="productivity" value="${c.productivity||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/hr)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Material Consumption</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialConsumption" value="${c.materialConsumption||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Material Price (₱)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialPrice" value="${c.materialPrice||0}"></div>
+              </div>
+              <div class="hint" style="margin-top:8px;font-weight:600;color:var(--ink);">Total Work Cost: <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span> &nbsp;(${fmt(c.qty>0?computeFormulaWorkCost(c)/c.qty:0)} per ${esc(c.unit||'unit')})</div>
+            </td>
+          </tr>` : '';
+        return `
         <tr>
           <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="cat" value="${esc(c.cat)}"></td>
           <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="name" value="${esc(c.name)}"></td>
           <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="unit" value="${esc(c.unit)}"></td>
           <td><input class="tbl-input num comp-f" data-idx="${idx}" data-f="qty" type="number" step="any" value="${c.qty}"></td>
+          <td class="right"><label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer;"><input type="checkbox" class="comp-formula-toggle" data-idx="${idx}" ${c.useFormula?'checked':''} style="width:auto;"> ƒ(x)</label></td>
           <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
-        </tr>`).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No components yet.</td></tr>`;
+        </tr>${formulaRow}`;
+      }).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No components yet.</td></tr>`;
       body.querySelectorAll('.comp-f').forEach(i=>i.onchange=()=>{
         const c = t.components[Number(i.dataset.idx)];
         c[i.dataset.f] = i.dataset.f==='qty' ? Number(i.value) : i.value;
+        if(i.dataset.f==='qty') drawComponents(); // qty change affects the formula total display
+      });
+      body.querySelectorAll('.comp-formula-toggle').forEach(cb=>{
+        cb.addEventListener('change', ()=>{
+          t.components[Number(cb.dataset.idx)].useFormula = cb.checked;
+          drawComponents();
+        });
+      });
+      body.querySelectorAll('.comp-formula').forEach(inp=>{
+        inp.addEventListener('input', ()=>{
+          const idx = Number(inp.dataset.idx);
+          const c = t.components[idx];
+          c[inp.dataset.f] = Number(inp.value)||0;
+          // Patch the live total in place instead of a full redraw, so
+          // typing in these fields doesn't lose focus after every keystroke.
+          const totalEl = document.getElementById(`formulaTotal_${idx}`);
+          if(totalEl){
+            const total = computeFormulaWorkCost(c);
+            const perUnit = c.qty>0 ? total/c.qty : 0;
+            totalEl.textContent = fmt(total);
+            totalEl.closest('.hint').innerHTML = `Total Work Cost: <span class="mono" id="formulaTotal_${idx}">${fmt(total)}</span> &nbsp;(${fmt(perUnit)} per ${esc(c.unit||'unit')})`;
+          }
+        });
       });
       body.querySelectorAll('[data-delcomp]').forEach(b=>b.onclick=()=>{
         t.components.splice(Number(b.dataset.idx),1); drawComponents();
@@ -1298,7 +1357,7 @@ function renderTemplates(content, actions){
     drawComponents();
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
-      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1});
+      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, productivity:0, laborRate:0, materialConsumption:0, materialPrice:0});
       drawComponents();
     };
   }
@@ -1449,9 +1508,9 @@ function openEditor(quoteId, templateId){
       const t = TEMPLATES.find(x=>x.id===templateId);
       if(t){
         q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:t.hullAreaOverride, layers:t.layers, glassPerLayer:t.glassPerLayer, coreArea:0, coreEnabled:false };
-        q.paint = { areaOverride:t.paintArea, coats:t.coats, paintType:t.paintType||'Marine Polyurethane Topcoat' };
+        q.paint = { items: [{ id:uid('pi'), type:t.paintType||'Marine Polyurethane Topcoat', color:'', area:t.paintArea ?? null, coveragePerLiter:PRICING.paintCoverage, coats:t.coats||3, pricePerLiter:PRICING.paintPerLiter }] };
         if(!q.structural) q.structural = { items:[] };
-        q.structural.items = (t.components||[]).map(c=>({...c, id:uid('si'), unitPrice: lookupStructuralPrice(c.cat, c.name)}));
+        q.structural.items = (t.components||[]).map(c=>({...c, id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
         q.project.title = t.name;
         if(t.boatModel) q.project.boatModel = t.boatModel;
       }
@@ -1464,6 +1523,17 @@ function openEditor(quoteId, templateId){
 function getCurrentQuote(){ return QUOTES.find(q=>q.id===CURRENT.quoteId); }
 function ensureQuoteDefaults(q){
   if(!q.structural) q.structural = { items:[] };
+  if(!q.paint) q.paint = { items:[] };
+  if(!q.paint.items){
+    // Migrate the old single-spec paint object (areaOverride/coats/paintType)
+    // into one paint item in the new list, so nothing is lost.
+    const old = q.paint;
+    q.paint = { items: [{
+      id: uid('pi'), type: old.paintType || 'Marine Polyurethane Topcoat', color: '',
+      area: old.areaOverride ?? null, coveragePerLiter: PRICING.paintCoverage,
+      coats: old.coats || 3, pricePerLiter: PRICING.paintPerLiter
+    }] };
+  }
   if(q.createdByEmail===undefined) q.createdByEmail = '';
   if(q.approvedBy===undefined) q.approvedBy = null;
   if(q.revisionChildId===undefined) q.revisionChildId = null;
@@ -2050,10 +2120,13 @@ function tabHull(host, q){
     const preset = TEMPLATES.find(t=>t.boatModel && t.boatModel===e.target.value);
     if(preset){
       q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:preset.hullAreaOverride, layers:preset.layers, glassPerLayer:preset.glassPerLayer, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false };
-      q.paint.areaOverride = preset.paintArea; q.paint.coats = preset.coats;
-      if(preset.paintType) q.paint.paintType = preset.paintType;
+      q.paint.items = [{
+        id: uid('pi'), type: preset.paintType || 'Marine Polyurethane Topcoat', color: '',
+        area: preset.paintArea ?? null, coveragePerLiter: PRICING.paintCoverage,
+        coats: preset.coats || 3, pricePerLiter: PRICING.paintPerLiter
+      }];
       if(!q.structural) q.structural = { items:[] };
-      q.structural.items = (preset.components||[]).map(c=>({...c, id:uid('si'), unitPrice: lookupStructuralPrice(c.cat, c.name)}));
+      q.structural.items = (preset.components||[]).map(c=>({...c, id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
       toast(`Preset applied: ${preset.name}`);
     } else {
@@ -2113,46 +2186,65 @@ function tabHull(host, q){
 
 /* ---- Tab: Paint ---- */
 function tabPaint(host, q){
-  const p = q.paint;
+  if(!q.paint.items) q.paint.items = [];
   host.innerHTML = `
     <div class="card">
-      <div class="card-head"><h3>Surface Finishing &amp; Painting</h3></div>
-      <div class="card-body">
-        <div class="grid g3">
-          <div class="field"><label>Paintable Area Override (sqm)</label><input type="number" step="any" id="pArea" value="${p.areaOverride??''}" placeholder="uses hull area"></div>
-          <div class="field"><label>Number of Coats</label><input type="number" id="pCoats" value="${p.coats}"></div>
-          <div class="field"><label>Paint Type</label><input id="pType" value="${esc(p.paintType)}"></div>
-        </div>
+      <div class="card-head"><h3>Surface Finishing &amp; Painting</h3>
+        <button class="btn btn-sm" id="addPaintItem">${icon('plus')} Add Paint</button>
+      </div>
+      <div class="section-lead" style="padding:10px 20px 0;">Add one row per paint type/color used on this boat (e.g. hull anti-fouling, deck non-skid, topside gelcoat color). Leave Area blank to use the hull's calculated surface area automatically.</div>
+      <div class="card-body" style="padding:0;">
+        <table><thead><tr><th style="width:16%;">Type</th><th style="width:14%;">Color</th><th style="width:90px;">Area (sqm)</th><th style="width:90px;">Coverage (sqm/L)</th><th style="width:60px;">Coats</th><th style="width:100px;">Price/Liter</th><th class="right" style="width:70px;">Liters</th><th class="right" style="width:100px;">Cost</th><th></th></tr></thead>
+          <tbody id="paintRows"></tbody>
+        </table>
       </div>
     </div>
-    <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Paint Material Cost Breakdown</h3></div>
-      <div class="card-body" id="paintCalcOut"></div>
-    </div>
   `;
-  ['pArea','pCoats','pType'].forEach(id=>{
-    document.getElementById(id).addEventListener('input', ()=>{
-      const ov = document.getElementById('pArea').value;
-      p.areaOverride = ov===''? null : Number(ov);
-      p.coats = Number(document.getElementById('pCoats').value);
-      p.paintType = document.getElementById('pType').value;
-      persistQuote(q); drawPaintCalc(); updateLiveSummary(q);
+  const rowsBody = document.getElementById('paintRows');
+  function draw(){
+    const hull = computeHull(q);
+    const c = computePaint(q, hull);
+    rowsBody.innerHTML = c.rows.length ? c.rows.map((r,idx)=>`
+      <tr>
+        <td><input class="tbl-input prow" data-idx="${idx}" data-f="type" value="${esc(r.type)}"></td>
+        <td><input class="tbl-input prow" data-idx="${idx}" data-f="color" value="${esc(r.color)}"></td>
+        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="area" value="${q.paint.items[idx].area??''}" placeholder="${fmtNum(hull.area,1)}"></td>
+        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="coveragePerLiter" value="${r.coveragePerLiter}"></td>
+        <td><input type="number" class="tbl-input num prow" data-idx="${idx}" data-f="coats" value="${r.coats}"></td>
+        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="pricePerLiter" value="${r.pricePerLiter}"></td>
+        <td class="right mono">${fmtNum(r.liters,1)}</td>
+        <td class="right mono">${fmt(r.cost)}</td>
+        <td class="right"><span class="btn btn-ghost btn-sm" data-delpaint="${idx}" style="color:var(--danger);">✕</span></td>
+      </tr>`).join('') : `<tr><td colspan="9"><div class="empty">No paint items yet. Click "Add Paint" to add one.</div></td></tr>`;
+
+    rowsBody.querySelectorAll('.prow').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const idx = Number(inp.dataset.idx);
+        const item = q.paint.items[idx];
+        const f = inp.dataset.f;
+        if(f==='area') item.area = inp.value===''? null : Number(inp.value);
+        else if(['coveragePerLiter','coats','pricePerLiter'].includes(f)) item[f] = Number(inp.value);
+        else item[f] = inp.value;
+        persistQuote(q); updateLiveSummary(q);
+        // Patch just this row's Liters/Cost cells instead of a full redraw,
+        // so typing in Type/Color doesn't lose focus after every keystroke.
+        const hull2 = computeHull(q);
+        const area = (item.area!=null && item.area!=='') ? Number(item.area) : hull2.area;
+        const liters = (area / (Number(item.coveragePerLiter)||1)) * (Number(item.coats)||1);
+        const cost = liters * (Number(item.pricePerLiter)||0);
+        const tr = inp.closest('tr');
+        if(tr){ tr.children[6].textContent = fmtNum(liters,1); tr.children[7].textContent = fmt(cost); }
+      });
     });
-  });
-  function drawPaintCalc(){
-    const hull = computeHull(q); const c = computePaint(q, hull);
-    document.getElementById('paintCalcOut').innerHTML = `
-      <table><tbody>
-        <tr><td>Paintable Surface Area</td><td class="right mono">${fmtNum(c.area,2)} sqm</td></tr>
-        <tr><td>Primer Required</td><td class="right mono">${fmtNum(c.primerLiters,1)} L</td></tr>
-        <tr><td>Paint Required (${p.coats} coats)</td><td class="right mono">${fmtNum(c.paintLiters,1)} L</td></tr>
-        <tr><td>Primer Cost</td><td class="right mono">${fmt(c.primerCost)}</td></tr>
-        <tr><td>Paint Cost</td><td class="right mono">${fmt(c.paintCost)}</td></tr>
-        <tr><td style="font-weight:700;">Paint Material Cost Total</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>
-      </tbody></table>
-      <div class="hint" style="margin-top:8px;">Painting labor hours are entered on the Labor tab.</div>`;
+    rowsBody.querySelectorAll('[data-delpaint]').forEach(b=>b.onclick=()=>{
+      q.paint.items.splice(Number(b.dataset.delpaint),1); persistQuote(q); draw(); updateLiveSummary(q);
+    });
   }
-  drawPaintCalc();
+  document.getElementById('addPaintItem').onclick = ()=>{
+    q.paint.items.push({id:uid('pi'), type:'New Paint Type', color:'', area:null, coveragePerLiter:PRICING.paintCoverage, coats:3, pricePerLiter:PRICING.paintPerLiter});
+    persistQuote(q); draw(); updateLiveSummary(q);
+  };
+  draw();
 }
 
 /* ---- Tab: Accessories ---- */
