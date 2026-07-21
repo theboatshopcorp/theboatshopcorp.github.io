@@ -425,16 +425,20 @@ function lookupStructuralPrice(cat, name){
   );
   return hit ? hit.unitPrice : 0;
 }
-// total work cost = ((Qty/Productivity)*Labor Rate) + (Qty*Material Consumption*Material Price)
+// Total Work Cost =
+//   ((Qty ÷ (Productivity × Number of Workers)) × Number of Workers × Labor Rate)
+//   + (Qty × Material Consumption × Material Price)
 // Returned as a per-unit price (totalWorkCost/qty) so the quote's existing
 // qty*unitPrice math reproduces the same total automatically.
 function computeFormulaWorkCost(c){
   const qty = Number(c.qty)||0;
   const productivity = Number(c.productivity)||0;
+  const workers = Number(c.numWorkers)||0;
   const laborRate = Number(c.laborRate)||0;
   const materialConsumption = Number(c.materialConsumption)||0;
   const materialPrice = Number(c.materialPrice)||0;
-  const laborCost = productivity>0 ? (qty/productivity)*laborRate : 0;
+  const denom = productivity * workers;
+  const laborCost = denom>0 ? (qty/denom) * workers * laborRate : 0;
   const materialCost = qty*materialConsumption*materialPrice;
   return laborCost + materialCost;
 }
@@ -1278,7 +1282,7 @@ function renderTemplates(content, actions){
           </div>
           <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th style="width:64px;">Formula</th><th></th></tr></thead>
           <tbody id="compRows"></tbody></table>
-          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = ((Qty ÷ Productivity) × Labor Rate) + (Qty × Material Consumption × Material Price)</em>. Toggle "Formula" on a row to compute its price this way instead of pulling from the Pricing Database.</div>
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = ((Qty ÷ (Productivity × Number of Workers)) × Number of Workers × Labor Rate) + (Qty × Material Consumption × Material Price)</em>. Toggle "Formula" on a row to compute its price this way instead of pulling from the Pricing Database.</div>
         </div>
       </div>`;
 
@@ -1306,6 +1310,7 @@ function renderTemplates(content, actions){
             <td colspan="6" style="background:var(--paper);padding:12px;">
               <div class="grid g4" style="margin:0;">
                 <div class="field" style="margin:0;"><label style="font-size:10px;">Productivity (units/hr)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="productivity" value="${c.productivity||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Workers</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="numWorkers" value="${c.numWorkers||0}"></div>
                 <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/hr)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
                 <div class="field" style="margin:0;"><label style="font-size:10px;">Material Consumption</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialConsumption" value="${c.materialConsumption||0}"></div>
                 <div class="field" style="margin:0;"><label style="font-size:10px;">Material Price (₱)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialPrice" value="${c.materialPrice||0}"></div>
@@ -1357,7 +1362,7 @@ function renderTemplates(content, actions){
     drawComponents();
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
-      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, productivity:0, laborRate:0, materialConsumption:0, materialPrice:0});
+      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, productivity:0, numWorkers:0, laborRate:0, materialConsumption:0, materialPrice:0});
       drawComponents();
     };
   }
