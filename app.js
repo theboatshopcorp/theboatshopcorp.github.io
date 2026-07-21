@@ -449,6 +449,34 @@ function resolveComponentUnitPrice(c){
   }
   return lookupStructuralPrice(c.cat, c.name);
 }
+// Whenever a new custom item is typed anywhere — the Quotation Editor's Hull
+// tab, its Accessories tab, or Boat Presets' Structural Components — it gets
+// pushed into the shared Pricing Database catalog too (if not already there),
+// so it shows up in every "Add from catalog" picker everywhere else.
+// Items typed directly in the Pricing Database are already the source of
+// truth for everyone, so no extra sync is needed for that direction.
+function syncStructuralCatalog(cat, name, unit, unitPrice){
+  cat = (cat||'').trim(); name = (name||'').trim();
+  if(!cat || !name || name==='New Item') return false;
+  const exists = (PRICING.structuralCatalog||[]).some(a=>
+    (a.name||'').trim().toLowerCase()===name.toLowerCase() && (a.cat||'').trim().toLowerCase()===cat.toLowerCase()
+  );
+  if(exists) return false;
+  PRICING.structuralCatalog.push({ cat, name, unit: unit||'pc', unitPrice: Number(unitPrice)||0 });
+  save(DB_KEYS.pricing, PRICING);
+  return true;
+}
+function syncAccessoryCatalog(cat, name, unitPrice){
+  cat = (cat||'').trim(); name = (name||'').trim();
+  if(!cat || !name || name==='New Item') return false;
+  const exists = (PRICING.accessoryCatalog||[]).some(a=>
+    (a.name||'').trim().toLowerCase()===name.toLowerCase() && (a.cat||'').trim().toLowerCase()===cat.toLowerCase()
+  );
+  if(exists) return false;
+  PRICING.accessoryCatalog.push({ cat, name, unitPrice: Number(unitPrice)||0 });
+  save(DB_KEYS.pricing, PRICING);
+  return true;
+}
 function getKnownStructuralCategories(){
   const set = new Set(STRUCTURAL_CATEGORY_ORDER);
   (PRICING.structuralCatalog||[]).forEach(a=>{ if(a.cat) set.add(a.cat); });
@@ -1276,9 +1304,15 @@ function renderTemplates(content, actions){
             <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
             <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
-            <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
+            <div style="display:flex;gap:8px;">
+              <select id="compCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;">
+                <option value="">+ Add from catalog…</option>
+                ${(PRICING.structuralCatalog||[]).map((a,i)=>({...a,i})).sort((a,b)=>(a.cat||'').localeCompare(b.cat||'')||(a.name||'').localeCompare(b.name||'')).map(a=>`<option value="${a.i}">${esc(a.cat)} — ${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
+              </select>
+              <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Custom Item</button>
+            </div>
           </div>
           <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th style="width:64px;">Formula</th><th></th></tr></thead>
           <tbody id="compRows"></tbody></table>
@@ -1332,6 +1366,11 @@ function renderTemplates(content, actions){
         const c = t.components[Number(i.dataset.idx)];
         c[i.dataset.f] = i.dataset.f==='qty' ? Number(i.value) : i.value;
         if(i.dataset.f==='qty') drawComponents(); // qty change affects the formula total display
+        // Once the user finishes editing any field on a component, add it to
+        // the shared Pricing Database catalog (if it isn't there already) so
+        // it's selectable everywhere else too.
+        const priceForCatalog = c.useFormula && c.qty>0 ? computeFormulaWorkCost(c)/c.qty : 0;
+        if(syncStructuralCatalog(c.cat, c.name, c.unit, priceForCatalog)) toast(`"${c.name}" added to the Pricing Database catalog`);
       });
       body.querySelectorAll('.comp-formula-toggle').forEach(cb=>{
         cb.addEventListener('change', ()=>{
@@ -1363,6 +1402,14 @@ function renderTemplates(content, actions){
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
       t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, productivity:0, numWorkers:0, laborRate:0, materialConsumption:0, materialPrice:0});
+      drawComponents();
+    };
+    document.getElementById('compCatalogPick').onchange = (e)=>{
+      if(e.target.value==='') return;
+      const item = PRICING.structuralCatalog[Number(e.target.value)];
+      if(!t.components) t.components = [];
+      t.components.push({cat:item.cat, name:item.name, unit:item.unit, qty:1, useFormula:false, productivity:0, numWorkers:0, laborRate:0, materialConsumption:0, materialPrice:0});
+      e.target.value='';
       drawComponents();
     };
   }
@@ -1785,7 +1832,7 @@ function renderEditor(content, actions){
   // (Print, the internal-cost toggle) and the workflow action buttons stay
   // interactive. Those live outside #tabHost or are explicitly allow-listed.
   if(q.status !== 'draft'){
-    const keepEnabled = new Set(['btnPrint','toggleInternal']);
+    const keepEnabled = new Set(['btnPrint']);
     host.querySelectorAll('input, select, textarea, button').forEach(el=>{
       if(!keepEnabled.has(el.id)) el.disabled = true;
     });
@@ -2102,6 +2149,14 @@ function tabHull(host, q){
         inp.addEventListener('blur', ()=>{ drawStruct(); drawHullCalc(); updateLiveSummary(q); });
         inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
       }
+      // Once the user finishes editing any field on a custom row, add it to
+      // the shared Pricing Database catalog (if it isn't there already) so
+      // it's selectable everywhere else too.
+      inp.addEventListener('blur', ()=>{
+        const idx = Number(inp.dataset.idx);
+        const a = q.structural.items[idx];
+        if(syncStructuralCatalog(a.cat, a.name, a.unit, a.unitPrice)) toast(`"${a.name}" added to the Pricing Database catalog`);
+      });
     });
     structBody.querySelectorAll('[data-delstruct]').forEach(b=>b.onclick=()=>{
       q.structural.items.splice(Number(b.dataset.delstruct),1); persistQuote(q); drawStruct(); drawHullCalc(); updateLiveSummary(q);
@@ -2363,6 +2418,14 @@ function tabAccessories(host, q){
         inp.addEventListener('blur', ()=>{ draw(); updateLiveSummary(q); });
         inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); inp.blur(); } });
       }
+      // Once the user finishes editing any field on a custom row, add it to
+      // the shared Pricing Database catalog (if it isn't there already) so
+      // it's selectable everywhere else too.
+      inp.addEventListener('blur', ()=>{
+        const idx = Number(inp.dataset.idx);
+        const a = q.accessories[idx];
+        if(syncAccessoryCatalog(a.cat, a.name, a.unitPrice)) toast(`"${a.name}" added to the Pricing Database catalog`);
+      });
     });
     rowsBody.querySelectorAll('[data-delrow]').forEach(b=>b.onclick=()=>{
       q.accessories.splice(Number(b.dataset.delrow),1); persistQuote(q); draw(); updateLiveSummary(q);
@@ -3116,10 +3179,6 @@ function tabOutput(host, q){
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
         <button class="btn btn-primary" id="btnPrint">🖨 Print / Export as PDF</button>
         <span class="hint">Uses your browser's print dialog — choose "Save as PDF" as the destination.</span>
-        <label class="field-inline" style="font-size:11.5px;color:var(--ink-soft);">
-          <input type="checkbox" id="toggleInternal" ${q.output.showInternalCosts?'checked':''} style="width:auto;">
-          Include internal cost breakdown in printed output
-        </label>
         <span class="hint">VAT and discount are set in the "VAT &amp; Discount" panel next to Live Total. Approval is there too. Prepared By, Approved By, and CONFORME all fill in automatically below — nothing to edit here.</span>
       </div>
     </div>
@@ -3189,26 +3248,16 @@ function tabOutput(host, q){
 
         <!-- ===== FRONT PAGE: Cost Summary ===== -->
         <div class="doc-section-title">Cost Summary</div>
-        <div class="doc-cost-grid">
-          <div class="doc-cost-row"><span>Hull Material Cost</span><span class="mono">${fmt(c.hull.total)}</span></div>
-          <div class="doc-cost-row"><span>Engine &amp; Mechanical System</span><span class="mono">${fmt(c.eng.total)}</span></div>
-          <div class="doc-cost-row"><span>Structural Components &amp; Core Materials</span><span class="mono">${fmt(c.structural.total)}</span></div>
-          <div class="doc-cost-row"><span>MARINA Documentation &amp; Regulatory</span><span class="mono">${fmt(c.marinaCost)}</span></div>
-          <div class="doc-cost-row"><span>Paint &amp; Finishing Material Cost</span><span class="mono">${fmt(c.paint.total)}</span></div>
-          <div class="doc-cost-row"><span>Testing &amp; Delivery</span><span class="mono">${fmt(c.testing.total)}</span></div>
-          <div class="doc-cost-row"><span>Accessories &amp; Components</span><span class="mono">${fmt(c.acc.total)}</span></div>
-          ${q.output.showInternalCosts ? `
-          <div class="doc-cost-row"><span>Labor &amp; Manufacturing</span><span class="mono">${fmt(c.laborCost)}</span></div>
-          <div class="doc-cost-row"><span>Overhead (${q.rates.overheadPct}%)</span><span class="mono">${fmt(c.overheadCost)}</span></div>
-          <div class="doc-cost-row"><span>Contingency (${q.rates.contingencyPct}%)</span><span class="mono">${fmt(c.contingencyCost)}</span></div>
-          <div class="doc-cost-row"><span>Profit Margin (${q.rates.marginPct}%)</span><span class="mono">${fmt(c.marginCost)}</span></div>
-          <div class="doc-cost-row"><span>Duration Cost (${c.requestedDays} days)</span><span class="mono">${fmt(c.durationCost)}</span></div>
-          <div class="doc-cost-row"><span>Rush Surcharge${c.isRush?'':' (n/a)'}</span><span class="mono">${fmt(c.rushFee)}</span></div>
-          ` : ``}
-        </div>
-        ${c.multiplyPrice && c.numBoats>1 ? `
-        <div class="doc-cost-row" style="font-weight:700;border-top:1px solid var(--doc-ink);margin-top:2px;padding-top:8px;"><span>Per-Unit Price × ${c.numBoats} Boats Quoted</span><span class="mono">${fmt(c.unitFinalTotal)} × ${c.numBoats}</span></div>
-        ` : ``}
+        <table class="doc-item-table">
+          <tbody>
+            <tr><td>Structural Components &amp; Core Materials</td><td class="right mono">${fmt(c.hull.total + c.structural.total + c.paint.total)}</td></tr>
+            <tr><td>Accessories &amp; Components</td><td class="right mono">${fmt(c.acc.total)}</td></tr>
+            <tr><td>Engine &amp; Mechanical System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
+            <tr><td>Testing &amp; Delivery</td><td class="right mono">${fmt(c.testing.total)}</td></tr>
+            <tr><td>MARINA Documentation &amp; Regulatory Requirements</td><td class="right mono">${fmt(c.marinaCost)}</td></tr>
+            ${c.multiplyPrice && c.numBoats>1 ? `<tr><td style="font-weight:700;border-top:1px solid var(--doc-ink);">Per-Unit Price × ${c.numBoats} Boats Quoted</td><td class="right mono" style="font-weight:700;border-top:1px solid var(--doc-ink);">${fmt(c.unitFinalTotal)} × ${c.numBoats}</td></tr>` : ``}
+          </tbody>
+        </table>
 
         <div class="doc-words-row">
           <div class="doc-words-box">Amount in Words: ${esc(numberToWords(inv.totalContractAmount))}</div>
@@ -3378,10 +3427,6 @@ function tabOutput(host, q){
     </div>
   `;
   document.getElementById('btnPrint').onclick = ()=>window.print();
-  document.getElementById('toggleInternal').onchange = (e)=>{
-    q.output.showInternalCosts = e.target.checked; persistQuote(q);
-    tabOutput(host, q);
-  };
 }
 
 /* ============================================================
