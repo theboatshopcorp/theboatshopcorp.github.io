@@ -644,7 +644,11 @@ function blankQuote(){
     project: { title:'', notes:'', numBoats:1, passengerCapacity:0, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatApplication:'Passenger Boat', boatApplicationOther:'' },
     hull: { boatType:'Passenger Boat', loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false },
     structural: { items:[] },
-    paint: { items: [ {id:uid('pi'), type:'Marine Polyurethane Topcoat', color:'White', area:null, coveragePerLiter:PRICING.paintCoverage, coats:3, pricePerLiter:PRICING.paintPerLiter} ] },
+    paint: { items: [
+      {id:uid('pi'), coatLabel:'1st Coat', type:'Marine Polyurethane Topcoat', color:'White', area:null, pricePerSqm:60},
+      {id:uid('pi'), coatLabel:'2nd Coat', type:'Marine Polyurethane Topcoat', color:'White', area:null, pricePerSqm:60},
+      {id:uid('pi'), coatLabel:'3rd Coat', type:'Marine Polyurethane Topcoat', color:'White', area:null, pricePerSqm:60}
+    ] },
     accessories: [],
     accessoryCategoryNA: {},
     testingDelivery: [],
@@ -736,9 +740,8 @@ function computeHull(q){
 function computePaint(q, hullCalc){
   const rows = (q.paint.items||[]).map(p=>{
     const area = (p.area!=null && p.area!=='') ? Number(p.area) : hullCalc.area;
-    const liters = (area / (Number(p.coveragePerLiter)||1)) * (Number(p.coats)||1);
-    const cost = liters * (Number(p.pricePerLiter)||0);
-    return {...p, area, liters, cost};
+    const cost = area * (Number(p.pricePerSqm)||0);
+    return {...p, area, cost};
   });
   const total = rows.reduce((s,r)=>s+r.cost,0);
   return { rows, total };
@@ -1560,7 +1563,7 @@ function openEditor(quoteId, templateId){
       const t = TEMPLATES.find(x=>x.id===templateId);
       if(t){
         q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:t.hullAreaOverride, layers:t.layers, glassPerLayer:t.glassPerLayer, coreArea:0, coreEnabled:false };
-        q.paint = { items: [{ id:uid('pi'), type:t.paintType||'Marine Polyurethane Topcoat', color:'', area:t.paintArea ?? null, coveragePerLiter:PRICING.paintCoverage, coats:t.coats||3, pricePerLiter:PRICING.paintPerLiter }] };
+        q.paint = { items: ['1st Coat','2nd Coat','3rd Coat'].map(label=>({ id:uid('pi'), coatLabel:label, type:t.paintType||'Marine Polyurethane Topcoat', color:'', area:t.paintArea ?? null, pricePerSqm:(Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1) })) };
         if(!q.structural) q.structural = { items:[] };
         q.structural.items = (t.components||[]).map(c=>({...c, id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
         q.project.title = t.name;
@@ -1577,14 +1580,25 @@ function ensureQuoteDefaults(q){
   if(!q.structural) q.structural = { items:[] };
   if(!q.paint) q.paint = { items:[] };
   if(!q.paint.items){
-    // Migrate the old single-spec paint object (areaOverride/coats/paintType)
-    // into one paint item in the new list, so nothing is lost.
+    // Migrate the very old single-spec paint object (areaOverride/coats/paintType)
+    // straight into the new 3-coat list shape, so nothing is lost.
     const old = q.paint;
-    q.paint = { items: [{
-      id: uid('pi'), type: old.paintType || 'Marine Polyurethane Topcoat', color: '',
-      area: old.areaOverride ?? null, coveragePerLiter: PRICING.paintCoverage,
-      coats: old.coats || 3, pricePerLiter: PRICING.paintPerLiter
-    }] };
+    const pricePerSqm = (Number(PRICING.paintPerLiter)||0) / (Number(PRICING.paintCoverage)||1);
+    q.paint = { items: [
+      {id:uid('pi'), coatLabel:'1st Coat', type: old.paintType || 'Marine Polyurethane Topcoat', color:'', area: old.areaOverride ?? null, pricePerSqm},
+      {id:uid('pi'), coatLabel:'2nd Coat', type: old.paintType || 'Marine Polyurethane Topcoat', color:'', area: old.areaOverride ?? null, pricePerSqm},
+      {id:uid('pi'), coatLabel:'3rd Coat', type: old.paintType || 'Marine Polyurethane Topcoat', color:'', area: old.areaOverride ?? null, pricePerSqm}
+    ] };
+  } else if(q.paint.items.some(it=>it.pricePerSqm===undefined)){
+    // Migrate the previous list-item shape (coveragePerLiter/coats/pricePerLiter)
+    // into coatLabel/pricePerSqm, preserving each row's original total cost.
+    q.paint.items = q.paint.items.map((it,idx)=>{
+      if(it.pricePerSqm!==undefined) return it;
+      const coverage = Number(it.coveragePerLiter)||1;
+      const coatsCount = Number(it.coats)||1;
+      const pricePerLiter = Number(it.pricePerLiter)||0;
+      return { id: it.id||uid('pi'), coatLabel: it.coatLabel || `Coat ${idx+1}`, type: it.type||'', color: it.color||'', area: it.area??null, pricePerSqm: (pricePerLiter/coverage)*coatsCount };
+    });
   }
   if(q.createdByEmail===undefined) q.createdByEmail = '';
   if(q.approvedBy===undefined) q.approvedBy = null;
@@ -2180,11 +2194,10 @@ function tabHull(host, q){
     const preset = TEMPLATES.find(t=>t.boatModel && t.boatModel===e.target.value);
     if(preset){
       q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:preset.hullAreaOverride, layers:preset.layers, glassPerLayer:preset.glassPerLayer, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false };
-      q.paint.items = [{
-        id: uid('pi'), type: preset.paintType || 'Marine Polyurethane Topcoat', color: '',
-        area: preset.paintArea ?? null, coveragePerLiter: PRICING.paintCoverage,
-        coats: preset.coats || 3, pricePerLiter: PRICING.paintPerLiter
-      }];
+      q.paint.items = ['1st Coat','2nd Coat','3rd Coat'].map(label=>({
+        id: uid('pi'), coatLabel: label, type: preset.paintType || 'Marine Polyurethane Topcoat', color: '',
+        area: preset.paintArea ?? null, pricePerSqm: (Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1)
+      }));
       if(!q.structural) q.structural = { items:[] };
       q.structural.items = (preset.components||[]).map(c=>({...c, id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
@@ -2252,9 +2265,9 @@ function tabPaint(host, q){
       <div class="card-head"><h3>Surface Finishing &amp; Painting</h3>
         <button class="btn btn-sm" id="addPaintItem">${icon('plus')} Add Paint</button>
       </div>
-      <div class="section-lead" style="padding:10px 20px 0;">Add one row per paint type/color used on this boat (e.g. hull anti-fouling, deck non-skid, topside gelcoat color). Leave Area blank to use the hull's calculated surface area automatically.</div>
+      <div class="section-lead" style="padding:10px 20px 0;">Clicking "Add Paint" adds a 1st, 2nd, and 3rd Coat row together — edit the Type/Color/Area/Price for each. Leave Area blank to use the hull's calculated surface area automatically.</div>
       <div class="card-body" style="padding:0;">
-        <table><thead><tr><th style="width:16%;">Type</th><th style="width:14%;">Color</th><th style="width:90px;">Area (sqm)</th><th style="width:90px;">Coverage (sqm/L)</th><th style="width:60px;">Coats</th><th style="width:100px;">Price/Liter</th><th class="right" style="width:70px;">Liters</th><th class="right" style="width:100px;">Cost</th><th></th></tr></thead>
+        <table><thead><tr><th style="width:80px;">Coat</th><th style="width:18%;">Type</th><th style="width:14%;">Color</th><th style="width:90px;">Area (sqm)</th><th style="width:100px;">Price/sqm</th><th class="right" style="width:110px;">Cost</th><th></th></tr></thead>
           <tbody id="paintRows"></tbody>
         </table>
       </div>
@@ -2266,16 +2279,14 @@ function tabPaint(host, q){
     const c = computePaint(q, hull);
     rowsBody.innerHTML = c.rows.length ? c.rows.map((r,idx)=>`
       <tr>
+        <td><input class="tbl-input prow" data-idx="${idx}" data-f="coatLabel" value="${esc(r.coatLabel||'')}" placeholder="e.g. 1st Coat"></td>
         <td><input class="tbl-input prow" data-idx="${idx}" data-f="type" value="${esc(r.type)}"></td>
         <td><input class="tbl-input prow" data-idx="${idx}" data-f="color" value="${esc(r.color)}"></td>
         <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="area" value="${q.paint.items[idx].area??''}" placeholder="${fmtNum(hull.area,1)}"></td>
-        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="coveragePerLiter" value="${r.coveragePerLiter}"></td>
-        <td><input type="number" class="tbl-input num prow" data-idx="${idx}" data-f="coats" value="${r.coats}"></td>
-        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="pricePerLiter" value="${r.pricePerLiter}"></td>
-        <td class="right mono">${fmtNum(r.liters,1)}</td>
+        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="pricePerSqm" value="${r.pricePerSqm}"></td>
         <td class="right mono">${fmt(r.cost)}</td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-delpaint="${idx}" style="color:var(--danger);">✕</span></td>
-      </tr>`).join('') : `<tr><td colspan="9"><div class="empty">No paint items yet. Click "Add Paint" to add one.</div></td></tr>`;
+      </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No paint items yet. Click "Add Paint" to add a 1st/2nd/3rd Coat set.</div></td></tr>`;
 
     rowsBody.querySelectorAll('.prow').forEach(inp=>{
       inp.addEventListener('input', ()=>{
@@ -2283,17 +2294,16 @@ function tabPaint(host, q){
         const item = q.paint.items[idx];
         const f = inp.dataset.f;
         if(f==='area') item.area = inp.value===''? null : Number(inp.value);
-        else if(['coveragePerLiter','coats','pricePerLiter'].includes(f)) item[f] = Number(inp.value);
+        else if(f==='pricePerSqm') item[f] = Number(inp.value);
         else item[f] = inp.value;
         persistQuote(q); updateLiveSummary(q);
-        // Patch just this row's Liters/Cost cells instead of a full redraw,
-        // so typing in Type/Color doesn't lose focus after every keystroke.
+        // Patch just this row's Cost cell instead of a full redraw, so
+        // typing in Coat/Type/Color doesn't lose focus after every keystroke.
         const hull2 = computeHull(q);
         const area = (item.area!=null && item.area!=='') ? Number(item.area) : hull2.area;
-        const liters = (area / (Number(item.coveragePerLiter)||1)) * (Number(item.coats)||1);
-        const cost = liters * (Number(item.pricePerLiter)||0);
+        const cost = area * (Number(item.pricePerSqm)||0);
         const tr = inp.closest('tr');
-        if(tr){ tr.children[6].textContent = fmtNum(liters,1); tr.children[7].textContent = fmt(cost); }
+        if(tr) tr.children[5].textContent = fmt(cost);
       });
     });
     rowsBody.querySelectorAll('[data-delpaint]').forEach(b=>b.onclick=()=>{
@@ -2301,7 +2311,9 @@ function tabPaint(host, q){
     });
   }
   document.getElementById('addPaintItem').onclick = ()=>{
-    q.paint.items.push({id:uid('pi'), type:'New Paint Type', color:'', area:null, coveragePerLiter:PRICING.paintCoverage, coats:3, pricePerLiter:PRICING.paintPerLiter});
+    ['1st Coat','2nd Coat','3rd Coat'].forEach(label=>{
+      q.paint.items.push({id:uid('pi'), coatLabel:label, type:'New Paint Type', color:'', area:null, pricePerSqm:60});
+    });
     persistQuote(q); draw(); updateLiveSummary(q);
   };
   draw();
@@ -3250,7 +3262,8 @@ function tabOutput(host, q){
         <div class="doc-section-title">Cost Summary</div>
         <table class="doc-item-table">
           <tbody>
-            <tr><td>Structural Components &amp; Core Materials</td><td class="right mono">${fmt(c.hull.total + c.structural.total + c.paint.total)}</td></tr>
+            <tr><td>Structural Components &amp; Core Materials</td><td class="right mono">${fmt(c.hull.total + c.structural.total)}</td></tr>
+            <tr><td>Paint &amp; Finish</td><td class="right mono">${fmt(c.paint.total)}</td></tr>
             <tr><td>Accessories &amp; Components</td><td class="right mono">${fmt(c.acc.total)}</td></tr>
             <tr><td>Engine &amp; Mechanical System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
             <tr><td>Testing &amp; Delivery</td><td class="right mono">${fmt(c.testing.total)}</td></tr>
@@ -3336,7 +3349,22 @@ function tabOutput(host, q){
             </table>`).join('');
         })()}
 
-        <div class="doc-section-title">III. Accessories &amp; Components</div>
+        <div class="doc-section-title">III. Paint &amp; Finish</div>
+        ${(()=>{
+          if(!c.paint.rows.length) return `<div class="doc-na-block" style="font-style:normal;">No paint items listed.</div>`;
+          const total = c.paint.rows.reduce((s,r)=>s+r.cost,0);
+          return `
+          <div class="marina-box">
+            <div class="marina-row">
+              <ul class="marina-list">
+                ${c.paint.rows.map(r=>`<li>${esc(r.coatLabel||'Coat')} — ${esc(r.type)}${r.color?` (${esc(r.color)})`:''}</li>`).join('')}
+              </ul>
+              <div class="marina-price">${fmt(total)}</div>
+            </div>
+          </div>`;
+        })()}
+
+        <div class="doc-section-title">IV. Accessories &amp; Components</div>
         ${(()=>{
           const groups = groupByCat(c.acc.rows);
           const renderBox = rows => {
@@ -3369,7 +3397,7 @@ function tabOutput(host, q){
           return fixedHtml + restHtml;
         })()}
 
-        <div class="doc-section-title">IV. Engine &amp; Mechanical System</div>
+        <div class="doc-section-title">V. Engine &amp; Mechanical System</div>
         <table><tbody>
           <tr><td>${esc(q.engine.model)||'—'}</td><td class="right mono">${q.engine.hp} HP × ${q.engine.qty} unit(s)</td></tr>
           <tr><td>Transmission: ${esc(q.engine.transmission)||'—'} &nbsp; Propeller: ${esc(q.engine.propeller)||'—'}</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
@@ -3385,7 +3413,7 @@ function tabOutput(host, q){
           <ul style="margin:0;padding-left:18px;line-height:1.6;">${q.engine.steeringItems.map(it=>`<li>${esc(it)}</li>`).join('')}</ul>
         </div>` : ``}
 
-        <div class="doc-section-title">V. Testing &amp; Delivery</div>
+        <div class="doc-section-title">VI. Testing &amp; Delivery</div>
         ${(()=>{
           const groups = groupByCat(c.testing.rows);
           const rowsHtml = (items)=>`
@@ -3412,7 +3440,7 @@ function tabOutput(host, q){
           return namedHtml + otherHtml;
         })()}
 
-        <div class="doc-section-title">VI. MARINA Documentation &amp; Regulatory Requirements</div>
+        <div class="doc-section-title">VII. MARINA Documentation &amp; Regulatory Requirements</div>
         <div class="marina-box">
           <div class="marina-title">MARINA DOCUMENTS:</div>
           <div class="marina-row">
