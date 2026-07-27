@@ -2996,8 +2996,9 @@ function bindLogoCardStandalone(host, onChange){
 
 /* ============================================================
    MY PROFILE — every signed-in user's own Name, Contact Number, and
-   E-Signature (self-editable). Position and admin status are set by
-   an admin in Settings → User Management, shown here read-only.
+   E-Signature (self-editable). Position and admin status are assigned
+   by an admin directly in Supabase (user_profiles table), shown here
+   read-only.
    ============================================================ */
 function renderMyProfile(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveProfile">Save My Profile</button>`;
@@ -3008,7 +3009,7 @@ function renderMyProfile(content, actions){
       <div class="card-body">
         <div class="grid g2">
           <div class="field"><label>Full Name</label><input id="myName" value="${esc(p.full_name)}"></div>
-          <div class="field"><label>Position</label><input value="${esc(p.position)||'Not yet assigned'}" disabled><div class="hint">Set by an admin in Settings → User Management.</div></div>
+          <div class="field"><label>Position</label><input value="${esc(p.position)||'Not yet assigned'}" disabled><div class="hint">Assigned by an admin in Supabase (user_profiles table).</div></div>
         </div>
         <div class="grid g2">
           <div class="field"><label>Contact Number</label><input id="myContact" value="${esc(p.contact_number)}"></div>
@@ -3059,74 +3060,10 @@ function renderMyProfile(content, actions){
   };
 }
 
-async function drawUserManagement(){
-  const tbody = document.getElementById('userMgmtRows');
-  if(!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="7" class="empty">Loading…</td></tr>`;
-  let permsRows = [];
-  try{
-    const { data, error } = await supabaseClient.from('user_permissions').select('email,section');
-    if(error) throw error;
-    permsRows = data || [];
-  }catch(e){ console.error('Loading permissions failed', e); }
-
-  const permsByEmail = {};
-  permsRows.forEach(r=>{ (permsByEmail[r.email] = permsByEmail[r.email]||new Set()).add(r.section); });
-
-  const rows = ALL_PROFILES.slice().sort((a,b)=>a.email.localeCompare(b.email));
-  tbody.innerHTML = rows.map(p=>{
-    const perms = permsByEmail[p.email] || new Set();
-    const sections = ['quotes','templates','pricing','settings'];
-    return `
-    <tr data-email="${esc(p.email)}">
-      <td>${esc(p.email)}</td>
-      <td><input class="tbl-input um-position" value="${esc(p.position)}" style="min-width:140px;"></td>
-      <td class="right"><input type="checkbox" class="um-admin" ${p.is_admin?'checked':''}></td>
-      ${sections.map(s=>`<td class="right"><input type="checkbox" class="um-perm" data-section="${s}" ${perms.has(s)?'checked':''}></td>`).join('')}
-    </tr>`;
-  }).join('') || `<tr><td colspan="7" class="empty">No one has logged in yet.</td></tr>`;
-
-  tbody.querySelectorAll('tr[data-email]').forEach(tr=>{
-    const email = tr.dataset.email;
-    tr.querySelector('.um-position').addEventListener('change', async (e)=>{
-      const { error } = await supabaseClient.from('user_profiles').update({ position: e.target.value, updated_at: new Date().toISOString() }).eq('email', email);
-      if(error){ toast('Failed to save position'); console.error(error); } else { toast('Position updated'); await refreshAllProfiles(); }
-    });
-    tr.querySelector('.um-admin').addEventListener('change', async (e)=>{
-      const { error } = await supabaseClient.from('user_profiles').update({ is_admin: e.target.checked, updated_at: new Date().toISOString() }).eq('email', email);
-      if(error){ toast('Failed to update admin status'); console.error(error); e.target.checked=!e.target.checked; }
-      else { toast(e.target.checked? `${email} is now an admin` : `${email} is no longer an admin`); await refreshAllProfiles(); }
-    });
-    tr.querySelectorAll('.um-perm').forEach(cb=>{
-      cb.addEventListener('change', async (e)=>{
-        const section = e.target.dataset.section;
-        if(e.target.checked){
-          const { error } = await supabaseClient.from('user_permissions').insert({ email, section });
-          if(error){ toast('Failed to grant access'); console.error(error); e.target.checked=false; }
-        } else {
-          const { error } = await supabaseClient.from('user_permissions').delete().eq('email', email).eq('section', section);
-          if(error){ toast('Failed to remove access'); console.error(error); e.target.checked=true; }
-        }
-      });
-    });
-  });
-}
-
 function renderSettings(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveCompany">Save Settings</button>`;
   const c = COMPANY;
   content.innerHTML = `
-    ${CURRENT_IS_ADMIN ? `
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-head"><h3>User Management</h3></div>
-      <div class="card-body">
-        <div class="section-lead" style="margin-top:0;">Assign each person's Position and which sections they can access. Admins automatically get full access to everything, regardless of the checkboxes below. Changes save immediately.</div>
-        <div style="overflow-x:auto;">
-        <table><thead><tr><th>Email</th><th>Position</th><th class="right">Admin</th><th class="right">Quotations</th><th class="right">Boat Presets</th><th class="right">Pricing DB</th><th class="right">Settings</th></tr></thead>
-        <tbody id="userMgmtRows"></tbody></table>
-        </div>
-      </div>
-    </div>` : ``}
     <div class="section-lead">This logo and company information appear on the letterhead of every printed quotation and invoice.</div>
     <div class="grid g2">
       <div class="card">
@@ -3152,8 +3089,6 @@ function renderSettings(content, actions){
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Bank Name</th><th>Branch</th><th>Account Name</th><th>Account Number</th><th></th></tr></thead><tbody id="bankRows"></tbody></table></div>
     </div>
   `;
-
-  if(CURRENT_IS_ADMIN) drawUserManagement();
 
   bindLogoCardStandalone(content, ()=>renderSettings(content, actions));
 
@@ -3209,21 +3144,25 @@ function tabOutput(host, q){
           </div>
         </div>
 
-        <div class="doc-company-details">
-          <div class="doc-title-col">
+        <div class="doc-header-row">
+          <div class="doc-header-left">
             <div class="doc-titlebar">QUOTATION</div>
           </div>
-          <div class="co-meta-col">
-            <div class="co-meta">${escNl(COMPANY.address)}</div>
-            <div class="co-meta">${esc(COMPANY.contact)} &nbsp;·&nbsp; ${esc(COMPANY.email)}</div>
-            <div class="co-meta">TIN: ${esc(COMPANY.tin)}</div>
-            <div class="doc-title-meta">
-              <div class="co-meta">Quotation No.: ${esc(q.refNo)}</div>
-              <div class="co-meta">Date: ${dateIssuedStr}</div>
-              <div class="co-meta">Expiry Date: ${(validUntil.getMonth()+1)+'/'+validUntil.getDate()+'/'+validUntil.getFullYear()}</div>
-            </div>
+          <div class="doc-header-right">
+            <table class="doc-info-table">
+              <tbody>
+                <tr><td class="lbl">Address</td><td class="val">${escNl(COMPANY.address)}</td></tr>
+                <tr><td class="lbl">Contact</td><td class="val">${esc(COMPANY.contact)}</td></tr>
+                <tr><td class="lbl">Email</td><td class="val">${esc(COMPANY.email)}</td></tr>
+                <tr><td class="lbl">PI Ref No.</td><td class="val">${esc(q.refNo)}</td></tr>
+                <tr><td class="lbl">Date Issued</td><td class="val">${dateIssuedStr}</td></tr>
+                <tr><td class="lbl">Expiry Date</td><td class="val">${(validUntil.getMonth()+1)+'/'+validUntil.getDate()+'/'+validUntil.getFullYear()}</td></tr>
+                <tr><td class="lbl">TIN</td><td class="val">${esc(COMPANY.tin)}</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
+        <div class="doc-header-divider"></div>
 
         <div class="doc-band-head">Client Information</div>
         <div class="doc-band-row" style="margin-top:14px;">
