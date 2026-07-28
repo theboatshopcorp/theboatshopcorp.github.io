@@ -1163,6 +1163,19 @@ draw();
 }
 function esc(s){ return (s||'').toString().replace(/"/g,'&quot;'); }
 function escNl(s){ return esc(s).split('\n').map(l=>l.trim()).filter(Boolean).join('<br>'); }
+// Splits an address into exactly two lines, breaking at the comma nearest
+// the midpoint — more reliable than hoping the column width happens to wrap
+// it onto two lines naturally.
+function splitAddressTwoLines(addr){
+  addr = (addr||'').trim();
+  if(!addr) return '';
+  const parts = addr.split(',').map(s=>s.trim()).filter(Boolean);
+  if(parts.length<=1) return esc(addr);
+  const mid = Math.ceil(parts.length/2);
+  const line1 = parts.slice(0,mid).join(', ');
+  const line2 = parts.slice(mid).join(', ');
+  return `${esc(line1)}<br>${esc(line2)}`;
+}
 
 /* ============================================================
    BOAT PRESETS
@@ -3151,7 +3164,7 @@ function tabOutput(host, q){
           <div class="doc-header-right">
             <table class="doc-info-table">
               <tbody>
-                <tr><td class="lbl">Address</td><td class="val">${escNl(COMPANY.address)}</td></tr>
+                <tr><td class="lbl">Address</td><td class="val">${splitAddressTwoLines(COMPANY.address)}</td></tr>
                 <tr><td class="lbl">Contact</td><td class="val">${esc(COMPANY.contact)}</td></tr>
                 <tr><td class="lbl">Email</td><td class="val">${esc(COMPANY.email)}</td></tr>
                 <tr><td class="lbl">PI Ref No.</td><td class="val">${esc(q.refNo)}</td></tr>
