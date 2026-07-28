@@ -250,10 +250,10 @@ tr:hover td{background:var(--paper);}
 /* Right-side info table: fixed label column so every value starts at the
    same horizontal position; rows all share equal height/spacing; wrapped
    values (e.g. Address) stay aligned to the value column, not the label. */
-.doc-info-table{width:100%;border-collapse:collapse;}
+.doc-info-table{width:100%;border-collapse:collapse;table-layout:fixed;}
 .doc-info-table td{padding:4.5px 0;vertical-align:middle;line-height:1.5;}
-.doc-info-table td.lbl{width:80px;min-width:80px;color:var(--doc-ink-faint);font-size:9px;font-weight:700;letter-spacing:.02em;white-space:nowrap;padding-right:10px;}
-.doc-info-table td.val{color:var(--doc-ink);font-size:9.3px;font-weight:600;word-break:break-word;}
+.doc-info-table td.lbl{width:80px;color:var(--doc-ink-faint);font-size:9px;font-weight:700;letter-spacing:.02em;white-space:nowrap;padding-right:10px;}
+.doc-info-table td.val{color:var(--doc-ink);font-size:9.3px;font-weight:600;word-break:break-word;width:auto;}
 
 /* Bold divider separating the whole header from the quotation content below */
 .doc-header-divider{border-bottom:2.5px solid var(--doc-ink);margin:16px 0 22px;}
