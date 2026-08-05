@@ -219,14 +219,17 @@ tr:hover td{background:var(--paper);}
   --doc-accent-soft:#f0faf8;
   --doc-tint:#f7f8fa;
 }
-.doc-wrap{background:#eef0f3;padding:40px 24px;border-radius:var(--radius);}
+.doc-wrap{background:#eef0f3;padding:40px 24px;border-radius:var(--radius);overflow-x:auto;}
 .doc{
   background:#fff;max-width:840px;margin:0 auto;padding:0;
   box-shadow:0 1px 2px rgba(15,23,42,.04), 0 24px 48px -24px rgba(15,23,42,.16);
   color:var(--doc-ink);font-size:10.5px;line-height:1.42;border-radius:6px;
   -webkit-font-smoothing:antialiased;
-  zoom:1.35; /* screen-only enlargement; print resets this to 1 below so
-                on-screen and printed proportions/wrapping stay identical */
+  zoom:1.15; /* screen-only enlargement; print resets this to 1 below so
+                on-screen and printed proportions/wrapping stay identical.
+                Kept modest (rather than larger) so the effective width
+                (~966px) fits alongside the sidebar on typical laptop
+                screens without horizontal scrolling. */
 }
 .doc h1,.doc h2,.doc h3{font-family:'Sora',sans-serif;letter-spacing:-.01em;}
 .doc table{font-size:12px;border-collapse:collapse;width:100%;}
