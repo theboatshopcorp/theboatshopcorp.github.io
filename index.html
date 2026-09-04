@@ -47,8 +47,9 @@
   </div>
 </div>
 <div id="toast"></div>
-<div id="loginScreen" style="position:fixed;inset:0;background:#f7f8fa;display:none;align-items:center;justify-content:center;z-index:1000;font-family:'Inter',sans-serif;">
-  <form id="loginForm" style="width:320px;background:#fff;border:1px solid var(--border,#e6e8ec);border-radius:var(--radius,11px);padding:32px 28px;box-shadow:0 1px 2px rgba(15,23,42,.04), 0 24px 48px -24px rgba(15,23,42,.16);">
+<div id="loginScreen" style="position:fixed;inset:0;background:#f7f8fa radial-gradient(1200px 600px at 100% -10%, rgba(13,148,136,.08), transparent 60%);display:none;align-items:center;justify-content:center;z-index:1000;font-family:'Inter',sans-serif;">
+  <form id="loginForm" style="width:320px;background:rgba(255,255,255,.75);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border:1px solid rgba(255,255,255,.6);border-radius:16px;padding:32px 28px;box-shadow:0 1px 2px rgba(15,23,42,.04), 0 30px 60px -20px rgba(15,23,42,.2);animation:fadeInUp .4s cubic-bezier(.4,0,.2,1);">
+    <style>@keyframes fadeInUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}} #loginForm input{transition:border-color .18s, box-shadow .18s;} #loginForm input:focus{outline:none;border-color:#0d9488;box-shadow:0 0 0 3px #eefbf9;} #loginSubmit{transition:background .18s, transform .12s;} #loginSubmit:hover{background:#0f766e;} #loginSubmit:active{transform:scale(.98);}</style>
     <h1 style="font-family:'Sora',sans-serif;font-size:17px;font-weight:700;color:var(--ink);margin:0 0 4px;">TBSC Quotation System</h1>
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:20px;">Sign in with your team account to continue.</div>
     <div class="field"><label>Email</label><input type="email" id="loginEmail" autocomplete="username" required></div>
