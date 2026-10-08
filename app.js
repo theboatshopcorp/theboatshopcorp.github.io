@@ -3161,16 +3161,22 @@ function tabOutput(host, q){
           <div class="doc-header-left">
             <div class="doc-titlebar">QUOTATION</div>
           </div>
-          <div class="doc-header-right">
+          <div class="doc-header-mid">
             <table class="doc-info-table">
               <tbody>
                 <tr><td class="lbl">Address</td><td class="val">${splitAddressTwoLines(COMPANY.address)}</td></tr>
                 <tr><td class="lbl">Contact</td><td class="val">${esc(COMPANY.contact)}</td></tr>
                 <tr><td class="lbl">Email</td><td class="val">${esc(COMPANY.email)}</td></tr>
+                <tr><td class="lbl">TIN</td><td class="val">${esc(COMPANY.tin)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="doc-header-right">
+            <table class="doc-info-table">
+              <tbody>
                 <tr><td class="lbl">PI Ref No.</td><td class="val">${esc(q.refNo)}</td></tr>
                 <tr><td class="lbl">Date Issued</td><td class="val">${dateIssuedStr}</td></tr>
                 <tr><td class="lbl">Expiry Date</td><td class="val">${(validUntil.getMonth()+1)+'/'+validUntil.getDate()+'/'+validUntil.getFullYear()}</td></tr>
-                <tr><td class="lbl">TIN</td><td class="val">${esc(COMPANY.tin)}</td></tr>
               </tbody>
             </table>
           </div>
