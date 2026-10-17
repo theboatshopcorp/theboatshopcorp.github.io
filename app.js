@@ -958,6 +958,11 @@ function renderDashboard(content, actions){
   const recent = [...QUOTES].sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,6);
   const myEmail = (CURRENT_USER.email||'').toLowerCase();
   const needsRevision = QUOTES.filter(q=>q.createdByEmail===myEmail && q.status==='for_revision' && q.revisionChildId);
+  const pendingCount = QUOTES.filter(q=>q.status==='for_approval').length;
+  const mix = ['draft','for_approval','for_revision','approved'].map(key=>{
+    const list = QUOTES.filter(q=>q.status===key);
+    return { key, label: statusLabel(key), n: list.length, v: list.reduce((sum,q)=>sum+computeAll(q).finalTotal,0) };
+  });
 
   content.innerHTML = `
     ${needsRevision.length ? `
@@ -971,40 +976,54 @@ function renderDashboard(content, actions){
       </div>
     </div>` : ``}
     <div class="stat-row">
-      <div class="stat"><div class="lbl">Total Quotations</div><div class="val">${QUOTES.length}</div></div>
-      <div class="stat teal"><div class="lbl">Total Quoted Value</div><div class="val">${fmt(totalVal)}</div></div>
-      <div class="stat amber"><div class="lbl">Average Quotation</div><div class="val">${fmt(avg)}</div></div>
-      <div class="stat"><div class="lbl">Approved</div><div class="val">${approved}</div></div>
-    </div>
-    <div class="grid g2" style="align-items:start;">
-      <div class="card">
-        <div class="card-head"><h3>Recent Quotations</h3><span class="btn btn-ghost btn-sm" id="viewAllQ">View All</span></div>
-        <div class="card-body" style="padding:0;">
-          ${recent.length? `<table><thead><tr><th>Ref No.</th><th>Client</th><th>Boat</th><th class="right">Total</th><th>Status</th><th></th></tr></thead><tbody>
-            ${recent.map(q=>{
-              const t = computeAll(q).finalTotal;
-              return `<tr>
-                <td class="mono">${q.refNo}</td>
-                <td>${esc(customerDisplayName(q.customerSnap))||'—'}</td>
-                <td>${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</td>
-                <td class="right mono">${fmt(t)}</td>
-                <td><span class="badge ${q.status}">${statusLabel(q.status)}</span></td>
-                <td class="right"><span class="btn btn-ghost btn-sm" data-open="${q.id}">Open →</span></td>
-              </tr>`;
-            }).join('')}
-          </tbody></table>` : `<div class="empty">No quotations yet. Create your first one to see it here.</div>`}
-        </div>
+      <div class="stat">
+        <span class="ico">${icon('list')}</span>
+        <div class="txt"><div class="val">${QUOTES.length}${pendingCount?`<span class="chip y">${pendingCount} awaiting approval</span>`:''}</div><div class="lbl">Total quotations</div></div>
       </div>
+      <div class="stat">
+        <span class="ico">${icon('db')}</span>
+        <div class="txt"><div class="val">${fmt(totalVal)}</div><div class="lbl">Total quoted value</div></div>
+      </div>
+      <div class="stat">
+        <span class="ico">${icon('grid')}</span>
+        <div class="txt"><div class="val">${fmt(avg)}</div><div class="lbl">Average quotation</div></div>
+      </div>
+      <div class="stat">
+        <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+        <div class="txt"><div class="val">${approved}${QUOTES.length?`<span class="chip">${Math.round(approved/QUOTES.length*100)}% approved</span>`:''}</div><div class="lbl">Approved quotations</div></div>
+      </div>
+    </div>
+    <div class="dash-grid">
       <div class="card">
-        <div class="card-head"><h3>Quick Actions</h3></div>
-        <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
-          <button class="btn" id="qaTemplates">${icon('ship')} View Boat Presets</button>
-          <button class="btn" id="qaCustomer">${icon('user')} Add a Customer</button>
-          <button class="btn" id="qaPricing">${icon('db')} Update Pricing Database</button>
+        <div class="card-head"><h3>Recent quotations</h3><span class="btn btn-ghost btn-sm" id="viewAllQ">View all</span></div>
+        ${recent.length ? `<div class="qcards">
+          ${recent.map(q=>{
+            const t = computeAll(q).finalTotal;
+            return `<button type="button" class="qcard ${q.status}" data-open="${q.id}">
+              <div class="q-top"><span>${esc(q.refNo)}</span><span>${esc(q.date||'')}</span></div>
+              <div class="q-name">${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</div>
+              <div class="q-client">${esc(customerDisplayName(q.customerSnap))||'No client yet'}</div>
+              <div class="q-amt">${fmt(t)}</div>
+              <div class="q-state">${statusLabel(q.status)}</div>
+            </button>`;
+          }).join('')}
+        </div>` : `<div class="empty">No quotations yet. Create your first one to see it here.</div>`}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card">
+          <div class="card-head"><h3>Status mix</h3><span class="hint" style="margin:0;">${fmt(totalVal)} quoted</span></div>
+          ${QUOTES.length ? `<div class="mixbar">${mix.filter(m=>m.n).map(m=>`<span class="${m.key}" style="flex:${m.n};" title="${m.label}: ${m.n}"></span>`).join('')}</div>` : ``}
+          <div class="mixlist">
+            ${mix.map(m=>`<div class="mixrow"><i class="${m.key}"></i><span>${m.label}</span><span class="n">${m.n}</span><span class="v">${fmt(m.v)}</span></div>`).join('')}
+          </div>
         </div>
-        <div class="card-head" style="border-top:1px solid var(--paper-line);"><h3>System Notes</h3></div>
-        <div class="card-body section-lead">
-          Quotations calculate automatically from hull dimensions, laminate schedule, paint coverage, itemized accessories, engine package, and labor hours — all priced from the editable Pricing Database. Update rates once; every new quotation applies them.
+        <div class="card">
+          <div class="card-head"><h3>Quick actions</h3></div>
+          <div class="quick">
+            <button class="btn" id="qaTemplates">${icon('ship')} View boat presets</button>
+            <button class="btn" id="qaCustomer">${icon('user')} Add a customer</button>
+            <button class="btn" id="qaPricing">${icon('db')} Update pricing database</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1037,8 +1056,8 @@ function renderQuotesList(content, actions){
       </select>
       ${CURRENT_IS_ADMIN ? `
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${pendingApproval.length?'#2563a8':'var(--ink-faint)'};">${pendingApproval.length ? `Awaiting Your Approval:` : `Nothing awaiting approval`}</span>
-        ${pendingApproval.map(q=>`<span class="btn btn-sm" data-open="${q.id}" style="background:#eaf1fb;color:#2563a8;border-color:#eaf1fb;">${esc(q.refNo)}</span>`).join('')}
+        <span style="font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${pendingApproval.length?'var(--green)':'var(--ink-faint)'};">${pendingApproval.length ? `Awaiting Your Approval:` : `Nothing awaiting approval`}</span>
+        ${pendingApproval.map(q=>`<span class="btn btn-sm" data-open="${q.id}" style="background:var(--teal-soft);color:var(--green);border-color:var(--teal-soft);">${esc(q.refNo)}</span>`).join('')}
       </div>` : ``}
     </div>
     <div class="card"><div class="card-body" style="padding:0;" id="qTableWrap"></div></div>
@@ -3618,6 +3637,16 @@ if(!localStorage.getItem('frp_sample_seeded_v1') && QUOTES.length === 0){
   localStorage.setItem('frp_sample_seeded_v1', '1');
 }
 
+/* Floating dock (quick actions) */
+document.querySelectorAll('[data-dock]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    const d = btn.dataset.dock;
+    if(d === 'new'){ openEditor(null); }
+    else if(d === 'search'){ CURRENT.view = 'quotes'; renderAll(); const el = document.getElementById('qSearch'); if(el) el.focus(); }
+    else { CURRENT.view = d; renderAll(); }
+  });
+});
+
 async function startApp(session){
   CURRENT_USER = { email: session.user.email, isOwner:false };
   document.getElementById('loginScreen').style.display = 'none';
@@ -3641,7 +3670,12 @@ function showLogin(msg){
 function updateSidebarFoot(){
   const foot = document.getElementById('sidebarFoot');
   if(!foot) return;
-  foot.innerHTML = `${esc(CURRENT_USER.email)} &nbsp;·&nbsp; <a href="#" id="signOutLink" style="color:var(--teal);text-decoration:none;">Sign Out</a>`;
+  const me = (typeof profileByEmail==='function' && profileByEmail(CURRENT_USER.email)) || {};
+  const shown = me.full_name || CURRENT_USER.email || '';
+  const initials = (me.full_name
+    ? me.full_name.trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('')
+    : String(CURRENT_USER.email||'?').split('@')[0].slice(0,2)).toUpperCase();
+  foot.innerHTML = `<span class="who-name">${esc(shown)}</span><span class="avatar" title="${esc(CURRENT_USER.email)}">${esc(initials)}</span><button type="button" class="who-out" id="signOutLink">Sign out</button>`;
   const link = document.getElementById('signOutLink');
   if(link) link.addEventListener('click', async (e)=>{ e.preventDefault(); await supabaseClient.auth.signOut(); });
 }
