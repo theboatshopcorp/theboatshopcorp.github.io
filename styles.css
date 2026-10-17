@@ -472,3 +472,27 @@ tr:hover td{background:var(--paper);}
 .search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;}
 
 @keyframes bootspin{to{transform:rotate(360deg);}}
+
+/* ---------- Reliability and small-screen refinements ---------- */
+img, svg { max-width: 100%; }
+button, .btn { touch-action: manipulation; }
+input, select, textarea { max-width: 100%; }
+@media (max-width: 600px) {
+  .content { padding: 14px 12px; }
+  .topbar { padding: 0 12px; }
+  .topbar .actions { gap: 6px; }
+  .topbar .actions .btn { padding: 7px 9px; font-size: 11px; }
+  .card-head { padding: 13px 14px; gap: 8px; flex-wrap: wrap; }
+  .card-body { padding: 14px; }
+  .doc-wrap { padding: 16px 8px; }
+  .doc { zoom: 1; }
+  .stat .val { font-size: 20px; overflow-wrap: anywhere; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
