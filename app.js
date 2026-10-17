@@ -276,7 +276,13 @@ function fmtNum(n,d=2){ n=Number(n)||0; return n.toLocaleString('en-PH',{minimum
 function ftInToDec(ft, inch){ return (Number(ft)||0) + (Number(inch)||0)/12; }
 function decToFtIn(dec){ dec = Number(dec)||0; let ft = Math.floor(dec); let inch = Math.round((dec-ft)*12); if(inch>=12){ inch-=12; ft+=1; } return {ft, inch}; }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(window._tt); window._tt=setTimeout(()=>t.classList.remove('show'),2200); }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+function todayISO(){
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
 
 /* ---------- default pricing database ---------- */
 const DEFAULT_PRICING = {
@@ -3585,14 +3591,17 @@ function buildSampleQuotes(){
   built.push(s5); QUOTES.push(s5);
 
   built.forEach(ensureQuoteDefaults);
-  save(DB_KEYS.quotes, QUOTES);
+  localSave(DB_KEYS.quotes, QUOTES);
 }
 
 /* ============================================================
    BOOT (standalone — plain localStorage, no server dependency)
    ============================================================ */
 QUOTES.forEach(ensureQuoteDefaults);
-save(DB_KEYS.quotes, QUOTES);
+// Boot must never push a possibly stale local cache to the shared database.
+// The remote database is authoritative on startup; pullAllFromRemote() seeds
+// only genuinely missing remote keys after authentication.
+localSave(DB_KEYS.quotes, QUOTES);
 if(!localStorage.getItem('frp_sample_seeded_v1') && QUOTES.length === 0){
   buildSampleQuotes();
   localStorage.setItem('frp_sample_seeded_v1', '1');
@@ -3634,14 +3643,27 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   btn.disabled = true; const oldLabel = btn.textContent; btn.textContent = 'Signing in…';
   const email = document.getElementById('loginEmail').value.trim();
   const password = document.getElementById('loginPassword').value;
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  btn.disabled = false; btn.textContent = oldLabel;
-  if(error){
-    errEl.textContent = error.message || 'Sign in failed. Check your email and password.';
+  try{
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if(error){
+      errEl.textContent = error.message || 'Sign in failed. Check your email and password.';
+      errEl.style.display = 'block';
+      return;
+    }
+    if(!data || !data.session){
+      errEl.textContent = 'Sign-in did not return a session. Please try again.';
+      errEl.style.display = 'block';
+      return;
+    }
+    await startApp(data.session);
+  }catch(error){
+    console.error('Sign-in failed', error);
+    errEl.textContent = 'Unable to sign in right now. Check your connection and try again.';
     errEl.style.display = 'block';
-    return;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = oldLabel;
   }
-  startApp(data.session);
 });
 
 supabaseClient.auth.onAuthStateChange((event)=>{
@@ -3649,7 +3671,14 @@ supabaseClient.auth.onAuthStateChange((event)=>{
 });
 
 (async function boot(){
-  const { data:{ session } } = await supabaseClient.auth.getSession();
-  if(session){ startApp(session); }
-  else{ showLogin(); }
+  try{
+    const { data, error } = await supabaseClient.auth.getSession();
+    if(error) throw error;
+    const session = data && data.session;
+    if(session) await startApp(session);
+    else showLogin();
+  }catch(error){
+    console.error('Application startup failed', error);
+    showLogin('Unable to connect to the sign-in service. Check your internet connection and try again.');
+  }
 })();
