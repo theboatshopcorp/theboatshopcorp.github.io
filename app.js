@@ -1477,7 +1477,7 @@ function renderPricing(content, actions){
   const r = PRICING;
   content.innerHTML = `
     <div class="section-lead">These values feed every new quotation's default rates (each quotation keeps its own editable snapshot, so changes here won't retroactively alter saved quotes).</div>
-    <div class="grid g2">
+    <div class="grid g-wide">
       <div class="card"><div class="card-head"><h3>Hull Materials</h3></div><div class="card-body grid g2">
         ${numField('Fiberglass (₱/kg)','fiberglassPerKg',r.fiberglassPerKg)}
         ${numField('Resin (₱/liter)','resinPerLiter',r.resinPerLiter)}
