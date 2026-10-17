@@ -431,22 +431,31 @@ function lookupStructuralPrice(cat, name){
   );
   return hit ? hit.unitPrice : 0;
 }
-// Total Work Cost =
-//   ((Qty ÷ (Productivity × Number of Workers)) × Number of Workers × Labor Rate)
-//   + (Qty × Material Consumption × Material Price)
-// Returned as a per-unit price (totalWorkCost/qty) so the quote's existing
-// qty*unitPrice math reproduces the same total automatically.
+// Total Work Cost = (Labor Rate × Number of Days × Number of Laborers)
+//                 + (Material Quantity × Material Price per Unit)
+// The result is converted to a per-unit price so the quote's existing
+// quantity × unit-price calculation continues to work.
 function computeFormulaWorkCost(c){
-  const qty = Number(c.qty)||0;
-  const productivity = Number(c.productivity)||0;
-  const workers = Number(c.numWorkers)||0;
-  const laborRate = Number(c.laborRate)||0;
-  const materialConsumption = Number(c.materialConsumption)||0;
-  const materialPrice = Number(c.materialPrice)||0;
-  const denom = productivity * workers;
-  const laborCost = denom>0 ? (qty/denom) * workers * laborRate : 0;
-  const materialCost = qty*materialConsumption*materialPrice;
+  const days = Math.max(0, Number(c.numberDays)||0);
+  const laborers = Math.max(0, Number(c.numLaborers)||0);
+  const laborRate = Math.max(0, Number(c.laborRate)||0);
+  const materialQty = Math.max(0, Number(c.materialQty)||0);
+  const materialPrice = Math.max(0, Number(c.materialPrice)||0);
+  const laborCost = laborRate * days * laborers;
+  const materialCost = materialQty * materialPrice;
   return laborCost + materialCost;
+}
+// Migrate existing saved formula rows to the new fields while retaining their
+// previous total as closely as possible.
+function migrateFormulaComponent(c){
+  if(!c || !c.useFormula || c.numberDays !== undefined) return;
+  const qty = Math.max(0, Number(c.qty)||0);
+  const productivity = Math.max(0, Number(c.productivity)||0);
+  const workers = Math.max(0, Number(c.numWorkers)||0);
+  const materialConsumption = Math.max(0, Number(c.materialConsumption)||0);
+  c.numberDays = productivity > 0 && workers > 0 ? qty/(productivity*workers) : 0;
+  c.numLaborers = workers;
+  c.materialQty = qty * materialConsumption;
 }
 function resolveComponentUnitPrice(c){
   if(c.useFormula){
@@ -1338,7 +1347,7 @@ function renderTemplates(content, actions){
           </div>
           <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th style="width:64px;">Formula</th><th></th></tr></thead>
           <tbody id="compRows"></tbody></table>
-          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = ((Qty ÷ (Productivity × Number of Workers)) × Number of Workers × Labor Rate) + (Qty × Material Consumption × Material Price)</em>. Toggle "Formula" on a row to compute its price this way instead of pulling from the Pricing Database.</div>
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (Labor Rate × Number of Days × Number of Laborers) + (Material Quantity × Material Price per Unit)</em>. Toggle "Formula" on a row to calculate its price from labor and material inputs instead of the Pricing Database.</div>
         </div>
       </div>`;
 
@@ -1361,17 +1370,18 @@ function renderTemplates(content, actions){
     const body = document.getElementById('compRows');
     function drawComponents(){
       body.innerHTML = (t.components||[]).map((c,idx)=>{
+        migrateFormulaComponent(c);
         const formulaRow = c.useFormula ? `
           <tr class="comp-formula-row" data-formula-idx="${idx}">
             <td colspan="6" style="background:var(--paper);padding:12px;">
-              <div class="grid g4" style="margin:0;">
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Productivity (units/hr)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="productivity" value="${c.productivity||0}"></div>
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Workers</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="numWorkers" value="${c.numWorkers||0}"></div>
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/hr)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Material Consumption</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialConsumption" value="${c.materialConsumption||0}"></div>
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Material Price (₱)</label><input type="number" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialPrice" value="${c.materialPrice||0}"></div>
+              <div class="grid g3" style="margin:0;">
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/day/person)</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="numberDays" value="${c.numberDays||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Laborers</label><input type="number" min="0" step="1" class="tbl-input comp-formula" data-idx="${idx}" data-f="numLaborers" value="${c.numLaborers||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Material Quantity</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialQty" value="${c.materialQty||0}"></div>
+                <div class="field" style="margin:0;"><label style="font-size:10px;">Material Price per Unit (₱)</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="materialPrice" value="${c.materialPrice||0}"></div>
               </div>
-              <div class="hint" style="margin-top:8px;font-weight:600;color:var(--ink);">Total Work Cost: <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span> &nbsp;(${fmt(c.qty>0?computeFormulaWorkCost(c)/c.qty:0)} per ${esc(c.unit||'unit')})</div>
+              <div class="hint" style="margin-top:8px;font-weight:600;color:var(--ink);">Total Work Cost: <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span> <span style="font-weight:400;">(unit price: <span class="formula-per-unit">${fmt(c.qty>0?computeFormulaWorkCost(c)/c.qty:0)} per ${esc(c.unit||'unit')}</span>)</span></div>
             </td>
           </tr>` : '';
         return `
@@ -1412,7 +1422,8 @@ function renderTemplates(content, actions){
             const total = computeFormulaWorkCost(c);
             const perUnit = c.qty>0 ? total/c.qty : 0;
             totalEl.textContent = fmt(total);
-            totalEl.closest('.hint').innerHTML = `Total Work Cost: <span class="mono" id="formulaTotal_${idx}">${fmt(total)}</span> &nbsp;(${fmt(perUnit)} per ${esc(c.unit||'unit')})`;
+            const perUnitText = totalEl.closest('.hint')?.querySelector('.formula-per-unit');
+            if(perUnitText) perUnitText.textContent = `${fmt(perUnit)} per ${c.unit||'unit'}`;
           }
         });
       });
@@ -1423,14 +1434,14 @@ function renderTemplates(content, actions){
     drawComponents();
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
-      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, productivity:0, numWorkers:0, laborRate:0, materialConsumption:0, materialPrice:0});
+      t.components.push({cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, numberDays:0, numLaborers:0, laborRate:0, materialQty:0, materialPrice:0});
       drawComponents();
     };
     document.getElementById('compCatalogPick').onchange = (e)=>{
       if(e.target.value==='') return;
       const item = PRICING.structuralCatalog[Number(e.target.value)];
       if(!t.components) t.components = [];
-      t.components.push({cat:item.cat, name:item.name, unit:item.unit, qty:1, useFormula:false, productivity:0, numWorkers:0, laborRate:0, materialConsumption:0, materialPrice:0});
+      t.components.push({cat:item.cat, name:item.name, unit:item.unit, qty:1, useFormula:false, numberDays:0, numLaborers:0, laborRate:0, materialQty:0, materialPrice:0});
       e.target.value='';
       drawComponents();
     };
