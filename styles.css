@@ -188,6 +188,7 @@ a{color:inherit;}
 .g2{grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));}
 .g3{grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));}
 .g4{grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));}
+.g-wide{grid-template-columns:repeat(auto-fit,minmax(min(460px,100%),1fr));}
 
 /* ---------- Forms ---------- */
 .field{margin-bottom:14px;}
@@ -259,11 +260,11 @@ a{color:inherit;}
 
 /* ---------- Tables ---------- */
 table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px;}
-th{text-align:left;font-size:11.5px;color:var(--ink-soft);padding:10px 14px;font-weight:600;border-bottom:1px solid var(--paper-line);}
-td{padding:12px 14px;border-bottom:1px solid var(--paper-line);vertical-align:middle;transition:background var(--t-fast);}
+th{text-align:left;font-size:11.5px;color:var(--ink-soft);padding:10px 12px;font-weight:600;border-bottom:1px solid var(--paper-line);}
+td{padding:11px 12px;border-bottom:1px solid var(--paper-line);vertical-align:middle;transition:background var(--t-fast);}
 tr:last-child td{border-bottom:none;}
 tbody tr:hover td{background:rgba(255,255,255,.55);}
-.tbl-input{width:100%;border:1px solid transparent;background:transparent;padding:6px 9px;border-radius:10px;transition:border-color var(--t), background var(--t), box-shadow var(--t);}
+.tbl-input{width:100%;min-width:0;border:1px solid transparent;background:transparent;padding:6px 6px;border-radius:10px;font-size:13px;color:var(--ink);transition:border-color var(--t), background var(--t), box-shadow var(--t);}
 .tbl-input:hover{border-color:rgba(21,21,21,.12);}
 .tbl-input:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(242,194,48,.45);outline:none;}
 .tbl-input.num{text-align:right;font-family:var(--num);font-variant-numeric:tabular-nums;}
@@ -277,6 +278,20 @@ tbody tr:hover td{background:rgba(255,255,255,.55);}
 .badge.approved{background:var(--black);color:#fff;}
 
 .dup-error{border-color:var(--danger)!important;color:var(--danger)!important;box-shadow:0 0 0 2px var(--danger-soft)!important;}
+
+
+/* tighter cells that hold inputs so narrow columns (Qty, Unit, Markup) never clip their values */
+td:has(> .tbl-input){padding-left:6px;padding-right:6px;}
+input.tbl-input[type="number"]{-moz-appearance:textfield;appearance:textfield;}
+input.tbl-input[type="number"]::-webkit-inner-spin-button,
+input.tbl-input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
+/* locked (submitted/approved) fields stay readable instead of fading out */
+.tbl-input:disabled,.field input:disabled,.field select:disabled,.field textarea:disabled{
+  color:var(--ink);-webkit-text-fill-color:var(--ink);opacity:1;cursor:default;
+}
+.tbl-input:disabled:hover{border-color:transparent;}
+.field input:disabled,.field select:disabled,.field textarea:disabled{background:rgba(255,255,255,.45);}
 
 /* ---------- Tabs (editor) ---------- */
 .tabs{display:flex;gap:2px;margin-bottom:18px;flex-wrap:wrap;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-border);border-radius:var(--pill);padding:5px;box-shadow:var(--shadow-sm);width:fit-content;max-width:100%;}
@@ -537,6 +552,13 @@ tbody tr:hover td{background:rgba(255,255,255,.55);}
 }
 
 
+
+/* The on-screen document is enlarged only when its container is wide enough to hold it;
+   otherwise it renders at true size so the right edge is never clipped. */
+.doc-wrap{container-type:inline-size;}
+@container (max-width:1010px){ .doc{zoom:1;} }
+/* the global table min-width is for app tables; the document's small header tables must be free to shrink */
+.doc table{min-width:0;}
 
 /* empty state */
 .empty{padding:48px 20px;text-align:center;color:var(--ink-faint);font-size:13px;}
