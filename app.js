@@ -350,7 +350,9 @@ const DEFAULT_PRICING = {
 const CATEGORY_LABOR_TRADE = {
   'Fiberglass':'fiberglass', 'Foam & Core Materials':'fiberglass',
   'Stiffeners & Framing':'fabrication', 'Bulkheads':'fabrication',
-  'Other Structural Materials':'assembly', 'Console':'assembly'
+  'Other Structural Materials':'assembly', 'Console':'assembly',
+  // Transom / Deck & Superstructure categories (edit the trade here if your shop books them differently)
+  'Transom':'fiberglass', 'Deck':'fiberglass', 'Cabin':'fiberglass', 'Canopy':'fabrication'
 };
 // Old default catalog entries that were structural components rather than materials.
 const LEGACY_COMPONENT_ITEMS = ['longitudinal stiffener (glassed-in)','transverse frame / stringer','hat-section stringer (foam-cored)','plywood bulkhead (marine ply, glassed both sides)','frp sandwich bulkhead (foam core)','collision / watertight bulkhead','deck beam / carlin (frp)'];
@@ -1052,7 +1054,7 @@ const ROUTES = [
   {id:'quotes', label:'Quotations', icon:'list'},
   {id:'sales', label:'Sales Tracker', icon:'chart'},
   {id:'customers', label:'Customers', icon:'user'},
-  {id:'templates', label:'Boat Presets', icon:'ship', adminOnly:true},
+  {id:'templates', label:'Presets', icon:'ship', adminOnly:true},
   {id:'pricing', label:'Pricing Database', icon:'db', adminOnly:true},
   {id:'profile', label:'My Profile', icon:'user'},
   {id:'settings', label:'Settings', icon:'settings', adminOnly:true},
@@ -1107,7 +1109,7 @@ document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar
 
 function renderAll(){
   renderNav();
-  const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', sales:'Sales Tracker', customers:'Customer Database', templates:'Boat Presets', pricing:'Pricing Database', profile:'My Profile', settings:'Settings'};
+  const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', sales:'Sales Tracker', customers:'Customer Database', templates:'Presets', pricing:'Pricing Database', profile:'My Profile', settings:'Settings'};
   document.getElementById('topbarTitle').textContent = titleMap[CURRENT.view] || '';
   const content = document.getElementById('content');
   const actions = document.getElementById('topbarActions');
@@ -1197,7 +1199,7 @@ function renderDashboard(content, actions){
         <div class="card">
           <div class="card-head"><h3>Quick actions</h3></div>
           <div class="quick">
-            <button class="btn" id="qaTemplates">${icon('ship')} View boat presets</button>
+            <button class="btn" id="qaTemplates">${icon('ship')} View presets</button>
             <button class="btn" id="qaCustomer">${icon('user')} Add a customer</button>
             <button class="btn" id="qaPricing">${icon('db')} Update pricing database</button>
           </div>
@@ -1392,17 +1394,58 @@ function splitAddressTwoLines(addr){
    BOAT PRESETS
    ============================================================ */
 let _presetOpenModel = null;
+let _presetKind = 'boat';      // which tab of the Presets page is showing
+let _presetOpenId = null;      // open Transom / Console / Deck preset (by id)
+const PRESET_KINDS = {
+  boat:    { label:'Boat Models' },
+  transom: { label:'Transom',               singular:'Transom',               defaultCat:'Transom', single:true  },
+  console: { label:'Console',               singular:'Console',               defaultCat:'Console', single:true  },
+  deck:    { label:'Deck & Superstructure', singular:'Deck / Superstructure', defaultCat:'Deck',    single:false }
+};
+function addonPresets(kind){
+  return (TEMPLATES||[]).filter(t=>t.presetType===kind).sort((a,b)=>(Number.isFinite(a.order)?a.order:1e9)-(Number.isFinite(b.order)?b.order:1e9));
+}
+function presetTotalCost(p){
+  return (p.components||[]).reduce((sum,c)=>{ migratePresetComponent(c); return sum + computeFormulaWorkCost(c); }, 0);
+}
+// Transom / Console / Deck presets become tagged lines on the quotation's structural list.
+function addonPresetToQuoteItems(p){
+  const comps = p.components||[];
+  return comps.map(c=>{
+    const it = presetComponentToQuoteItem(c);
+    it.name = comps.length===1 ? p.name : `${p.name} — ${c.cat||'Component'}`;
+    it.presetType = p.presetType; it.presetId = p.id; it.presetName = p.name;
+    return it;
+  });
+}
 
 function renderTemplates(content, actions){
-  actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Boat Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} Add Boat Model</button>`;
-  content.innerHTML = `<div class="section-lead">Click a Boat Model's card to open and edit its standard measurements, painting specs, and structural components. Drag a card by its ⠿ handle to rearrange the order. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Boat Presets" — same as the Pricing Database.</div>
+  if(!PRESET_KINDS[_presetKind]) _presetKind = 'boat';
+  const kind = _presetKind, meta = PRESET_KINDS[kind];
+  actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} ${kind==='boat' ? 'Add Boat Model' : 'Add '+esc(meta.singular)+' Preset'}</button>`;
+  const leads = {
+    boat: `Click a Boat Model's card to open and edit its standard measurements, painting specs, and structural components. Drag a card by its ⠿ handle to rearrange the order. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Presets" — same as the Pricing Database.`,
+    transom: `Standard transoms (for example a single-engine or twin-engine transom). Each preset is a list of components with labor and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
+    console: `Standard consoles (for example a center console or a side console). Each preset is a list of components with labor and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
+    deck: `Deck and superstructure work such as a canopy, cabin or wheelhouse. Make one preset per item. In a quotation's Hull tab you can add as many as you need under "Transom, Console & Deck Presets", and each one's cost is added to the structural list.`
+  };
+  content.innerHTML = `<div class="tabs" id="presetKinds">${Object.keys(PRESET_KINDS).map(k=>`<div class="tab ${k===kind?'active':''}" data-kind="${k}">${esc(PRESET_KINDS[k].label)}</div>`).join('')}</div>
+  <div class="section-lead">${leads[kind]}</div>
   <div id="presetGrid"></div>`;
+  content.querySelectorAll('#presetKinds .tab').forEach(el=>el.onclick=()=>{ _presetKind = el.dataset.kind; _presetOpenModel = null; _presetOpenId = null; renderTemplates(content, actions); });
   const grid = document.getElementById('presetGrid');
 
   document.getElementById('btnSaveTemplates').onclick = ()=>{
-    save(DB_KEYS.templates, TEMPLATES); toast('Boat Presets saved');
+    save(DB_KEYS.templates, TEMPLATES); toast('Presets saved');
   };
   document.getElementById('btnAddModel').onclick = ()=>{
+    if(kind!=='boat'){
+      const nm = (prompt(`Name the new ${meta.singular} preset:`)||'').trim();
+      if(!nm) return;
+      if(addonPresets(kind).some(p=>(p.name||'').toLowerCase()===nm.toLowerCase())){ toast('A preset with that name already exists'); return; }
+      const p = { id:uid('tpl'), presetType:kind, name:nm, components:[], order:addonPresets(kind).length };
+      TEMPLATES.push(p); _presetOpenId = p.id; draw(); return;
+    }
     const name = prompt('Name the new Boat Model:');
     if(name===null) return;
     const trimmed = name.trim();
@@ -1426,13 +1469,14 @@ function renderTemplates(content, actions){
   }
 
   function draw(){
+    if(kind!=='boat'){ drawAddon(); return; }
     const models = getBoatModelList();
     if(_presetOpenModel && !models.includes(_presetOpenModel)) _presetOpenModel = null;
 
     // Every displayed model needs a real preset object (auto-created by
     // getPreset), and every preset needs an `order` number so card position
     // is stable and can be rearranged by drag-and-drop, persisting the same
-    // way as any other preset edit (staged until "Save Boat Presets").
+    // way as any other preset edit (staged until "Save Presets").
     models.forEach(m=>getPreset(m));
     let maxOrder = Math.max(-1, ...TEMPLATES.map(t=>Number.isFinite(t.order)?t.order:-1));
     TEMPLATES.forEach(t=>{ if(!Number.isFinite(t.order)){ maxOrder++; t.order = maxOrder; } });
@@ -1506,66 +1550,17 @@ function renderTemplates(content, actions){
     });
   }
 
-  function drawDetail(m){
-    const t = getPreset(m);
-    grid.innerHTML = `
-      <button class="btn btn-ghost btn-sm" id="btnBackToModels" style="margin-bottom:14px;">← Back to Boat Models</button>
-      <div class="card" data-model="${esc(m)}">
-        <div class="card-head">
-          <h3 style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(m)}</h3>
-          <button class="btn btn-ghost btn-sm" data-delmodel="${esc(m)}" style="color:var(--danger);">Remove Model</button>
-        </div>
-        <div class="card-body">
-          <div class="grid g4">
-            <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
-            <div class="field"><label>Beam (ft)</label><input type="number" step="any" class="tpl-f" data-f="beam" value="${t.beam||0}"></div>
-            <div class="field"><label>Depth (ft)</label><input type="number" step="any" class="tpl-f" data-f="depth" value="${t.depth||0}"></div>
-            <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
-          </div>
-          <div class="grid g3">
-            <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-f="layers" value="${t.layers||0}"></div>
-            <div class="field"><label>Glass per Layer (kg/sqm)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" value="${t.glassPerLayer||0}"></div>
-            <div class="field"><label>Hull Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" value="${t.hullAreaOverride??''}" placeholder="auto"></div>
-          </div>
-          <div class="grid g3">
-            <div class="field"><label>Paint Type</label><input class="tpl-f" data-f="paintType" value="${esc(t.paintType||'')}"></div>
-            <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
-            <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
-            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <label style="font-size:11.5px;color:var(--ink-soft);font-weight:600;">Category</label>
-              <select id="hullCat" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;"></select>
-            </div>
-          </div>
-          <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
-            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
+  // Shared by Boat Models (structural components) and the Transom / Console / Deck presets.
+  function componentEditorHTML(title){
+    return `<div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">${esc(title)}</div>
             <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
           </div>
           <table><thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows"></tbody></table>
-          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (Labor Rate × Number of Days × Number of Laborers) + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>
-        </div>
-      </div>`;
-
-    document.getElementById('btnBackToModels').onclick = ()=>{ _presetOpenModel = null; draw(); };
-    document.querySelector('[data-delmodel]').onclick = ()=>{
-      if(!confirm(`Remove "${m}" as a Boat Model? Its saved preset will be deleted once you click Save Boat Presets.`)) return;
-      TEMPLATES = TEMPLATES.filter(t=>t.boatModel!==m);
-      if(LEGACY_BOAT_MODELS.includes(m)){
-        toast('Removed — it will still appear as a default option elsewhere until removed from the code.');
-      }
-      _presetOpenModel = null; draw();
-    };
-    grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
-      const f = i.dataset.f;
-      if(['loa','beam','depth','numHulls','layers','glassPerLayer','coats'].includes(f)) t[f] = Number(i.value)||0;
-      else if(['hullAreaOverride','paintArea'].includes(f)) t[f] = i.value===''? null : Number(i.value);
-      else t[f] = i.value;
-    });
-
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (Labor Rate × Number of Days × Number of Laborers) + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>`;
+  }
+  function initComponentEditor(t, defaultCat){
     const body = document.getElementById('compRows');
     function drawComponents(){
       body.innerHTML = (t.components||[]).map((c,idx)=>{
@@ -1683,6 +1678,118 @@ function renderTemplates(content, actions){
       });
     }
 
+    drawComponents();
+    document.getElementById('btnAddComp').onclick = ()=>{
+      if(!t.components) t.components = [];
+      const nc = {cat:defaultCat, useFormula:true, numberDays:0, numLaborers:0, laborRate:0, materials:[]};
+      applyCategoryDefaults(nc); t.components.push(nc);
+      drawComponents();
+    };
+  }
+
+  function drawAddon(){
+    const list = addonPresets(kind);
+    if(_presetOpenId && !list.some(p=>p.id===_presetOpenId)) _presetOpenId = null;
+    list.forEach((p,i)=>{ if(!Number.isFinite(p.order)) p.order = i; });
+    if(_presetOpenId){ drawAddonDetail(list.find(p=>p.id===_presetOpenId)); return; }
+    grid.innerHTML = list.length ? `<div class="grid g4">${list.map(p=>`
+      <div class="card preset-preview-card" data-openaddon="${esc(p.id)}" style="cursor:pointer;transition:box-shadow .15s, transform .15s;">
+        <div class="card-body">
+          <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;">${esc(p.name)}</div>
+          <div style="display:flex;gap:14px;font-size:11.5px;color:var(--ink-soft);">
+            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Components</div><div style="font-weight:600;color:var(--ink);">${(p.components||[]).length}</div></div>
+            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Total cost</div><div style="font-weight:600;color:var(--ink);">${fmt(presetTotalCost(p))}</div></div>
+          </div>
+        </div>
+      </div>`).join('')}</div>`
+      : `<div class="empty" style="padding:28px;">No ${esc(meta.label)} presets yet. Click "Add ${esc(meta.singular)} Preset" above to create one.</div>`;
+    grid.querySelectorAll('[data-openaddon]').forEach(el=>{
+      el.onmouseenter = ()=>{ el.style.boxShadow = '0 4px 14px -4px rgba(15,23,42,.18)'; el.style.transform='translateY(-1px)'; };
+      el.onmouseleave = ()=>{ el.style.boxShadow=''; el.style.transform=''; };
+      el.onclick = ()=>{ _presetOpenId = el.dataset.openaddon; draw(); };
+    });
+  }
+  function drawAddonDetail(t){
+    grid.innerHTML = `
+      <button class="btn btn-ghost btn-sm" id="btnBackAddon" style="margin-bottom:14px;">← Back to ${esc(meta.label)}</button>
+      <div class="card">
+        <div class="card-head">
+          <h3 id="addonTitle" style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(t.name)}</h3>
+          <button class="btn btn-ghost btn-sm" id="btnDelAddon" style="color:var(--danger);">Remove Preset</button>
+        </div>
+        <div class="card-body">
+          <div class="field" style="max-width:420px;"><label>Preset name</label><input id="addonName" value="${esc(t.name)}"></div>
+          ${componentEditorHTML('Components')}
+        </div>
+      </div>`;
+    document.getElementById('btnBackAddon').onclick = ()=>{ _presetOpenId = null; draw(); };
+    document.getElementById('addonName').onchange = e=>{
+      const nm = e.target.value.trim();
+      if(!nm){ e.target.value = t.name; return; }
+      t.name = nm; document.getElementById('addonTitle').textContent = nm;
+    };
+    document.getElementById('btnDelAddon').onclick = ()=>{
+      if(!confirm(`Remove the "${t.name}" preset? It will be deleted once you click Save Presets. Quotations that already use it are not changed.`)) return;
+      const i = TEMPLATES.indexOf(t); if(i>=0) TEMPLATES.splice(i,1);
+      _presetOpenId = null; draw();
+    };
+    initComponentEditor(t, meta.defaultCat);
+  }
+
+  function drawDetail(m){
+    const t = getPreset(m);
+    grid.innerHTML = `
+      <button class="btn btn-ghost btn-sm" id="btnBackToModels" style="margin-bottom:14px;">← Back to Boat Models</button>
+      <div class="card" data-model="${esc(m)}">
+        <div class="card-head">
+          <h3 style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(m)}</h3>
+          <button class="btn btn-ghost btn-sm" data-delmodel="${esc(m)}" style="color:var(--danger);">Remove Model</button>
+        </div>
+        <div class="card-body">
+          <div class="grid g4">
+            <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
+            <div class="field"><label>Beam (ft)</label><input type="number" step="any" class="tpl-f" data-f="beam" value="${t.beam||0}"></div>
+            <div class="field"><label>Depth (ft)</label><input type="number" step="any" class="tpl-f" data-f="depth" value="${t.depth||0}"></div>
+            <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
+          </div>
+          <div class="grid g3">
+            <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-f="layers" value="${t.layers||0}"></div>
+            <div class="field"><label>Glass per Layer (kg/sqm)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" value="${t.glassPerLayer||0}"></div>
+            <div class="field"><label>Hull Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" value="${t.hullAreaOverride??''}" placeholder="auto"></div>
+          </div>
+          <div class="grid g3">
+            <div class="field"><label>Paint Type</label><input class="tpl-f" data-f="paintType" value="${esc(t.paintType||'')}"></div>
+            <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
+            <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <label style="font-size:11.5px;color:var(--ink-soft);font-weight:600;">Category</label>
+              <select id="hullCat" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;"></select>
+            </div>
+          </div>
+          <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
+          ${componentEditorHTML('Structural Components')}
+        </div>
+      </div>`;
+
+    document.getElementById('btnBackToModels').onclick = ()=>{ _presetOpenModel = null; draw(); };
+    document.querySelector('[data-delmodel]').onclick = ()=>{
+      if(!confirm(`Remove "${m}" as a Boat Model? Its saved preset will be deleted once you click Save Presets.`)) return;
+      TEMPLATES = TEMPLATES.filter(t=>t.boatModel!==m);
+      if(LEGACY_BOAT_MODELS.includes(m)){
+        toast('Removed — it will still appear as a default option elsewhere until removed from the code.');
+      }
+      _presetOpenModel = null; draw();
+    };
+    grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
+      const f = i.dataset.f;
+      if(['loa','beam','depth','numHulls','layers','glassPerLayer','coats'].includes(f)) t[f] = Number(i.value)||0;
+      else if(['hullAreaOverride','paintArea'].includes(f)) t[f] = i.value===''? null : Number(i.value);
+      else t[f] = i.value;
+    });
+
     /* ---------- Hull: formula + materials (no item name / unit / quantity) ---------- */
     function ensureHullWork(){
       if(!t.hullWork || typeof t.hullWork!=='object') t.hullWork = { cat:'Fiberglass', useFormula:true, laborRate:0, numberDays:0, numLaborers:0, materials:[] };
@@ -1761,13 +1868,7 @@ function renderTemplates(content, actions){
       };
     }
     drawHullWork();
-    drawComponents();
-    document.getElementById('btnAddComp').onclick = ()=>{
-      if(!t.components) t.components = [];
-      const nc = {cat:'Other Structural Materials', useFormula:true, numberDays:0, numLaborers:0, laborRate:0, materials:[]};
-      applyCategoryDefaults(nc); t.components.push(nc);
-      drawComponents();
-    };
+    initComponentEditor(t, 'Other Structural Materials');
   }
 
   draw();
@@ -1817,7 +1918,7 @@ function renderPricing(content, actions){
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Materials</h3><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button></div>
-      <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials. These are the items you tick under "Choose materials" in Boat Presets, and the prices they start with.</div>
+      <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials. These are the items you tick under "Choose materials" in Presets, and the prices they start with.</div>
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Material</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="matCatRows"></tbody></table></div>
     </div>
   `;
@@ -2405,13 +2506,17 @@ function tabHull(host, q){
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Core Material</h3></div>
       <div class="card-body">
-        <div class="section-lead" style="margin-top:0;">Laminate layers and glass weight are set by the boat model's preset in Boat Presets, not edited per-quotation.</div>
+        <div class="section-lead" style="margin-top:0;">Laminate layers and glass weight are set by the boat model's preset in Presets, not edited per-quotation.</div>
         <div class="grid g3">
           <div class="field"><label class="field-inline"><input type="checkbox" id="hCoreOn" ${h.coreEnabled?'checked':''} style="width:auto;"> Core Material</label>
             <input type="number" step="any" id="hCoreArea" value="${h.coreArea}" placeholder="Core area (sqm)" ${h.coreEnabled?'':'disabled'}>
           </div>
         </div>
       </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h3>Transom, Console &amp; Deck Presets</h3></div>
+      <div class="card-body" id="addonPresetBody"></div>
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Structural Components &amp; Core Materials</h3>
@@ -2536,6 +2641,41 @@ function tabHull(host, q){
     persistQuote(q); drawStruct(); drawHullCalc(); updateLiveSummary(q);
   };
   drawStruct();
+  // Transom / Console / Deck & Superstructure presets: each adds tagged lines to the structural list.
+  function drawAddonPresets(){
+    const hostEl = document.getElementById('addonPresetBody');
+    const applied = kind=>{
+      const seen = new Map();
+      (q.structural.items||[]).forEach(it=>{ if(it.presetType===kind && it.presetId && !seen.has(it.presetId)) seen.set(it.presetId, it.presetName||'Preset'); });
+      return [...seen.entries()].map(([id,name])=>({id,name}));
+    };
+    hostEl.innerHTML = `<div class="grid g3">${['transom','console','deck'].map(kind=>{
+      const meta = PRESET_KINDS[kind], list = addonPresets(kind), ap = applied(kind);
+      const chips = ap.map(a=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--paper);border-radius:999px;padding:4px 6px 4px 12px;font-size:12px;font-weight:600;margin:6px 6px 0 0;">${esc(a.name)} <span class="btn btn-ghost btn-sm" data-rmaddon="${kind}:${esc(a.id)}" title="Remove from quotation" style="padding:0 6px;color:var(--danger);">✕</span></span>`).join('');
+      return `<div class="field"><label>${esc(meta.label)}</label>
+        <select class="addon-pick" data-kind="${kind}">
+          <option value="">${list.length ? (meta.single ? '— choose —' : '+ Add…') : 'No presets yet'}</option>
+          ${list.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} (${fmt(presetTotalCost(p))})</option>`).join('')}
+        </select>
+        <div>${chips}</div></div>`;
+    }).join('')}</div>
+    <div class="hint" style="margin-top:10px;">Each preset adds its components as lines in the structural list below. Transom and Console hold one preset each (picking another replaces it); Deck &amp; Superstructure can hold several (canopy, cabin…). Create presets in the Presets page.</div>`;
+    hostEl.querySelectorAll('.addon-pick').forEach(sel=>sel.onchange = ()=>{
+      const kind = sel.dataset.kind, p = TEMPLATES.find(x=>x.id===sel.value);
+      if(!p) return;
+      let items = q.structural.items||[];
+      if(PRESET_KINDS[kind].single) items = items.filter(it=>it.presetType!==kind);
+      else if(items.some(it=>it.presetId===p.id)){ toast(`"${p.name}" is already on this quotation`); sel.value=''; return; }
+      q.structural.items = [...items, ...addonPresetToQuoteItems(p)];
+      persistQuote(q); drawAddonPresets(); drawStruct(); drawHullCalc(); updateLiveSummary(q);
+    });
+    hostEl.querySelectorAll('[data-rmaddon]').forEach(b=>b.onclick = ()=>{
+      const [kind, id] = b.dataset.rmaddon.split(':');
+      q.structural.items = (q.structural.items||[]).filter(it=>!(it.presetType===kind && it.presetId===id));
+      persistQuote(q); drawAddonPresets(); drawStruct(); drawHullCalc(); updateLiveSummary(q);
+    });
+  }
+  drawAddonPresets();
   document.getElementById('hBoatModel').addEventListener('change', (e)=>{
     q.project.boatModel = e.target.value;
     const preset = TEMPLATES.find(t=>t.boatModel && t.boatModel===e.target.value);
@@ -2546,7 +2686,7 @@ function tabHull(host, q){
         area: preset.paintArea ?? null, pricePerSqm: (Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1)
       }));
       if(!q.structural) q.structural = { items:[] };
-      q.structural.items = (preset.components||[]).map(presetComponentToQuoteItem);
+      { const addons = (q.structural.items||[]).filter(i=>i.presetType); q.structural.items = [...(preset.components||[]).map(presetComponentToQuoteItem), ...addons]; }
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
       toast(`Preset applied: ${preset.name}`);
     } else {
