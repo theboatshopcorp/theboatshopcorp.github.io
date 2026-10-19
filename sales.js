@@ -151,7 +151,7 @@ function drawSales(){
       <div class="card"><div class="card-head"><h3>What needs attention</h3></div><div class="card-body">${slInsights(rows,total,openV,winRate)}</div></div>
     </div>
 
-    <div class="card sl-tablecard"><div class="card-head"><h3>All quotations</h3><span class="hint" style="margin:0;">${rows.length} shown${rows.length!==SALES.length?` of ${SALES.length}`:''} · ${fmt(total)}</span></div>
+    <div class="card sl-tablecard"><div class="card-head"><h3>Quotation master data</h3><span class="hint" style="margin:0;">${rows.length} shown${rows.length!==SALES.length?` of ${SALES.length}`:''} · ${fmt(total)}</span></div>
       <div class="card-body" style="padding:0;">${slTable(rows)}</div></div>
   `;
 
@@ -272,24 +272,67 @@ function slInsights(rows,total,openV,winRate){
   return `<ul class="sl-ins">${items.map(i=>`<li class="${i.tone}"><b>${i.t}</b><span>${i.d}</span></li>`).join('')}</ul>`;
 }
 
+/* Derived columns, same logic as the old sheet (Total days -> Interpretation / Speed / % output) */
+const SL_MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function slParts(iso){ if(!iso) return {m:'',d:'',y:''}; const [y,m,d]=String(iso).split('-').map(Number); return {m:SL_MONTHS_FULL[m-1]||'', d:d||'', y:y||''}; }
+function slDerived(s){
+  const a=slDay(s.inquiryDate), b=slDay(s.draftDate), c=slDay(s.submitDate);
+  const d1 = (a!=null&&b!=null) ? b-a : null;
+  const d2 = (b!=null&&c!=null) ? c-b : null;
+  const tot = (a!=null&&c!=null) ? c-a : null;
+  let interp='', speed='', pct=null;
+  if(tot!=null && tot>=0){
+    interp = tot<=3 ? 'Fast' : (tot<=7 ? 'Normal' : 'Slow');
+    speed = tot===0 ? 'Instant' : tot===1 ? 'Extremely Fast' : tot===2 ? 'Fast' : tot===3 ? 'Moderate' : tot<=7 ? 'Slow' : 'Extremely Slow';
+    pct = tot<=3 ? 1 : 3/tot;
+  }
+  return { d1, d2, tot, interp, speed, pct };
+}
+
 function slTable(rows){
   if(!rows.length) return `<div class="empty">No quotations match these filters.</div>`;
-  const sorted = [...rows].sort((a,b)=> (b.inquiryDate||'').localeCompare(a.inquiryDate||'') || (b.refNo||'').localeCompare(a.refNo||'',undefined,{numeric:true}));
-  return `<table class="sl-table"><thead><tr><th>Ref No.</th><th>Client</th><th>Boat</th><th>In-charge</th><th>Inquiry</th><th class="right">Days</th><th class="right">Value</th><th>Status</th><th></th></tr></thead><tbody>
+  const sorted = [...rows].sort((a,b)=> (a.refNo||'').localeCompare(b.refNo||'',undefined,{numeric:true}));
+  const n = v => (v===''||v==null) ? '<span class="sl-faint">—</span>' : slEsc(v);
+  const dash = '<span class="sl-faint">—</span>';
+  return `<div class="sl-scroll"><table class="sl-master"><thead>
+    <tr class="sl-grp">
+      <th class="sl-stick"></th>
+      <th colspan="3">Date of Inquiry</th><th colspan="3">Drafting of Quotation</th><th colspan="3">Submission of Quotation</th><th colspan="3">Number of Days</th>
+      <th colspan="3">Turnaround</th><th colspan="12"></th><th class="sl-stickr"></th>
+    </tr>
+    <tr>
+      <th class="sl-stick">Sequence No.</th>
+      <th>Month</th><th>Day</th><th>Year</th>
+      <th>Month</th><th>Day</th><th>Year</th>
+      <th>Month</th><th>Day</th><th>Year</th>
+      <th class="right">Inquiry to Drafting</th><th class="right">Drafting to Submission</th><th class="right">Total</th>
+      <th>Interpretation</th><th>Processing Speed</th><th class="right">Percentage Output</th>
+      <th>Quotation In-charge</th><th>Type of Project</th><th class="right">Length Over-All (ft)</th><th>Boat Model</th><th>Boat Application</th>
+      <th>Project Title</th><th>Client</th><th>Location</th><th>Client Type</th><th class="right">Number of Boats</th><th class="right">Potential Value</th><th>Status</th>
+      <th class="sl-stickr"></th>
+    </tr></thead><tbody>
     ${sorted.map(s=>{
-      const t = slTurnaround(s);
+      const a=slParts(s.inquiryDate), b=slParts(s.draftDate), c=slParts(s.submitDate), d=slDerived(s);
+      const dn = v => v==null ? dash : v;
       return `<tr>
-        <td class="mono">${slEsc(s.refNo)}</td>
-        <td><div class="sl-cl">${slEsc(s.client)||'<span class="sl-faint">No client</span>'}</div><div class="sl-sub">${slEsc(s.project||s.location||s.clientType||'')}</div></td>
-        <td><div>${slEsc(s.boatModel)||'—'}${s.loa?` · ${slEsc(s.loa)}ft`:''}${s.boats>1?` · ×${s.boats}`:''}</div><div class="sl-sub">${slEsc(s.application||'')}</div></td>
-        <td>${slEsc(s.incharge)||'—'}</td>
-        <td class="mono">${slDateTxt(s.inquiryDate)}</td>
-        <td class="right ${t!=null&&t>3?'sl-slow':''}">${t==null?'—':t}</td>
-        <td class="right mono">${Number(s.value)>0?fmt(s.value):'<span class="sl-faint">—</span>'}</td>
+        <td class="sl-stick mono"><b>${slEsc(s.refNo)}</b></td>
+        <td>${n(a.m)}</td><td>${n(a.d)}</td><td>${n(a.y)}</td>
+        <td>${n(b.m)}</td><td>${n(b.d)}</td><td>${n(b.y)}</td>
+        <td>${n(c.m)}</td><td>${n(c.d)}</td><td>${n(c.y)}</td>
+        <td class="right">${dn(d.d1)}</td><td class="right">${dn(d.d2)}</td><td class="right ${d.tot!=null&&d.tot>3?'sl-slow':''}">${dn(d.tot)}</td>
+        <td>${d.interp?`<span class="sl-tag t-${d.interp.toLowerCase()}">${d.interp}</span>`:dash}</td>
+        <td>${d.speed?slEsc(d.speed):dash}</td>
+        <td class="right">${d.pct==null?dash:Math.round(d.pct*1000)/10+'%'}</td>
+        <td>${n(s.incharge)}</td><td>${n(s.buildType)}</td><td class="right">${n(s.loa)}</td><td>${n(s.boatModel)}</td><td>${n(s.application)}</td>
+        <td class="sl-wrap" title="${slEsc(s.project)}">${n(s.project)}</td>
+        <td class="sl-wrap sl-bold" title="${slEsc(s.client)}">${n(s.client)}</td>
+        <td class="sl-wrap" title="${slEsc(s.location)}">${n(s.location)}</td>
+        <td>${n(s.clientType)}</td><td class="right">${n(s.boats)}</td>
+        <td class="right mono">${Number(s.value)>0?fmt(s.value):dash}</td>
         <td><select class="sl-status ${slStatusClass(s.status)}" data-slstatus="${s.id}" aria-label="Status for ${slEsc(s.refNo)}">${SALES_STATUSES.map(st=>`<option ${st===s.status?'selected':''}>${st}</option>`).join('')}</select></td>
-        <td class="right" style="white-space:nowrap;"><span class="btn btn-ghost btn-sm" data-sledit="${s.id}">Edit</span><span class="btn btn-ghost btn-sm" data-sldel="${s.id}" style="color:var(--danger);">Delete</span></td>
+        <td class="sl-stickr right"><span class="btn btn-ghost btn-sm" data-sledit="${s.id}">Edit</span><span class="btn btn-ghost btn-sm" data-sldel="${s.id}" style="color:var(--danger);">Delete</span></td>
       </tr>`; }).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 /* ============================================================
@@ -366,13 +409,16 @@ function slOpenEditor(id){
 /* ============================================================
    EXPORT / IMPORT
    ============================================================ */
-const SL_COLS = [['refNo','Ref No.'],['client','Client'],['project','Project Title'],['location','Location'],['clientType','Client Type'],['boatModel','Boat Model'],['application','Boat Application'],['buildType','Type of Project'],['loa','Length Over-All (ft)'],['boats','Number of Boats'],['value','Potential Value'],['status','Status'],['incharge','Quotation In-charge'],['inquiryDate','Date of Inquiry'],['draftDate','Drafting Date'],['submitDate','Submission Date'],['notes','Notes']];
 function slExportCSV(){
   const q = v => { v = v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
-  const lines = [SL_COLS.map(c=>q(c[1])).join(',')].concat(SALES.map(s=>SL_COLS.map(c=>q(s[c[0]])).join(',')));
-  const blob = new Blob(['\ufeff'+lines.join('\r\n')], { type:'text/csv;charset=utf-8' });
+  const head = ['Sequence No.','Inquiry Month','Inquiry Day','Inquiry Year','Drafting Month','Drafting Day','Drafting Year','Submission Month','Submission Day','Submission Year','Inquiry to Drafting','Drafting to Submission','Total','Interpretation','Processing Speed','Percentage Output','Quotation In-charge','Type of Project','Length Over-All (ft)','Boat Model','Boat Application','PROJECT TITLE','Client','Location','Client Type','Number of boats','Potential Value','Status','Notes'];
+  const body = [...SALES].sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'',undefined,{numeric:true})).map(s=>{
+    const a=slParts(s.inquiryDate), b=slParts(s.draftDate), c=slParts(s.submitDate), d=slDerived(s);
+    return [s.refNo,a.m,a.d,a.y,b.m,b.d,b.y,c.m,c.d,c.y,d.d1,d.d2,d.tot,d.interp,d.speed,d.pct==null?'':Math.round(d.pct*1000)/1000,s.incharge,s.buildType,s.loa,s.boatModel,s.application,s.project,s.client,s.location,s.clientType,s.boats,s.value,s.status,s.notes].map(q).join(',');
+  });
+  const blob = new Blob(['\ufeff'+[head.map(q).join(',')].concat(body).join('\r\n')], { type:'text/csv;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = `TBSC-sales-${todayISO()}.csv`;
+  a.href = URL.createObjectURL(blob); a.download = `TBSC-quotation-master-data-${todayISO()}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
   toast('Exported '+SALES.length+' sales');
 }
