@@ -382,10 +382,20 @@ function ensureCategoryRates(){
       );
     }
   }
+  seedCategoryMaterials();
+}
+function seedCategoryMaterials(){
+  if(PRICING.categorySeedV3) return;
+  PRICING.categorySeedV3 = true;
+  const b = (PRICING.categoryRates||{})['Bulkheads'];
+  if(b && !(b.materials && b.materials.length)){
+    const keys = [catalogKey('Fiberglass','Fiberglass Cloth / Mat'), catalogKey('Fiberglass','Laminating Resin')].filter(k=>findCatalogByKey(k));
+    if(keys.length) b.materials = keys;
+  }
 }
 function getCategoryRate(cat){
   const r = (PRICING.categoryRates||{})[cat];
-  return r ? { laborRate:Number(r.laborRate)||0, materialPrice:Number(r.materialPrice)||0 } : null;
+  return r ? { laborRate:Number(r.laborRate)||0, materialPrice:Number(r.materialPrice)||0, materials:Array.isArray(r.materials)?r.materials:[] } : null;
 }
 function catalogItemsForCategory(cat){
   const k = (cat||'').trim().toLowerCase();
@@ -516,6 +526,78 @@ function ensureMaterials(c){
   if(Array.isArray(c.materials)) return;
   const q = Number(c.materialQty)||0, pr = Number(c.materialPrice)||0;
   c.materials = (c.useFormula && q>0) ? [{cat:'', name:'Material', unit:'unit', qty:q, price:pr}] : [];
+}
+/* ---------- Multi-select materials picker ---------- */
+function catalogKey(cat,name){ return `${(cat||'').trim().toLowerCase()}||${(name||'').trim().toLowerCase()}`; }
+function findCatalogByKey(k){ return (PRICING.structuralCatalog||[]).find(a=>catalogKey(a.cat,a.name)===k); }
+function openMaterialPicker(opts){
+  const chosen = new Set(opts.selected||[]);
+  const all = (PRICING.structuralCatalog||[]).filter(a=>a.cat && a.name);
+  const overlay = document.createElement('div');
+  overlay.className = 'picker-overlay';
+  overlay.innerHTML = `
+    <div class="picker" role="dialog" aria-modal="true" aria-label="${esc(opts.title)}">
+      <div class="picker-head">
+        <div><h3>${esc(opts.title)}</h3>${opts.subtitle?`<div class="hint" style="margin:3px 0 0;">${esc(opts.subtitle)}</div>`:''}</div>
+        <button type="button" class="btn btn-ghost btn-sm" data-pk="cancel" aria-label="Close">✕</button>
+      </div>
+      <input type="search" class="picker-search" placeholder="Search materials…" aria-label="Search materials">
+      <div class="picker-list"></div>
+      <div class="picker-foot">
+        <span class="picker-count"></span>
+        <div style="display:flex;gap:8px;"><button type="button" class="btn btn-ghost" data-pk="cancel">Cancel</button><button type="button" class="btn btn-primary" data-pk="ok">${esc(opts.confirmLabel||'Done')}</button></div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const list = overlay.querySelector('.picker-list'), search = overlay.querySelector('.picker-search'), count = overlay.querySelector('.picker-count');
+  const updateCount = ()=>{ const n = chosen.size; count.textContent = n ? `${n} material${n===1?'':'s'} selected` : 'None selected'; };
+  function draw(){
+    const q = search.value.trim().toLowerCase();
+    const groups = {};
+    all.filter(a=>!q || (a.name+' '+a.cat).toLowerCase().includes(q)).forEach(a=>{ (groups[a.cat]=groups[a.cat]||[]).push(a); });
+    const cats = Object.keys(groups).sort((x,y)=> (x===opts.focusCat ? -1 : y===opts.focusCat ? 1 : x.localeCompare(y)));
+    list.innerHTML = cats.map(g=>`
+      <div class="picker-group">${esc(g)}</div>
+      ${groups[g].sort((x,y)=>(x.name||'').localeCompare(y.name||'')).map(a=>{ const k=catalogKey(a.cat,a.name); return `
+        <label class="picker-item"><input type="checkbox" data-k="${esc(k)}" ${chosen.has(k)?'checked':''}>
+          <span class="nm">${esc(a.name)} <em>(${esc(a.unit)})</em></span><span class="pr">${fmt(a.unitPrice)}</span></label>`; }).join('')}
+    `).join('') || `<div class="empty" style="padding:24px;">No materials match. Add items in Pricing Database → Structural Components catalog.</div>`;
+    updateCount();
+  }
+  function close(){ document.removeEventListener('keydown', onKey); overlay.remove(); }
+  function onKey(e){ if(e.key==='Escape') close(); }
+  document.addEventListener('keydown', onKey);
+  list.addEventListener('change', e=>{
+    const cb = e.target.closest('input[data-k]'); if(!cb) return;
+    if(cb.checked) chosen.add(cb.dataset.k); else chosen.delete(cb.dataset.k);
+    updateCount();
+  });
+  search.addEventListener('input', draw);
+  overlay.addEventListener('click', e=>{
+    if(e.target===overlay) return close();
+    const b = e.target.closest('[data-pk]'); if(!b) return;
+    if(b.dataset.pk==='ok'){ opts.onConfirm([...chosen]); }
+    close();
+  });
+  draw(); search.focus();
+}
+// Make a component's catalog-based materials match the ticked list: keep quantities of
+// ones that stay, add new ones (qty 1, catalog price), drop unticked ones. Custom lines stay.
+function applyPickedMaterials(c, keys){
+  if(!Array.isArray(c.materials)) c.materials = [];
+  const want = new Set(keys);
+  const kept = c.materials.filter(m=>{
+    const k = catalogKey(m.cat, m.name);
+    const fromCatalog = !!m.cat && !!findCatalogByKey(k);
+    return fromCatalog ? want.has(k) : true;
+  });
+  const have = new Set(kept.map(m=>catalogKey(m.cat,m.name)));
+  keys.forEach(k=>{
+    if(have.has(k)) return;
+    const it = findCatalogByKey(k);
+    if(it) kept.push({cat:it.cat, name:it.name, unit:it.unit, qty:1, price:Number(it.unitPrice)||0});
+  });
+  c.materials = kept;
 }
 function materialPickerOptions(){
   const groups = {};
@@ -1502,10 +1584,7 @@ function renderTemplates(content, actions){
               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
                 <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used${c.cat?` for ${esc(c.cat)}`:''}</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  <select class="mat-add" data-idx="${idx}" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:999px;font-size:12px;background:#fff;max-width:300px;">
-                    <option value="">+ Add material from catalog…</option>
-                    ${materialPickerOptions()}
-                  </select>
+                  <button type="button" class="btn btn-sm mat-pick" data-idx="${idx}">${icon('plus')} Choose materials${(c.materials||[]).length?` (${c.materials.length})`:''}</button>
                   <button type="button" class="btn btn-ghost btn-sm mat-custom" data-idx="${idx}">${icon('plus')} Custom material</button>
                 </div>
               </div>
@@ -1565,7 +1644,12 @@ function renderTemplates(content, actions){
         if(wasCatalogItem){ c.name = ''; _customRows.delete(c); } // the old category's item no longer applies
         applyCategoryDefaults(c);
         const r = getCategoryRate(v);
-        if(r && r.laborRate) toast(`${v}: labor rate ${fmt(r.laborRate)}/day filled in`);
+        let addedMats = 0;
+        if(r && r.materials.length){
+          if(!Array.isArray(c.materials)) c.materials = [];
+          if(!c.materials.length){ applyPickedMaterials(c, r.materials); addedMats = c.materials.length; }
+        }
+        if(r && (r.laborRate || addedMats)) toast(`${v}: labor rate ${fmt(r.laborRate)}/day filled in${addedMats?` and ${addedMats} default material${addedMats===1?'':'s'} added`:''}`);
         drawComponents();
       });
       body.querySelectorAll('.comp-item').forEach(sel=>sel.onchange=()=>{
@@ -1618,12 +1702,15 @@ function renderTemplates(content, actions){
           patchFormulaTotals(idx);
         });
       });
-      body.querySelectorAll('.mat-add').forEach(sel=>sel.onchange=()=>{
-        if(sel.value==='') return;
-        const c = t.components[Number(sel.dataset.idx)];
-        const item = PRICING.structuralCatalog[Number(sel.value)];
-        if(item) c.materials.push({cat:item.cat, name:item.name, unit:item.unit, qty:1, price:Number(item.unitPrice)||0});
-        drawComponents();
+      body.querySelectorAll('.mat-pick').forEach(btn=>btn.onclick=()=>{
+        const c = t.components[Number(btn.dataset.idx)];
+        const selected = (c.materials||[]).filter(m=>m.cat && findCatalogByKey(catalogKey(m.cat,m.name))).map(m=>catalogKey(m.cat,m.name));
+        openMaterialPicker({
+          title: `Materials used${c.cat?` for ${c.cat}`:''}`,
+          subtitle: 'Tick everything this component uses. You can set quantities afterwards.',
+          selected, focusCat: c.cat, confirmLabel: 'Apply materials',
+          onConfirm: keys=>{ applyPickedMaterials(c, keys); drawComponents(); }
+        });
       });
       body.querySelectorAll('.mat-custom').forEach(b=>b.onclick=()=>{
         const c = t.components[Number(b.dataset.idx)];
@@ -1714,8 +1801,8 @@ function renderPricing(content, actions){
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Category Rates (Boat Presets formula)</h3><button class="btn btn-sm" id="addCatRate">${icon('plus')} Add Category</button></div>
-      <div class="card-body section-lead">When a category is picked in Boat Presets, its Labor Rate and Material Price per Unit are filled into the formula automatically. The Material Price here is the default for custom materials; materials picked from the catalog use their own catalog price.</div>
-      <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th class="right" style="width:210px;">Labor Rate (₱/day/person)</th><th class="right" style="width:230px;">Default Material Price (₱)</th><th></th></tr></thead><tbody id="catRateRows"></tbody></table></div>
+      <div class="card-body section-lead">When a category is picked in Boat Presets, its Labor Rate is filled into the formula and its default materials are added (you can tick as many as you like). The Material Price here is the default for custom materials; materials picked from the catalog use their own catalog price.</div>
+      <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th class="right" style="width:210px;">Labor Rate (₱/day/person)</th><th class="right" style="width:200px;">Default Material Price (₱)</th><th>Default materials</th><th></th></tr></thead><tbody id="catRateRows"></tbody></table></div>
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Structural Components &amp; Core Materials Catalog</h3><button class="btn btn-sm" id="addStructItem">${icon('plus')} Add Item</button></div>
@@ -1782,10 +1869,25 @@ function renderPricing(content, actions){
         <td style="font-weight:500;">${esc(cat)}</td>
         <td><input class="tbl-input num catrate-f" type="number" min="0" step="any" data-cat="${esc(cat)}" data-f="laborRate" value="${Number(v.laborRate)||0}"></td>
         <td><input class="tbl-input num catrate-f" type="number" min="0" step="any" data-cat="${esc(cat)}" data-f="materialPrice" value="${Number(v.materialPrice)||0}"></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="hint" style="margin:0;flex:1;min-width:0;">${(v.materials||[]).map(k=>{ const it=findCatalogByKey(k); return it?esc(it.name):''; }).filter(Boolean).join(', ') || 'None'}</span>
+            <button type="button" class="btn btn-sm catrate-mats" data-cat="${esc(cat)}">Choose…</button>
+          </div>
+        </td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-catrate="${esc(cat)}" style="color:var(--danger);">Remove</span></td>
-      </tr>`).join('') || `<tr><td colspan="4" class="empty" style="padding:12px;">No categories yet.</td></tr>`;
+      </tr>`).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No categories yet.</td></tr>`;
     document.querySelectorAll('.catrate-f').forEach(i=>i.onchange=()=>{
       const row = r.categoryRates[i.dataset.cat]; if(row) row[i.dataset.f] = Math.max(0, Number(i.value)||0);
+    });
+    document.querySelectorAll('.catrate-mats').forEach(b=>b.onclick=()=>{
+      const cat = b.dataset.cat, row = r.categoryRates[cat]; if(!row) return;
+      openMaterialPicker({
+        title: `Default materials for ${cat}`,
+        subtitle: 'These are added automatically when this category is picked in Boat Presets.',
+        selected: row.materials||[], focusCat: cat, confirmLabel: 'Save',
+        onConfirm: keys=>{ row.materials = keys; drawCatRates(); toast('Default materials updated — click Save Pricing Database to keep them'); }
+      });
     });
     document.querySelectorAll('[data-del-catrate]').forEach(b=>b.onclick=()=>{ delete r.categoryRates[b.dataset.delCatrate]; drawCatRates(); });
   }
@@ -1793,7 +1895,7 @@ function renderPricing(content, actions){
     const name = (prompt('Name of the new category:')||'').trim();
     if(!name) return;
     if(r.categoryRates[name]){ toast('That category already exists'); return; }
-    r.categoryRates[name] = { laborRate:0, materialPrice:0 }; drawCatRates();
+    r.categoryRates[name] = { laborRate:0, materialPrice:0, materials:[] }; drawCatRates();
   };
 
   drawEngines(); drawAcc(); drawCatRates(); drawStructCat();
