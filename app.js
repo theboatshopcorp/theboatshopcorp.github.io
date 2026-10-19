@@ -1785,11 +1785,6 @@ function renderPricing(content, actions){
             </tr>`).join('')}
         </tbody></table>
       </div></div>
-      <div class="card"><div class="card-head"><h3>Overhead, Contingency &amp; Margin</h3></div><div class="card-body grid g3">
-        ${numField('Overhead (%)','overheadPct',r.overheadPct)}
-        ${numField('Contingency (%)','contingencyPct',r.contingencyPct)}
-        ${numField('Profit Margin (%)','marginPct',r.marginPct)}
-      </div></div>
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Engine Package Catalog</h3><button class="btn btn-sm" id="addEngine">${icon('plus')} Add Engine Package</button></div>
@@ -2089,20 +2084,29 @@ function renderEditor(content, actions){
           <div class="card-body" id="liveSummary"></div>
         </div>
         <div class="card" style="margin-top:16px;">
+          <div class="card-head"><h3>Overhead, Contingency &amp; Margin</h3></div>
+          <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
+            <div class="side-row"><label for="sbOverhead">Overhead</label><input type="number" min="0" step="any" id="sbOverhead" class="side-input" value="${q.rates.overheadPct}"><span>%</span></div>
+            <div class="side-row"><label for="sbContingency">Contingency</label><input type="number" min="0" step="any" id="sbContingency" class="side-input" value="${q.rates.contingencyPct}"><span>%</span></div>
+            <div class="side-row"><label for="sbMargin">Profit Margin</label><input type="number" min="0" step="any" id="sbMargin" class="side-input" value="${q.rates.marginPct}"><span>%</span></div>
+            <div class="hint" style="margin:0;">Applied to this quotation's base cost. Changes update the Live Total instantly.</div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px;">
           <div class="card-head"><h3>VAT &amp; Discount</h3></div>
           <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
             <div class="field-inline" style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;">
               <span style="min-width:52px;">VAT</span>
-              <input type="number" id="vatPct" value="${q.invoice.vatPct}" style="width:64px;padding:6px 8px;border:1px solid var(--paper-line);border-radius:6px;">
+              <input type="number" id="vatPct" value="${q.invoice.vatPct}" class="side-input">
               <span>%</span>
             </div>
             <div class="field-inline" style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <span style="min-width:52px;">Discount</span>
-              <select id="discountType" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:6px;">
+              <select id="discountType" class="side-input" style="width:auto;">
                 <option value="pct" ${q.invoice.discountType==='pct'?'selected':''}>%</option>
                 <option value="fixed" ${q.invoice.discountType==='fixed'?'selected':''}>₱ Fixed</option>
               </select>
-              <input type="number" id="discountValue" value="${q.invoice.discountValue}" style="width:90px;padding:6px 8px;border:1px solid var(--paper-line);border-radius:6px;">
+              <input type="number" id="discountValue" value="${q.invoice.discountValue}" class="side-input" style="width:96px;">
             </div>
           </div>
         </div>
@@ -2144,6 +2148,16 @@ function renderEditor(content, actions){
       </div>
     </div>
   `;
+  [['sbOverhead','overheadPct'],['sbContingency','contingencyPct'],['sbMargin','marginPct']].forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    el.addEventListener('input', ()=>{
+      q.rates[key] = Math.max(0, Number(el.value)||0);
+      persistQuote(q);
+      updateLiveSummary(q);
+      // keep the "Full Pricing Formula" table on the Timeline & Margin tab in step
+      if(CURRENT.tab==='pricing') tabPricing(document.getElementById('tabHost'), q);
+    });
+  });
   document.getElementById('vatPct').onchange = (e)=>{
     q.invoice.vatPct = Number(e.target.value)||0; persistQuote(q); renderEditor(content, actions);
   };
@@ -2220,7 +2234,7 @@ function renderEditor(content, actions){
     host.querySelectorAll('input, select, textarea, button').forEach(el=>{
       if(!keepEnabled.has(el.id)) el.disabled = true;
     });
-    ['vatPct','discountType','discountValue'].forEach(id=>{
+    ['vatPct','discountType','discountValue','sbOverhead','sbContingency','sbMargin'].forEach(id=>{
       const el = document.getElementById(id);
       if(el) el.disabled = true;
     });
@@ -3110,19 +3124,8 @@ function tabPricing(host, q){
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Pricing Formula — This Quotation</h3></div>
-      <div class="card-body">
-        <div class="section-lead">These percentages are copied from the Pricing Database when the quotation is created and can be adjusted per-job without affecting other quotations.</div>
-        <div class="grid g3">
-          <div class="field"><label>Overhead (%)</label><input type="number" step="any" id="oPct" value="${r.overheadPct}"></div>
-          <div class="field"><label>Contingency (%)</label><input type="number" step="any" id="cPct" value="${r.contingencyPct}"></div>
-          <div class="field"><label>Profit Margin (%)</label><input type="number" step="any" id="mPct" value="${r.marginPct}"></div>
-        </div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Full Pricing Formula</h3></div>
-      <div class="card-body" id="formulaOut"></div>
+      <div class="card-body"><div class="hint" style="margin:0 0 10px;">Overhead, contingency and profit margin are edited in the side panel (Overhead, Contingency &amp; Margin).</div><div id="formulaOut"></div></div>
     </div>
   `;
   ['schStart','schStandard','schRequested','schDailyRate','schRushPct'].forEach(id=>{
@@ -3132,14 +3135,6 @@ function tabPricing(host, q){
       sch.requestedDays = Number(document.getElementById('schRequested').value);
       r.dailyRate = Number(document.getElementById('schDailyRate').value);
       r.rushFeePct = Number(document.getElementById('schRushPct').value);
-      persistQuote(q); drawFormula(); updateLiveSummary(q);
-    });
-  });
-  ['oPct','cPct','mPct'].forEach(id=>{
-    document.getElementById(id).addEventListener('input', ()=>{
-      r.overheadPct = Number(document.getElementById('oPct').value);
-      r.contingencyPct = Number(document.getElementById('cPct').value);
-      r.marginPct = Number(document.getElementById('mPct').value);
       persistQuote(q); drawFormula(); updateLiveSummary(q);
     });
   });
