@@ -912,8 +912,13 @@ function computeHull(q){
   const glassCost = glassWeight * r.fiberglassPerKg;
   const resinCost = resinLiters * r.resinPerLiter;
   const gelcoatCost = gelcoatWeight * r.gelcoatPerKg;
-  const total = glassCost + resinCost + gelcoatCost + coreCost;
-  return { area, glassWeight, resinWeight, resinLiters, gelcoatWeight, glassCost, resinCost, gelcoatCost, coreCost, total };
+  // A Boat Preset's Hull formula (labor + materials) replaces the automatic
+  // fiberglass / resin / gelcoat estimate; the quote's own core-material line stays on top.
+  const work = h.work || null;
+  const workCost = work ? computeFormulaWorkCost(work) : 0;
+  const useWork = workCost > 0;
+  const total = (useWork ? workCost : glassCost + resinCost + gelcoatCost) + coreCost;
+  return { area, glassWeight, resinWeight, resinLiters, gelcoatWeight, glassCost, resinCost, gelcoatCost, coreCost, workCost, useWork, total };
 }
 function computePaint(q, hullCalc){
   const rows = (q.paint.items||[]).map(p=>{
@@ -1405,7 +1410,8 @@ function renderTemplates(content, actions){
   function blankPreset(model){
     return { id:uid('tpl'), name:model, boatModel:model, boatType:'Passenger Boat',
       loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6,
-      paintType:'Marine Polyurethane Topcoat', paintArea:null, coats:3, components:[] };
+      paintType:'Marine Polyurethane Topcoat', paintArea:null, coats:3, components:[],
+      hullWork:{ cat:'Fiberglass', useFormula:true, laborRate:0, numberDays:0, numLaborers:0, materials:[] } };
   }
   function getPreset(model){
     let t = TEMPLATES.find(x=>x.boatModel===model);
@@ -1520,6 +1526,14 @@ function renderTemplates(content, actions){
             <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
             <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
           </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <label style="font-size:11.5px;color:var(--ink-soft);font-weight:600;">Category</label>
+              <select id="hullCat" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;"></select>
+            </div>
+          </div>
+          <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
             <div style="display:flex;gap:8px;">
@@ -1731,6 +1745,86 @@ function renderTemplates(content, actions){
         t.components.splice(Number(b.dataset.delcomp),1); drawComponents();
       });
     }
+
+    /* ---------- Hull: formula + materials (no item name / unit / quantity) ---------- */
+    function ensureHullWork(){
+      if(!t.hullWork || typeof t.hullWork!=='object') t.hullWork = { cat:'Fiberglass', useFormula:true, laborRate:0, numberDays:0, numLaborers:0, materials:[] };
+      const w = t.hullWork;
+      w.useFormula = true;
+      if(!Array.isArray(w.materials)) w.materials = [];
+      if(!w.cat) w.cat = 'Fiberglass';
+      return w;
+    }
+    function drawHullWork(){
+      const w = ensureHullWork();
+      const host = document.getElementById('hullWork');
+      const catSel = document.getElementById('hullCat');
+      catSel.innerHTML = presetCategoryList(w.cat).map(k=>`<option value="${esc(k)}" ${k===w.cat?'selected':''}>${esc(k)}</option>`).join('') + '<option value="__new">+ New category…</option>';
+      const rate = getCategoryRate(w.cat);
+      const matRows = w.materials.map((m,mi)=>`
+        <tr>
+          <td><input class="tbl-input hmat-f" data-m="${mi}" data-f="name" value="${esc(m.name)}" placeholder="Material name"></td>
+          <td style="width:76px;"><input class="tbl-input hmat-f" data-m="${mi}" data-f="unit" value="${esc(m.unit)}"></td>
+          <td style="width:86px;"><input class="tbl-input num hmat-f" type="number" min="0" step="any" data-m="${mi}" data-f="qty" value="${Number(m.qty)||0}"></td>
+          <td style="width:120px;"><input class="tbl-input num hmat-f" type="number" min="0" step="any" data-m="${mi}" data-f="price" value="${Number(m.price)||0}"></td>
+          <td class="right mono" style="width:120px;" id="hmatCost_${mi}">${fmt((Number(m.qty)||0)*(Number(m.price)||0))}</td>
+          <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-hdelmat="${mi}" style="color:var(--danger);" title="Remove material">✕</span></td>
+        </tr>`).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No materials yet — add what the hull uses (for example fiberglass, resin and gelcoat).</td></tr>`;
+      host.innerHTML = `
+        <div style="background:var(--paper);border-radius:12px;padding:12px;">
+          <div class="grid g3" style="margin:0;">
+            <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/day/person)</label><input type="number" min="0" step="any" class="tbl-input hull-formula" data-f="laborRate" value="${w.laborRate||0}"></div>
+            <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input hull-formula" data-f="numberDays" value="${w.numberDays||0}"></div>
+            <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Laborers</label><input type="number" min="0" step="1" class="tbl-input hull-formula" data-f="numLaborers" value="${w.numLaborers||0}"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used for the hull</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm" id="hullMatPick">${icon('plus')} Choose materials${w.materials.length?` (${w.materials.length})`:''}</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="hullMatCustom">${icon('plus')} Custom material</button>
+            </div>
+          </div>
+          <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead><tbody>${matRows}</tbody></table>
+          <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="hullLabor">${fmt(computeLaborCost(w))}</span> + Materials <span class="mono" id="hullMat">${fmt(materialLinesCost(w))}</span> = Total Hull Cost <span class="mono" id="hullTotal">${fmt(computeFormulaWorkCost(w))}</span></div>
+          <div class="hint" style="margin-top:6px;">${rate?`Labor rate is filled in from <strong>${esc(w.cat)}</strong> in the Pricing Database and each material's price comes from the catalog; you can still edit them. <span class="btn btn-ghost btn-sm" id="hullResetRate">Reset labor rate</span><br>`:`No labor rate saved for this category yet — enter it here, or add it under Pricing Database → Category Rates.<br>`}When this boat model is used in a quotation, this Total Hull Cost replaces the automatic fiberglass / resin / gelcoat estimate.</div>
+        </div>`;
+      const patch = ()=>{
+        const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+        set('hullLabor', fmt(computeLaborCost(w))); set('hullMat', fmt(materialLinesCost(w))); set('hullTotal', fmt(computeFormulaWorkCost(w)));
+      };
+      host.querySelectorAll('.hull-formula').forEach(inp=>inp.addEventListener('input', ()=>{ w[inp.dataset.f] = Number(inp.value)||0; patch(); }));
+      host.querySelectorAll('.hmat-f').forEach(inp=>inp.addEventListener('input', ()=>{
+        const mi = Number(inp.dataset.m), f = inp.dataset.f, m = w.materials[mi];
+        m[f] = (f==='qty'||f==='price') ? Math.max(0, Number(inp.value)||0) : inp.value;
+        const cost = document.getElementById(`hmatCost_${mi}`); if(cost) cost.textContent = fmt((Number(m.qty)||0)*(Number(m.price)||0));
+        patch();
+      }));
+      host.querySelectorAll('[data-hdelmat]').forEach(b=>b.onclick=()=>{ w.materials.splice(Number(b.dataset.hdelmat),1); drawHullWork(); });
+      document.getElementById('hullMatCustom').onclick = ()=>{
+        const r = getCategoryRate(w.cat);
+        w.materials.push({cat:'', name:'', unit:'unit', qty:1, price: r ? r.materialPrice : 0}); drawHullWork();
+      };
+      document.getElementById('hullMatPick').onclick = ()=>{
+        const selected = w.materials.filter(m=>m.cat && findCatalogByKey(catalogKey(m.cat,m.name))).map(m=>catalogKey(m.cat,m.name));
+        openMaterialPicker({ title:'Materials used for the hull', subtitle:'Tick everything the hull uses. You can set quantities afterwards.', selected, focusCat:w.cat, confirmLabel:'Apply materials',
+          onConfirm: keys=>{ applyPickedMaterials(w, keys); drawHullWork(); } });
+      };
+      const rr = document.getElementById('hullResetRate');
+      if(rr) rr.onclick = ()=>{ const r=getCategoryRate(w.cat); if(r){ w.laborRate=r.laborRate; toast('Labor rate reset to the Pricing Database value'); drawHullWork(); } };
+      catSel.onchange = ()=>{
+        let v = catSel.value;
+        if(v==='__new'){
+          v = (prompt('Name of the new category (for example: Fiberglass):')||'').trim();
+          if(!v){ drawHullWork(); return; }
+          if(!PRICING.categoryRates[v]){ PRICING.categoryRates[v] = { laborRate:0, materialPrice:0 }; save(DB_KEYS.pricing, PRICING); toast(`"${v}" added — set its labor rate in Pricing Database → Category Rates`); }
+        }
+        w.cat = v;
+        const r = getCategoryRate(v);
+        if(r){ w.laborRate = r.laborRate; if(r.materials.length && !w.materials.length) applyPickedMaterials(w, r.materials); }
+        drawHullWork();
+      };
+    }
+    drawHullWork();
     drawComponents();
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
@@ -1911,7 +2005,7 @@ function openEditor(quoteId, templateId){
     if(templateId){
       const t = TEMPLATES.find(x=>x.id===templateId);
       if(t){
-        q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:t.hullAreaOverride, layers:t.layers, glassPerLayer:t.glassPerLayer, coreArea:0, coreEnabled:false };
+        q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:t.hullAreaOverride, layers:t.layers, glassPerLayer:t.glassPerLayer, coreArea:0, coreEnabled:false, work: t.hullWork ? JSON.parse(JSON.stringify(t.hullWork)) : null };
         q.paint = { items: ['1st Coat','2nd Coat','3rd Coat'].map(label=>({ id:uid('pi'), coatLabel:label, type:t.paintType||'Marine Polyurethane Topcoat', color:'', area:t.paintArea ?? null, pricePerSqm:(Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1) })) };
         if(!q.structural) q.structural = { items:[] };
         q.structural.items = (t.components||[]).map(c=>({...c, materials: JSON.parse(JSON.stringify(c.materials||[])), id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
@@ -2561,7 +2655,7 @@ function tabHull(host, q){
     q.project.boatModel = e.target.value;
     const preset = TEMPLATES.find(t=>t.boatModel && t.boatModel===e.target.value);
     if(preset){
-      q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:preset.hullAreaOverride, layers:preset.layers, glassPerLayer:preset.glassPerLayer, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false };
+      q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:preset.hullAreaOverride, layers:preset.layers, glassPerLayer:preset.glassPerLayer, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false, work: preset.hullWork ? JSON.parse(JSON.stringify(preset.hullWork)) : null };
       q.paint.items = ['1st Coat','2nd Coat','3rd Coat'].map(label=>({
         id: uid('pi'), coatLabel: label, type: preset.paintType || 'Marine Polyurethane Topcoat', color: '',
         area: preset.paintArea ?? null, pricePerSqm: (Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1)
@@ -2612,9 +2706,12 @@ function tabHull(host, q){
           <tr><td>Fiberglass Weight Required</td><td class="right mono">${fmtNum(c.glassWeight,1)} kg</td></tr>
           <tr><td>Resin Consumption</td><td class="right mono">${fmtNum(c.resinLiters,1)} L</td></tr>
           <tr><td>Gelcoat Requirement</td><td class="right mono">${fmtNum(c.gelcoatWeight,1)} kg</td></tr>
+          ${c.useWork ? `
+          <tr><td>Hull Labor (from Boat Preset formula)</td><td class="right mono">${fmt(computeLaborCost(q.hull.work))}</td></tr>
+          <tr><td>Hull Materials (from Boat Preset formula)</td><td class="right mono">${fmt(materialLinesCost(q.hull.work))}</td></tr>` : `
           <tr><td>Fiberglass Cost</td><td class="right mono">${fmt(c.glassCost)}</td></tr>
           <tr><td>Resin Cost</td><td class="right mono">${fmt(c.resinCost)}</td></tr>
-          <tr><td>Gelcoat Cost</td><td class="right mono">${fmt(c.gelcoatCost)}</td></tr>
+          <tr><td>Gelcoat Cost</td><td class="right mono">${fmt(c.gelcoatCost)}</td></tr>`}
           <tr><td>Core Material Cost</td><td class="right mono">${fmt(c.coreCost)}</td></tr>
           <tr><td style="font-weight:700;">Laminate Cost Subtotal</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>
           <tr><td>Structural Components (stiffeners, bulkheads, foam, etc.)</td><td class="right mono">${fmt(s.total)}</td></tr>
