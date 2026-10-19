@@ -317,6 +317,15 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 .picker-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px 18px;border-top:1px solid var(--paper-line);}
 .picker-count{font-size:12px;color:var(--ink-soft);}
 
+/* compact inputs in the editor side panel (overhead / contingency / margin / VAT / discount) */
+.side-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);}
+.side-row label{min-width:96px;font-weight:500;}
+.side-row span{color:var(--ink-faint);}
+.side-input{width:84px;padding:7px 12px;border:1px solid rgba(21,21,21,.1);border-radius:var(--pill);background:rgba(255,255,255,.85);color:var(--ink);font-size:13px;font-variant-numeric:tabular-nums;transition:border-color var(--t), box-shadow var(--t), background var(--t);}
+.side-input:hover{border-color:rgba(21,21,21,.22);}
+.side-input:focus{outline:none;border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(242,194,48,.45);}
+.side-input:disabled{opacity:1;color:var(--ink);-webkit-text-fill-color:var(--ink);background:rgba(255,255,255,.45);cursor:default;}
+
 /* ---------- Tabs (editor) ---------- */
 .tabs{display:flex;gap:2px;margin-bottom:18px;flex-wrap:wrap;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-border);border-radius:var(--pill);padding:5px;box-shadow:var(--shadow-sm);width:fit-content;max-width:100%;}
 .tab{padding:8px 16px;font-size:12.5px;font-weight:600;color:var(--ink-soft);border-radius:var(--pill);cursor:pointer;display:flex;align-items:center;gap:6px;transition:background var(--t), color var(--t);}
