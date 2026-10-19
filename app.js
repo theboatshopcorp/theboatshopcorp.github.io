@@ -305,11 +305,6 @@ const DEFAULT_PRICING = {
   dailyRate: 3500,
   standardDurationDays: 180,
   rushFeePct: 15,
-  engineDb: [
-    {id:uid('eng'), name:'Isuzu 340HP UM6SD1TCX + Dong-I DMT140H', hp:340, price:3048856},
-    {id:uid('eng'), name:'Yanmar 6LY440 (440HP)', hp:440, price:3650000},
-    {id:uid('eng'), name:'Cummins QSB6.7 (450HP)', hp:450, price:3820000},
-  ],
   accessoryCatalog: [
     {cat:'Hull & Deck Accessories', name:'Stainless Bollard (pair)', unitPrice:8500},
     {cat:'Hull & Deck Accessories', name:'Stainless Cleat', unitPrice:1800},
@@ -1787,10 +1782,6 @@ function renderPricing(content, actions){
       </div></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Engine Package Catalog</h3><button class="btn btn-sm" id="addEngine">${icon('plus')} Add Engine Package</button></div>
-      <div class="card-body" style="padding:0;"><table><thead><tr><th>Model / Description</th><th>HP</th><th class="right">Price (₱)</th><th></th></tr></thead><tbody id="engineRows"></tbody></table></div>
-    </div>
-    <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Standard Accessory Catalog</h3><button class="btn btn-sm" id="addAccItem">${icon('plus')} Add Item</button></div>
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th>Item Name</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="accCatRows"></tbody></table></div>
     </div>
@@ -1809,22 +1800,6 @@ function renderPricing(content, actions){
     return `<div class="field"><label>${label}</label><input type="number" step="any" class="pf" data-key="${key}" value="${val}"></div>`;
   }
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
-
-  function drawEngines(){
-    document.getElementById('engineRows').innerHTML = r.engineDb.map(e=>`
-      <tr>
-        <td><input class="tbl-input eng-f" data-id="${e.id}" data-f="name" value="${esc(e.name)}"></td>
-        <td style="width:80px;"><input class="tbl-input num eng-f" data-id="${e.id}" data-f="hp" type="number" value="${e.hp}"></td>
-        <td style="width:150px;"><input class="tbl-input num eng-f" data-id="${e.id}" data-f="price" type="number" value="${e.price}"></td>
-        <td class="right"><span class="btn btn-ghost btn-sm" data-del-eng="${e.id}" style="color:var(--danger);">Remove</span></td>
-      </tr>`).join('');
-    document.querySelectorAll('.eng-f').forEach(i=>i.onchange=()=>{
-      const e = r.engineDb.find(x=>x.id===i.dataset.id);
-      e[i.dataset.f] = i.dataset.f==='name'? i.value : Number(i.value);
-    });
-    document.querySelectorAll('[data-del-eng]').forEach(b=>b.onclick=()=>{ r.engineDb = r.engineDb.filter(x=>x.id!==b.dataset.delEng); drawEngines(); });
-  }
-  document.getElementById('addEngine').onclick=()=>{ r.engineDb.push({id:uid('eng'),name:'New Engine Package',hp:0,price:0}); drawEngines(); };
 
   function drawAcc(){
     document.getElementById('accCatRows').innerHTML = r.accessoryCatalog.map((a,idx)=>`
@@ -1893,7 +1868,7 @@ function renderPricing(content, actions){
     r.categoryRates[name] = { laborRate:0, materialPrice:0, materials:[] }; drawCatRates();
   };
 
-  drawEngines(); drawAcc(); drawCatRates(); drawStructCat();
+  drawAcc(); drawCatRates(); drawStructCat();
 
   document.getElementById('btnSavePricing').onclick = ()=>{
     document.querySelectorAll('.pf').forEach(i=>{
@@ -2969,9 +2944,6 @@ function tabEngine(host, q){
     <div class="card">
       <div class="card-head"><h3>Engine &amp; Mechanical System</h3></div>
       <div class="card-body">
-        <div class="field"><label>Load from Engine Package Catalog</label>
-          <select id="engPick"><option value="">— Custom entry —</option>${PRICING.engineDb.map(p=>`<option value="${p.id}">${esc(p.name)} (₱${p.price.toLocaleString()})</option>`).join('')}</select>
-        </div>
         <div class="grid g3">
           <div class="field"><label>Engine Brand</label><input id="eBrand" value="${esc(e.brand||'')}" placeholder="e.g. Isuzu, Yamaha"><div class="hint">Used in the auto-generated project title.</div></div>
           <div class="field"><label>Engine Model / Description</label><input id="eModel" value="${esc(e.model)}"></div>
@@ -3023,10 +2995,6 @@ function tabEngine(host, q){
       <div class="card-body" id="engineCalcOut"></div>
     </div>
   `;
-  document.getElementById('engPick').onchange = (ev)=>{
-    const pkg = PRICING.engineDb.find(x=>x.id===ev.target.value);
-    if(pkg){ e.model=pkg.name; e.hp=pkg.hp; e.unitPrice=pkg.price; persistQuote(q); tabEngine(host,q); updateLiveSummary(q); }
-  };
   ['eBrand','eModel','eHp','eQty','ePrice','eTrans','eProp','eSpeed','eFuelCap','eInstall','eDesc'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=>{
       e.brand = document.getElementById('eBrand').value;
