@@ -966,7 +966,8 @@ function computeTestingDelivery(q){
 function computeEngine(q){
   const e = q.engine;
   const unitsCost = (Number(e.qty)||0) * (Number(e.unitPrice)||0);
-  const total = unitsCost + (Number(e.installation)||0);
+  // Installation cost was removed from the editor; unit price is the sole engine line cost.
+  const total = unitsCost;
   return { unitsCost, total };
 }
 function computeLabor(q){
@@ -2139,7 +2140,7 @@ const EDITOR_TABS = [
   {id:'hull', n:'02', label:'Hull'},
   {id:'paint', n:'03', label:'Paint & Finish'},
   {id:'accessories', n:'04', label:'Accessories'},
-  {id:'engine', n:'05', label:'Engine'},
+  {id:'engine', n:'05', label:'Marine Propulsion System'},
   {id:'testing', n:'06', label:'Testing & Delivery'},
   {id:'marina', n:'07', label:'MARINA Documentation'},
   {id:'terms', n:'08', label:'Terms & Conditions'},
@@ -3086,35 +3087,51 @@ function tabTesting(host, q){
   });
 }
 
-/* ---- Tab: Engine ---- */
+/* ---- Tab: Marine Propulsion System ---- */
+const PROPULSION_TYPES = [
+  { value:'OBM', label:'Outboard Motor (OBM)', showDrive:false },
+  { value:'IBM', label:'Inboard Motor (IBM)', showDrive:true },
+  { value:'Sterndrive', label:'Sterndrive (I/O)', showDrive:true },
+  { value:'Jet', label:'Jet Drive', showDrive:false },
+];
+function propulsionShowsDrive(type){
+  const t = PROPULSION_TYPES.find(p=>p.value===type);
+  return t ? t.showDrive : type==='IBM';
+}
+
 function tabEngine(host, q){
   const e = q.engine;
+  if(!PROPULSION_TYPES.some(p=>p.value===e.type)) e.type = 'IBM';
+  const showDrive = propulsionShowsDrive(e.type);
   host.innerHTML = `
     <div class="card">
-      <div class="card-head"><h3>Engine &amp; Mechanical System</h3></div>
+      <div class="card-head"><h3>Marine Propulsion System</h3></div>
       <div class="card-body">
+        <div class="field" style="max-width:360px;"><label>Category *</label>
+          <select id="eType">
+            ${PROPULSION_TYPES.map(p=>`<option value="${p.value}" ${e.type===p.value?'selected':''}>${p.label}</option>`).join('')}
+          </select>
+          <div class="hint">Outboard (OBM) hides Transmission and Propeller. Inboard and Sterndrive show them.</div>
+        </div>
         <div class="grid g3">
-          <div class="field"><label>Engine Brand</label><input id="eBrand" value="${esc(e.brand||'')}" placeholder="e.g. Isuzu, Yamaha"><div class="hint">Used in the auto-generated project title.</div></div>
-          <div class="field"><label>Engine Model / Description</label><input id="eModel" value="${esc(e.model)}"></div>
-          <div class="field"><label>Motor Type</label>
-            <select id="eType"><option value="IBM" ${e.type==='IBM'?'selected':''}>Inboard Motor (IBM)</option><option value="OBM" ${e.type==='OBM'?'selected':''}>Outboard Motor (OBM)</option></select>
-          </div>
+          <div class="field"><label>Brand</label><input id="eBrand" value="${esc(e.brand||'')}" placeholder="e.g. Isuzu, Yamaha"><div class="hint">Used in the auto-generated project title.</div></div>
+          <div class="field"><label>Model / Description</label><input id="eModel" value="${esc(e.model)}"></div>
           <div class="field"><label>Horsepower (HP)</label><input type="number" id="eHp" value="${e.hp}"></div>
-          <div class="field"><label>Number of Engines</label><input type="number" id="eQty" value="${e.qty}"></div>
-          <div class="field"><label>Unit Price (₱)</label><input type="number" id="ePrice" value="${e.unitPrice}"></div>
-          <div class="field"><label>Transmission</label><input id="eTrans" value="${esc(e.transmission)}"></div>
-          <div class="field"><label>Propeller</label><input id="eProp" value="${esc(e.propeller)}"></div>
-          <div class="field"><label>Engine Speed</label><input id="eSpeed" value="${esc(e.speed||'')}" placeholder="e.g. 25 knots"></div>
+          <div class="field"><label>Number of Units</label><input type="number" id="eQty" value="${e.qty}"></div>
           <div class="field"><label>Fuel Capacity</label><input id="eFuelCap" value="${esc(e.fuelCapacity||'')}" placeholder="e.g. 200 liters"></div>
         </div>
-        <div class="field"><label>Installation Cost (₱)</label><input type="number" id="eInstall" value="${e.installation}"></div>
-        <div class="field"><label>Intro / Spec Paragraph</label><textarea id="eDesc" rows="4" placeholder="e.g. Dual Installation of Yamaha 250HP, Model: F250HETX...">${esc(e.description||'')}</textarea>
-          <div class="hint">Prints as an intro paragraph above the inclusion lists under Engine &amp; Mechanical System.</div>
+        <div class="grid g2" id="eDriveFields" style="${showDrive?'':'display:none;'}">
+          <div class="field"><label>Transmission</label><input id="eTrans" value="${esc(e.transmission)}"></div>
+          <div class="field"><label>Propeller</label><input id="eProp" value="${esc(e.propeller)}"></div>
         </div>
+        <div class="field"><label>Intro / Spec Paragraph</label><textarea id="eDesc" rows="4" placeholder="e.g. Dual Installation of Yamaha 250HP, Model: F250HETX...">${esc(e.description||'')}</textarea>
+          <div class="hint">Prints as an intro paragraph above the inclusion lists under Marine Propulsion System.</div>
+        </div>
+        <div class="field" style="max-width:280px;"><label>Unit Price (₱)</label><input type="number" id="ePrice" value="${e.unitPrice}"><div class="hint">Price per unit × number of units = propulsion cost.</div></div>
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Engine Inclusions</h3>
+      <div class="card-head"><h3>Inclusions</h3>
         <div style="display:flex;gap:8px;">
           <select id="inclCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;">
             <option value="">+ Add from catalog…</option>
@@ -3123,7 +3140,7 @@ function tabEngine(host, q){
           <button class="btn btn-sm" id="addBlankIncl">${icon('plus')} Custom Item</button>
         </div>
       </div>
-      <div class="card-body section-lead">Items bundled with the engine package — printed as a bullet list under Engine &amp; Mechanical System.</div>
+      <div class="card-body section-lead">Items bundled with the propulsion package — printed as a bullet list under Marine Propulsion System.</div>
       <div class="card-body" style="padding:0;" id="inclRows"></div>
     </div>
     <div class="card" style="margin-top:16px;">
@@ -3136,32 +3153,47 @@ function tabEngine(host, q){
           <button class="btn btn-sm" id="addBlankSteer">${icon('plus')} Custom Item</button>
         </div>
       </div>
-      <div class="card-body section-lead">Steering helm, hydraulics, and rigging components — printed as its own subsection under Engine &amp; Mechanical System.</div>
+      <div class="card-body section-lead">Steering helm, hydraulics, and rigging components — printed as its own subsection under Marine Propulsion System.</div>
       <div class="card-body" style="padding:0;" id="steerRows"></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Engine Cost Summary</h3></div>
+      <div class="card-head"><h3>Propulsion Cost Summary</h3></div>
       <div class="card-body" id="engineCalcOut"></div>
     </div>
   `;
-  ['eBrand','eModel','eHp','eQty','ePrice','eTrans','eProp','eSpeed','eFuelCap','eInstall','eDesc'].forEach(id=>{
+  function readEngineFields(){
+    e.brand = document.getElementById('eBrand').value;
+    e.model = document.getElementById('eModel').value;
+    e.hp = Number(document.getElementById('eHp').value);
+    e.qty = Number(document.getElementById('eQty').value);
+    e.unitPrice = Number(document.getElementById('ePrice').value);
+    e.fuelCapacity = document.getElementById('eFuelCap').value;
+    e.description = document.getElementById('eDesc').value;
+    const transEl = document.getElementById('eTrans');
+    const propEl = document.getElementById('eProp');
+    if(transEl) e.transmission = transEl.value;
+    if(propEl) e.propeller = propEl.value;
+    if(!propulsionShowsDrive(e.type)){ e.transmission = ''; e.propeller = ''; }
+  }
+  ['eBrand','eModel','eHp','eQty','ePrice','eFuelCap','eDesc'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=>{
-      e.brand = document.getElementById('eBrand').value;
-      e.model = document.getElementById('eModel').value;
-      e.hp = Number(document.getElementById('eHp').value);
-      e.qty = Number(document.getElementById('eQty').value);
-      e.unitPrice = Number(document.getElementById('ePrice').value);
-      e.transmission = document.getElementById('eTrans').value;
-      e.propeller = document.getElementById('eProp').value;
-      e.speed = document.getElementById('eSpeed').value;
-      e.fuelCapacity = document.getElementById('eFuelCap').value;
-      e.installation = Number(document.getElementById('eInstall').value);
-      e.description = document.getElementById('eDesc').value;
+      readEngineFields();
+      persistQuote(q); drawEng(); updateLiveSummary(q);
+    });
+  });
+  ['eTrans','eProp'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('input', ()=>{
+      readEngineFields();
       persistQuote(q); drawEng(); updateLiveSummary(q);
     });
   });
   document.getElementById('eType').addEventListener('change', ()=>{
     e.type = document.getElementById('eType').value;
+    const drive = document.getElementById('eDriveFields');
+    const show = propulsionShowsDrive(e.type);
+    if(drive) drive.style.display = show ? '' : 'none';
+    if(!show){ e.transmission = ''; e.propeller = ''; }
     persistQuote(q); updateLiveSummary(q);
   });
 
@@ -3213,9 +3245,8 @@ function tabEngine(host, q){
     const c = computeEngine(q);
     document.getElementById('engineCalcOut').innerHTML = `
       <table><tbody>
-        <tr><td>Engines (${e.qty} × ${fmt(e.unitPrice)})</td><td class="right mono">${fmt(c.unitsCost)}</td></tr>
-        <tr><td>Installation</td><td class="right mono">${fmt(e.installation)}</td></tr>
-        <tr><td style="font-weight:700;">Engine &amp; Mechanical Total</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>
+        <tr><td>Units (${e.qty} × ${fmt(e.unitPrice)})</td><td class="right mono">${fmt(c.unitsCost)}</td></tr>
+        <tr><td style="font-weight:700;">Marine Propulsion System Total</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>
       </tbody></table>`;
   }
   drawEng();
@@ -3302,7 +3333,7 @@ function tabMarina(host, q){
       <div class="card-head"><h3>Notes for Quotation Output</h3></div>
       <div class="card-body">
         <div class="field"><textarea id="marinaNotes" rows="4">${esc(m.notes)}</textarea></div>
-        <div class="hint">This section prints on the quotation document as "MARINA Documentation &amp; Regulatory Requirements", right after Engine &amp; Mechanical System. Only the requirement names and the total price show on the printed document.</div>
+        <div class="hint">This section prints on the quotation document as "MARINA Documentation &amp; Regulatory Requirements", right after Marine Propulsion System. Only the requirement names and the total price show on the printed document.</div>
       </div>
     </div>
   `;
@@ -3692,7 +3723,7 @@ function tabOutput(host, q){
             <tr><td>Structural Components &amp; Core Materials</td><td class="right mono">${fmt(c.hull.total + c.structural.total)}</td></tr>
             <tr><td>Paint &amp; Finish</td><td class="right mono">${fmt(c.paint.total)}</td></tr>
             <tr><td>Accessories &amp; Components</td><td class="right mono">${fmt(c.acc.total)}</td></tr>
-            <tr><td>Engine &amp; Mechanical System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
+            <tr><td>Marine Propulsion System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
             <tr><td>Testing &amp; Delivery</td><td class="right mono">${fmt(c.testing.total)}</td></tr>
             <tr><td>MARINA Documentation &amp; Regulatory Requirements</td><td class="right mono">${fmt(c.marinaCost)}</td></tr>
             ${c.multiplyPrice && c.numBoats>1 ? `<tr><td style="font-weight:700;border-top:1px solid var(--doc-ink);">Per-Unit Price × ${c.numBoats} Boats Quoted</td><td class="right mono" style="font-weight:700;border-top:1px solid var(--doc-ink);">${fmt(c.unitFinalTotal)} × ${c.numBoats}</td></tr>` : ``}
@@ -3757,7 +3788,7 @@ function tabOutput(host, q){
           <tbody>
             <tr><td>Boat Model</td><td class="right mono">${esc(q.project.boatModel)||'—'}</td><td>Build Type</td><td class="right mono">${esc(q.project.buildType)||'—'}</td></tr>
             <tr><td>Boat Application</td><td class="right mono">${esc(q.project.boatApplication==='Other' ? (q.project.boatApplicationOther||'Other') : q.project.boatApplication)||'—'}</td><td>Passenger Capacity</td><td class="right mono">${q.project.passengerCapacity||0} pax</td></tr>
-            <tr><td>Length Overall</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.loa); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Engine</td><td class="right mono">${esc(q.engine.brand)||'—'} ${q.engine.hp||0}HP ${esc(q.engine.type)||'IBM'}</td></tr>
+            <tr><td>Length Overall</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.loa); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Propulsion</td><td class="right mono">${esc(q.engine.brand)||'—'} ${q.engine.hp||0}HP ${esc(q.engine.type)||'IBM'}</td></tr>
             <tr><td>Beam</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.beam); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Engine Speed</td><td class="right mono">${esc(q.engine.speed)||'—'}</td></tr>
             <tr><td>Depth</td><td class="right mono">${(()=>{ const f=decToFtIn(q.hull.depth); return `${f.ft}ft ${f.inch}in`; })()}</td><td>Fuel Capacity</td><td class="right mono">${esc(q.engine.fuelCapacity)||'—'}</td></tr>
             ${c.numBoats>1?`<tr><td>Number of Boats Quoted</td><td class="right mono" colspan="3">${c.numBoats} unit(s)</td></tr>`:``}
@@ -3824,10 +3855,11 @@ function tabOutput(host, q){
           return fixedHtml + restHtml;
         })()}
 
-        <div class="doc-section-title">V. Engine &amp; Mechanical System</div>
+        <div class="doc-section-title">V. Marine Propulsion System</div>
         <table><tbody>
-          <tr><td>${esc(q.engine.model)||'—'}</td><td class="right mono">${q.engine.hp} HP × ${q.engine.qty} unit(s)</td></tr>
-          <tr><td>Transmission: ${esc(q.engine.transmission)||'—'} &nbsp; Propeller: ${esc(q.engine.propeller)||'—'}</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
+          <tr><td>${esc(q.engine.model)||'—'} ${q.engine.type?`(${esc(q.engine.type)})`:''}</td><td class="right mono">${q.engine.hp} HP × ${q.engine.qty} unit(s)</td></tr>
+          ${propulsionShowsDrive(q.engine.type) ? `<tr><td>Transmission: ${esc(q.engine.transmission)||'—'} &nbsp; Propeller: ${esc(q.engine.propeller)||'—'}</td><td class="right mono">${fmt(c.eng.total)}</td></tr>`
+            : `<tr><td></td><td class="right mono">${fmt(c.eng.total)}</td></tr>`}
         </tbody></table>
         ${q.engine.description ? `<div class="doc-band-body" style="margin-top:8px;line-height:1.6;">${escNl(q.engine.description)}</div>` : ``}
         ${q.engine.inclusions && q.engine.inclusions.length ? `
@@ -4122,41 +4154,4 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   const email = document.getElementById('loginEmail').value.trim();
   const password = document.getElementById('loginPassword').value;
   try{
-    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-    if(error){
-      errEl.textContent = error.message || 'Sign in failed. Check your email and password.';
-      errEl.style.display = 'block';
-      return;
-    }
-    if(!data || !data.session){
-      errEl.textContent = 'Sign-in did not return a session. Please try again.';
-      errEl.style.display = 'block';
-      return;
-    }
-    await startApp(data.session);
-  }catch(error){
-    console.error('Sign-in failed', error);
-    errEl.textContent = 'Unable to sign in right now. Check your connection and try again.';
-    errEl.style.display = 'block';
-  }finally{
-    btn.disabled = false;
-    btn.textContent = oldLabel;
-  }
-});
-
-supabaseClient.auth.onAuthStateChange((event)=>{
-  if(event === 'SIGNED_OUT') location.reload();
-});
-
-(async function boot(){
-  try{
-    const { data, error } = await supabaseClient.auth.getSession();
-    if(error) throw error;
-    const session = data && data.session;
-    if(session) await startApp(session);
-    else showLogin();
-  }catch(error){
-    console.error('Application startup failed', error);
-    showLogin('Unable to connect to the sign-in service. Check your internet connection and try again.');
-  }
-})();
+    const { data, error } = await supabaseClient.auth.signInWithPasswo
