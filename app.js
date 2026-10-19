@@ -1742,10 +1742,11 @@ function renderTemplates(content, actions){
       <button class="btn btn-ghost btn-sm" id="btnBackToModels" style="margin-bottom:14px;">← Back to Boat Models</button>
       <div class="card" data-model="${esc(m)}">
         <div class="card-head">
-          <h3 style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(m)}</h3>
+          <h3 id="boatModelTitle" style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(m)}</h3>
           <button class="btn btn-ghost btn-sm" data-delmodel="${esc(m)}" style="color:var(--danger);">Remove Model</button>
         </div>
         <div class="card-body">
+          <div class="field" style="max-width:420px;"><label>Boat Model name</label><input id="boatModelName" value="${esc(m)}"><div class="hint">Renaming updates this preset. Existing quotations keep the name they were saved with.</div></div>
           <div class="grid g4">
             <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
             <div class="field"><label>Beam (ft)</label><input type="number" step="any" class="tpl-f" data-f="beam" value="${t.beam||0}"></div>
@@ -1782,6 +1783,25 @@ function renderTemplates(content, actions){
         toast('Removed — it will still appear as a default option elsewhere until removed from the code.');
       }
       _presetOpenModel = null; draw();
+    };
+    document.getElementById('boatModelName').onchange = e=>{
+      const nm = e.target.value.trim();
+      if(!nm){ e.target.value = m; return; }
+      if(nm === m) return;
+      if(getBoatModelList().some(x=>x.toLowerCase()===nm.toLowerCase() && x!==m)){
+        toast('That Boat Model name already exists');
+        e.target.value = m;
+        return;
+      }
+      t.boatModel = nm;
+      t.name = nm;
+      _presetOpenModel = nm;
+      document.getElementById('boatModelTitle').textContent = nm;
+      const delBtn = document.querySelector('[data-delmodel]');
+      if(delBtn) delBtn.dataset.delmodel = nm;
+      const card = grid.querySelector('.card[data-model]');
+      if(card) card.dataset.model = nm;
+      toast('Boat Model renamed — click Save Presets to keep the change');
     };
     grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
       const f = i.dataset.f;
@@ -2122,9 +2142,8 @@ const EDITOR_TABS = [
   {id:'engine', n:'05', label:'Engine'},
   {id:'testing', n:'06', label:'Testing & Delivery'},
   {id:'marina', n:'07', label:'MARINA Documentation'},
-  {id:'pricing', n:'08', label:'Timeline & Margin'},
-  {id:'terms', n:'09', label:'Terms & Conditions'},
-  {id:'output', n:'10', label:'Quotation Output'},
+  {id:'terms', n:'08', label:'Terms & Conditions'},
+  {id:'output', n:'09', label:'Quotation Output'},
 ];
 
 function renderEditor(content, actions){
@@ -2218,8 +2237,6 @@ function renderEditor(content, actions){
       q.rates[key] = Math.max(0, Number(el.value)||0);
       persistQuote(q);
       updateLiveSummary(q);
-      // keep the "Full Pricing Formula" table on the Timeline & Margin tab in step
-      if(CURRENT.tab==='pricing') tabPricing(document.getElementById('tabHost'), q);
     });
   });
   document.getElementById('vatPct').onchange = (e)=>{
@@ -2287,7 +2304,8 @@ function renderEditor(content, actions){
   tabsEl.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ CURRENT.tab = el.dataset.tab; renderEditor(content,actions); });
 
   const host = document.getElementById('tabHost');
-  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, pricing:tabPricing, marina:tabMarina, testing:tabTesting, terms:tabTerms, output:tabOutput };
+  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, marina:tabMarina, testing:tabTesting, terms:tabTerms, output:tabOutput };
+  if(!renderers[CURRENT.tab]) CURRENT.tab = 'client';
   renderers[CURRENT.tab](host, q);
 
   // Once a quotation leaves Draft, it's locked from editing — only viewing
