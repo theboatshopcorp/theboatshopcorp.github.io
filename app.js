@@ -1,7 +1,7 @@
 /* ============================================================
    STATE & PERSISTENCE
    ============================================================ */
-const DB_KEYS = { quotes:'frp_quotations', customers:'frp_customers', pricing:'frp_pricing_db', templates:'frp_boat_templates', signatories:'frp_signatories', logo:'frp_logo', company:'frp_company_details', auth:'frp_auth' };
+const DB_KEYS = { quotes:'frp_quotations', customers:'frp_customers', pricing:'frp_pricing_db', templates:'frp_boat_templates', signatories:'frp_signatories', logo:'frp_logo', company:'frp_company_details', sales:'frp_sales_log', auth:'frp_auth' };
 
 /* ============================================================
    SUPABASE SYNC — shared team database.
@@ -23,7 +23,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true }
 });
 const REMOTE_TABLE = 'app_state';
-const SYNCED_KEYS = [DB_KEYS.quotes, DB_KEYS.customers, DB_KEYS.pricing, DB_KEYS.templates, DB_KEYS.signatories, DB_KEYS.logo, DB_KEYS.company];
+const SYNCED_KEYS = [DB_KEYS.quotes, DB_KEYS.customers, DB_KEYS.pricing, DB_KEYS.templates, DB_KEYS.signatories, DB_KEYS.logo, DB_KEYS.company, DB_KEYS.sales];
 
 let load, save; // assigned below once ensureQuoteDefaults etc. exist in scope
 
@@ -96,6 +96,7 @@ function applyRemoteValue(key, val){
   else if(key === DB_KEYS.signatories){ mergeInPlace(SIGNATORIES, val); ['prepared','approved','received'].forEach(k=>{ if(!SIGNATORIES[k]) SIGNATORIES[k]={name:'',title:'',img:''}; }); }
   else if(key === DB_KEYS.logo){ mergeInPlace(LOGO, val || { img:'', width:100, top:null, left:null }); }
   else if(key === DB_KEYS.company){ mergeInPlace(COMPANY, val); if(!COMPANY.bank) COMPANY.bank = []; }
+  else if(key === DB_KEYS.sales){ mergeRecordArray(SALES, val||[]); }
   else return;
   localSave(key, val);
 }
@@ -128,6 +129,7 @@ function currentValueFor(key){
   if(key === DB_KEYS.signatories) return SIGNATORIES;
   if(key === DB_KEYS.logo) return LOGO;
   if(key === DB_KEYS.company) return COMPANY;
+  if(key === DB_KEYS.sales) return SALES;
   return null;
 }
 
@@ -160,7 +162,7 @@ function subscribeRemote(){
 let CURRENT_PERMISSIONS = new Set(); // populated after login by checkUserPermissions()
 let CURRENT_IS_ADMIN = false; // populated after login by loadMyProfile()
 let ALL_PROFILES = []; // every known user_profiles row, used to look up Prepared By / Approved By
-const ADMIN_ONLY_VIEWS = ['quotes','editor','templates','pricing','settings'];
+const ADMIN_ONLY_VIEWS = ['quotes','editor','sales','templates','pricing','settings'];
 // 'editor' (the quote editor) is governed by the same permission as 'quotes',
 // since opening/editing a quote is part of the Quotations section.
 function permissionKeyFor(view){ return view==='editor' ? 'quotes' : view; }
@@ -678,6 +680,10 @@ if(PRICING.standardDurationDays===undefined) PRICING.standardDurationDays = DEFA
 if(PRICING.rushFeePct===undefined) PRICING.rushFeePct = DEFAULT_PRICING.rushFeePct;
 let CUSTOMERS = load(DB_KEYS.customers, []);
 let QUOTES = load(DB_KEYS.quotes, []);
+// Sales Tracker log. First run seeds it from the old Excel sheet (see sales.js); after that the
+// shared copy in Supabase is the source of truth.
+let SALES = load(DB_KEYS.sales, null);
+if(!Array.isArray(SALES)){ SALES = salesSeed(); localSave(DB_KEYS.sales, SALES); }
 let TEMPLATES = load(DB_KEYS.templates, null) || DEFAULT_TEMPLATES;
 if(!load(DB_KEYS.templates,null)) save(DB_KEYS.templates, TEMPLATES);
 if(!load(DB_KEYS.pricing,null)) save(DB_KEYS.pricing, PRICING);
@@ -1033,6 +1039,7 @@ const STEERING_SYSTEM_CATALOG = ['Hydraulic Helm 2.4','Front Mount Cylinder','Hy
 const ROUTES = [
   {id:'dashboard', label:'Dashboard', icon:'grid'},
   {id:'quotes', label:'Quotations', icon:'list'},
+  {id:'sales', label:'Sales Tracker', icon:'chart'},
   {id:'customers', label:'Customers', icon:'user'},
   {id:'templates', label:'Boat Presets', icon:'ship', adminOnly:true},
   {id:'pricing', label:'Pricing Database', icon:'db', adminOnly:true},
@@ -1050,6 +1057,7 @@ function icon(name){
     ship:'<path d="M2 21c1.6 1.2 3.5 1.2 5 0 1.6 1.2 3.5 1.2 5 0 1.6 1.2 3.5 1.2 5 0"/><path d="M4 17l1-8h6l1 8"/><path d="M11 9V4h3l3 5"/>',
     db:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    chart:'<line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="11" width="3" height="9"/><rect x="11" y="5" width="3" height="15"/><rect x="16" y="14" width="3" height="6"/>',
     search:'<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   }[name]||'';
   return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -1088,7 +1096,7 @@ document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar
 
 function renderAll(){
   renderNav();
-  const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', customers:'Customer Database', templates:'Boat Presets', pricing:'Pricing Database', profile:'My Profile', settings:'Settings'};
+  const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', sales:'Sales Tracker', customers:'Customer Database', templates:'Boat Presets', pricing:'Pricing Database', profile:'My Profile', settings:'Settings'};
   document.getElementById('topbarTitle').textContent = titleMap[CURRENT.view] || '';
   const content = document.getElementById('content');
   const actions = document.getElementById('topbarActions');
@@ -1097,6 +1105,7 @@ function renderAll(){
   if(CURRENT.view==='dashboard') renderDashboard(content, actions);
   else if(CURRENT.view==='editor') renderEditor(content, actions);
   else if(CURRENT.view==='quotes') renderQuotesList(content, actions);
+  else if(CURRENT.view==='sales') renderSales(content, actions);
   else if(CURRENT.view==='customers') renderCustomers(content, actions);
   else if(CURRENT.view==='templates') renderTemplates(content, actions);
   else if(CURRENT.view==='pricing') renderPricing(content, actions);
