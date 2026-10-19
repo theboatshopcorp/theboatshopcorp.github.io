@@ -91,7 +91,7 @@ function applyRemoteValue(key, val){
   if(val === null || val === undefined) return;
   if(key === DB_KEYS.quotes){ mergeRecordArray(QUOTES, val||[]); QUOTES.forEach(ensureQuoteDefaults); }
   else if(key === DB_KEYS.customers){ mergeRecordArray(CUSTOMERS, val||[]); }
-  else if(key === DB_KEYS.pricing){ mergeInPlace(PRICING, val); if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog)); if(!PRICING.laborHours) PRICING.laborHours = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborHours)); ensureCategoryRates(); }
+  else if(key === DB_KEYS.pricing){ mergeInPlace(PRICING, val); if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog)); ensurePricingShape(); }
   else if(key === DB_KEYS.templates){ mergeRecordArray(TEMPLATES, val||DEFAULT_TEMPLATES); }
   else if(key === DB_KEYS.signatories){ mergeInPlace(SIGNATORIES, val); ['prepared','approved','received'].forEach(k=>{ if(!SIGNATORIES[k]) SIGNATORIES[k]={name:'',title:'',img:''}; }); }
   else if(key === DB_KEYS.logo){ mergeInPlace(LOGO, val || { img:'', width:100, top:null, left:null }); }
@@ -299,8 +299,11 @@ const DEFAULT_PRICING = {
   primerCoverage: 6,
   paintPerLiter: 480,
   paintCoverage: 8,
-  laborRates: { fabrication:180, fiberglass:190, painting:160, electrical:200, assembly:170, testing:210 },
-  laborHours: { fabrication:900, fiberglass:600, painting:260, electrical:320, assembly:400, testing:120 },
+  // Labor is priced per DAY: cost = days x daily rate. (Converted from the old hourly table at 8 hours/day,
+  // so every total stays exactly the same: 900 h @ 180/h  ->  112.5 days @ 1,440/day.)
+  laborDailyRates: { fabrication:1440, fiberglass:1520, painting:1280, electrical:1600, assembly:1360, testing:1680 },
+  laborDays: { fabrication:112.5, fiberglass:75, painting:32.5, electrical:40, assembly:50, testing:15 },
+  materialsFlatV1: true,
   overheadPct: 12,
   contingencyPct: 5,
   marginPct: 18,
@@ -325,91 +328,78 @@ const DEFAULT_PRICING = {
     {cat:'SOLAS Safety Equipment', name:'Ring Buoy', unitPrice:2400},
     {cat:'SOLAS Safety Equipment', name:'Fire Extinguisher', unitPrice:1850},
   ],
+  // Flat list of materials (no categories). Boat Presets pick from this list.
   structuralCatalog: [
-    {cat:'Stiffeners & Framing', name:'Longitudinal Stiffener (glassed-in)', unit:'linear m', unitPrice:1450},
-    {cat:'Stiffeners & Framing', name:'Transverse Frame / Stringer', unit:'linear m', unitPrice:1650},
-    {cat:'Stiffeners & Framing', name:'Hat-Section Stringer (foam-cored)', unit:'linear m', unitPrice:1950},
-    {cat:'Bulkheads', name:'Plywood Bulkhead (marine ply, glassed both sides)', unit:'sqm', unitPrice:3800},
-    {cat:'Bulkheads', name:'FRP Sandwich Bulkhead (foam core)', unit:'sqm', unitPrice:4600},
-    {cat:'Bulkheads', name:'Collision / Watertight Bulkhead', unit:'sqm', unitPrice:5200},
-    {cat:'Foam & Core Materials', name:'Urethane Pour Foam (flotation/buoyancy)', unit:'cu.ft', unitPrice:850},
-    {cat:'Foam & Core Materials', name:'PVC Foam Core Board (Divinycell-type)', unit:'sqm', unitPrice:2600},
-    {cat:'Foam & Core Materials', name:'End-Grain Balsa Core', unit:'sqm', unitPrice:2200},
-    {cat:'Foam & Core Materials', name:'Marine Plywood Coring (per sheet, 4x8ft)', unit:'sheet', unitPrice:3200},
-    {cat:'Other Structural Materials', name:'Chopped Strand Mat (450gsm, per roll)', unit:'roll', unitPrice:4800},
-    {cat:'Other Structural Materials', name:'Woven Roving Reinforcement (per roll)', unit:'roll', unitPrice:6200},
-    {cat:'Other Structural Materials', name:'Structural Adhesive / Epoxy Filler', unit:'kg', unitPrice:650},
-    {cat:'Other Structural Materials', name:'Deck Beam / Carlin (FRP)', unit:'linear m', unitPrice:1800},
+    {name:'Fiberglass Cloth / Mat', unit:'kg', unitPrice:210},
+    {name:'Laminating Resin', unit:'liter', unitPrice:175},
+    {name:'Gelcoat', unit:'kg', unitPrice:260},
+    {name:'Chopped Strand Mat (450gsm, per roll)', unit:'roll', unitPrice:4800},
+    {name:'Woven Roving Reinforcement (per roll)', unit:'roll', unitPrice:6200},
+    {name:'Structural Adhesive / Epoxy Filler', unit:'kg', unitPrice:650},
+    {name:'Urethane Pour Foam (flotation/buoyancy)', unit:'cu.ft', unitPrice:850},
+    {name:'PVC Foam Core Board (Divinycell-type)', unit:'sqm', unitPrice:2600},
+    {name:'End-Grain Balsa Core', unit:'sqm', unitPrice:2200},
+    {name:'Marine Plywood Coring (per sheet, 4x8ft)', unit:'sheet', unitPrice:3200},
   ]
 };
 
-/* ---------- Category rates (Boat Presets formula auto-fill) ----------
-   Picking a category in Boat Presets fills the formula's Labor Rate (₱/day/person)
-   and Material Price per Unit (₱) from this table. Starting values are built from
-   numbers already in the Pricing Database: the daily labor rate is the existing
-   hourly trade rate x 8 hours (Fiberglass 190/hr -> 1,520/day, Fabrication 180/hr ->
-   1,440/day, Assembly 170/hr -> 1,360/day), and the material price is the first
-   catalog item's price (Fiberglass uses the Fiberglass kg price). All are editable
-   in Pricing Database -> Category Rates. */
-DEFAULT_PRICING.categoryRates = {
-  'Fiberglass':                 { laborRate:1520, materialPrice:210  },
-  'Stiffeners & Framing':       { laborRate:1440, materialPrice:1450 },
-  'Bulkheads':                  { laborRate:1440, materialPrice:3800 },
-  'Foam & Core Materials':      { laborRate:1520, materialPrice:850  },
-  'Other Structural Materials': { laborRate:1360, materialPrice:650  },
-  'Console':                    { laborRate:1360, materialPrice:0    }
+/* ---------- Labor per day + flat Materials list ----------
+   Boat Presets fill the formula's Labor Rate (per day, per person) from the daily trade rates in
+   Pricing Database -> Labor Days & Daily Rates, using the mapping below. (This replaces the old
+   "Category Rates" table, so there is only one place to edit labor rates.) */
+const CATEGORY_LABOR_TRADE = {
+  'Fiberglass':'fiberglass', 'Foam & Core Materials':'fiberglass',
+  'Stiffeners & Framing':'fabrication', 'Bulkheads':'fabrication',
+  'Other Structural Materials':'assembly', 'Console':'assembly'
 };
-const _customRows = new WeakSet(); // preset rows where the user chose "Custom item…"
-function ensureCategoryRates(){
-  if(!PRICING.categoryRates) PRICING.categoryRates = JSON.parse(JSON.stringify(DEFAULT_PRICING.categoryRates));
-  // One-time: give the new "Fiberglass" category some items, priced from the
-  // existing Hull Materials numbers (so nothing is invented). Never re-added if deleted.
-  if(!PRICING.categorySeedV2){ // existing databases also get the Console category once
-    PRICING.categorySeedV2 = true;
-    if(!PRICING.categoryRates['Console']) PRICING.categoryRates['Console'] = JSON.parse(JSON.stringify(DEFAULT_PRICING.categoryRates['Console']));
-  }
-  if(!PRICING.categorySeedV1){
-    PRICING.categorySeedV1 = true;
-    if(!(PRICING.structuralCatalog||[]).some(a=>a.cat==='Fiberglass')){
-      PRICING.structuralCatalog = PRICING.structuralCatalog || [];
-      PRICING.structuralCatalog.push(
-        {cat:'Fiberglass', name:'Fiberglass Cloth / Mat', unit:'kg',    unitPrice: PRICING.fiberglassPerKg||210},
-        {cat:'Fiberglass', name:'Laminating Resin',        unit:'liter', unitPrice: PRICING.resinPerLiter||175},
-        {cat:'Fiberglass', name:'Gelcoat',                 unit:'kg',    unitPrice: PRICING.gelcoatPerKg||260}
-      );
-    }
-  }
-  seedCategoryMaterials();
-}
-function seedCategoryMaterials(){
-  if(PRICING.categorySeedV3) return;
-  PRICING.categorySeedV3 = true;
-  const b = (PRICING.categoryRates||{})['Bulkheads'];
-  if(b && !(b.materials && b.materials.length)){
-    const keys = [catalogKey('Fiberglass','Fiberglass Cloth / Mat'), catalogKey('Fiberglass','Laminating Resin')].filter(k=>findCatalogByKey(k));
-    if(keys.length) b.materials = keys;
+// Old default catalog entries that were structural components rather than materials.
+const LEGACY_COMPONENT_ITEMS = ['longitudinal stiffener (glassed-in)','transverse frame / stringer','hat-section stringer (foam-cored)','plywood bulkhead (marine ply, glassed both sides)','frp sandwich bulkhead (foam core)','collision / watertight bulkhead','deck beam / carlin (frp)'];
+// One-time: hourly labor table -> daily (8 h/day) with identical totals.
+function ensureLaborDaily(){
+  if(PRICING.laborDailyRates && PRICING.laborDays) return;
+  const rates = PRICING.laborRates, hours = PRICING.laborHours;
+  if(rates && typeof rates==='object'){
+    PRICING.laborDailyRates = {}; PRICING.laborDays = {};
+    Object.keys(rates).forEach(k=>{
+      PRICING.laborDailyRates[k] = +((Number(rates[k])||0)*8).toFixed(2);
+      PRICING.laborDays[k] = +(((hours && Number(hours[k]))||0)/8).toFixed(4);
+    });
+  } else {
+    PRICING.laborDailyRates = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborDailyRates));
+    PRICING.laborDays = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborDays));
   }
 }
+// One-time: Structural catalog -> flat Materials list. Component-type items (stiffeners, bulkheads...)
+// leave the visible list but their prices are kept in a hidden map so older presets still price correctly.
+function ensureMaterialsCatalog(){
+  if(!Array.isArray(PRICING.structuralCatalog)) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog));
+  if(PRICING.materialsFlatV1) return;
+  PRICING.materialsFlatV1 = true;
+  const legacy = PRICING.legacyStructuralPrices = PRICING.legacyStructuralPrices || {};
+  const seen = new Set(), keep = [];
+  PRICING.structuralCatalog.forEach(a=>{
+    const k = (a.name||'').trim().toLowerCase(); if(!k) return;
+    if(LEGACY_COMPONENT_ITEMS.includes(k)){ legacy[k] = Number(a.unitPrice)||0; return; }
+    if(seen.has(k)) return; seen.add(k);
+    keep.push({ name:a.name, unit:a.unit||'', unitPrice:Number(a.unitPrice)||0 });
+  });
+  PRICING.structuralCatalog = keep;
+  ['categoryRates','categorySeedV1','categorySeedV2','categorySeedV3'].forEach(k=>delete PRICING[k]);
+}
+function ensurePricingShape(){ ensureLaborDaily(); ensureMaterialsCatalog(); }
 function getCategoryRate(cat){
-  const r = (PRICING.categoryRates||{})[cat];
-  return r ? { laborRate:Number(r.laborRate)||0, materialPrice:Number(r.materialPrice)||0, materials:Array.isArray(r.materials)?r.materials:[] } : null;
-}
-function catalogItemsForCategory(cat){
-  const k = (cat||'').trim().toLowerCase();
-  return k ? (PRICING.structuralCatalog||[]).filter(a=>(a.cat||'').trim().toLowerCase()===k) : [];
+  const trade = CATEGORY_LABOR_TRADE[cat]; if(!trade) return null;
+  return { laborRate: Number((PRICING.laborDailyRates||{})[trade])||0, materialPrice:0, materials:[] };
 }
 function presetCategoryList(extra){
-  const list = [...Object.keys(PRICING.categoryRates||{}), ...getKnownStructuralCategories()];
+  const list = [...Object.keys(CATEGORY_LABOR_TRADE), ...getKnownStructuralCategories()];
   if(extra) list.push(extra);
   return [...new Set(list.filter(Boolean))];
 }
-// Category supplies the labor rate + default material price; a chosen catalog item
-// supplies its own material price (and wins over the category default).
+// Picking a category fills in that trade's daily labor rate (still editable).
 function applyCategoryDefaults(c){
   const r = getCategoryRate(c.cat);
-  if(r){ c.laborRate = r.laborRate; c.materialPrice = r.materialPrice; }
-  const it = catalogItemsForCategory(c.cat).find(a=>a.name===c.name);
-  if(it && Number(it.unitPrice)>0) c.materialPrice = Number(it.unitPrice);
+  if(r) c.laborRate = r.laborRate;
 }
 
 /* ---------- Accessories: category order, sorting, and "known categories" ----------
@@ -491,11 +481,10 @@ function compareStructuralItems(a, b){
 // component's current unit price by matching category + name; if no catalog
 // entry matches, default to 0 so the user can pick/set it manually.
 function lookupStructuralPrice(cat, name){
-  const hit = (PRICING.structuralCatalog||[]).find(a=>
-    (a.name||'').trim().toLowerCase()===(name||'').trim().toLowerCase() &&
-    (a.cat||'').trim().toLowerCase()===(cat||'').trim().toLowerCase()
-  );
-  return hit ? hit.unitPrice : 0;
+  const k = (name||'').trim().toLowerCase();
+  const hit = (PRICING.structuralCatalog||[]).find(a=>(a.name||'').trim().toLowerCase()===k);
+  if(hit) return hit.unitPrice;
+  return Number((PRICING.legacyStructuralPrices||{})[k])||0;
 }
 // Total Work Cost = (Labor Rate × Number of Days × Number of Laborers)
 //                 + the sum of (Quantity × Price per Unit) for every material used
@@ -525,11 +514,11 @@ function ensureMaterials(c){
   c.materials = (c.useFormula && q>0) ? [{cat:'', name:'Material', unit:'unit', qty:q, price:pr}] : [];
 }
 /* ---------- Multi-select materials picker ---------- */
-function catalogKey(cat,name){ return `${(cat||'').trim().toLowerCase()}||${(name||'').trim().toLowerCase()}`; }
-function findCatalogByKey(k){ return (PRICING.structuralCatalog||[]).find(a=>catalogKey(a.cat,a.name)===k); }
+function catalogKey(cat,name){ return (name||'').trim().toLowerCase(); } // materials are matched by name only
+function findCatalogByKey(k){ return (PRICING.structuralCatalog||[]).find(a=>catalogKey('',a.name)===k); }
 function openMaterialPicker(opts){
   const chosen = new Set(opts.selected||[]);
-  const all = (PRICING.structuralCatalog||[]).filter(a=>a.cat && a.name);
+  const all = (PRICING.structuralCatalog||[]).filter(a=>a.name);
   const overlay = document.createElement('div');
   overlay.className = 'picker-overlay';
   overlay.innerHTML = `
@@ -550,15 +539,11 @@ function openMaterialPicker(opts){
   const updateCount = ()=>{ const n = chosen.size; count.textContent = n ? `${n} material${n===1?'':'s'} selected` : 'None selected'; };
   function draw(){
     const q = search.value.trim().toLowerCase();
-    const groups = {};
-    all.filter(a=>!q || (a.name+' '+a.cat).toLowerCase().includes(q)).forEach(a=>{ (groups[a.cat]=groups[a.cat]||[]).push(a); });
-    const cats = Object.keys(groups).sort((x,y)=> (x===opts.focusCat ? -1 : y===opts.focusCat ? 1 : x.localeCompare(y)));
-    list.innerHTML = cats.map(g=>`
-      <div class="picker-group">${esc(g)}</div>
-      ${groups[g].sort((x,y)=>(x.name||'').localeCompare(y.name||'')).map(a=>{ const k=catalogKey(a.cat,a.name); return `
+    list.innerHTML = all.filter(a=>!q || (a.name+' '+(a.unit||'')).toLowerCase().includes(q))
+      .sort((x,y)=>(x.name||'').localeCompare(y.name||'')).map(a=>{ const k=catalogKey('',a.name); return `
         <label class="picker-item"><input type="checkbox" data-k="${esc(k)}" ${chosen.has(k)?'checked':''}>
-          <span class="nm">${esc(a.name)} <em>(${esc(a.unit)})</em></span><span class="pr">${fmt(a.unitPrice)}</span></label>`; }).join('')}
-    `).join('') || `<div class="empty" style="padding:24px;">No materials match. Add items in Pricing Database → Structural Components catalog.</div>`;
+          <span class="nm">${esc(a.name)} <em>(${esc(a.unit)})</em></span><span class="pr">${fmt(a.unitPrice)}</span></label>`; }).join('')
+      || `<div class="empty" style="padding:24px;">No materials match. Add items in Pricing Database → Materials.</div>`;
     updateCount();
   }
   function close(){ document.removeEventListener('keydown', onKey); overlay.remove(); }
@@ -592,7 +577,7 @@ function applyPickedMaterials(c, keys){
   keys.forEach(k=>{
     if(have.has(k)) return;
     const it = findCatalogByKey(k);
-    if(it) kept.push({cat:it.cat, name:it.name, unit:it.unit, qty:1, price:Number(it.unitPrice)||0});
+    if(it) kept.push({cat:it.cat||'Materials', name:it.name, unit:it.unit, qty:1, price:Number(it.unitPrice)||0});
   });
   c.materials = kept;
 }
@@ -622,6 +607,30 @@ function resolveComponentUnitPrice(c){
   }
   return lookupStructuralPrice(c.cat, c.name);
 }
+// Boat Preset structural components have no item name, unit or quantity any more: they are always
+// priced by the formula (labor + materials), like the Hull. Older components that were priced as
+// quantity x catalog price are converted once, keeping exactly the same total.
+function migratePresetComponent(c){
+  if(!c) return;
+  if(!c.useFormula){
+    const qty = Math.max(0, Number(c.qty)||0), price = lookupStructuralPrice(c.cat, c.name);
+    c.materials = (qty>0 && price>0) ? [{cat:'', name:c.name||c.cat||'Material', unit:c.unit||'unit', qty, price}] : [];
+    c.numberDays = 0; c.numLaborers = 0;
+    c.useFormula = true;
+  } else {
+    migrateFormulaComponent(c);
+  }
+  ensureMaterials(c);
+  if(c.numberDays===undefined) c.numberDays = 0;
+  if(c.numLaborers===undefined) c.numLaborers = 0;
+}
+// A preset component becomes one line on the quotation's structural list, named after its category.
+function presetComponentToQuoteItem(c){
+  migratePresetComponent(c);
+  const qty = Math.max(0, Number(c.qty)||0) || 1;
+  return {...c, name: c.name || c.cat || 'Structural component', unit: c.unit || 'lot', qty,
+    materials: JSON.parse(JSON.stringify(c.materials||[])), id:uid('si'), unitPrice: computeFormulaWorkCost(c)/qty};
+}
 // Whenever a new custom item is typed anywhere — the Quotation Editor's Hull
 // tab, its Accessories tab, or Boat Presets' Structural Components — it gets
 // pushed into the shared Pricing Database catalog too (if not already there),
@@ -631,11 +640,9 @@ function resolveComponentUnitPrice(c){
 function syncStructuralCatalog(cat, name, unit, unitPrice){
   cat = (cat||'').trim(); name = (name||'').trim();
   if(!cat || !name || name==='New Item') return false;
-  const exists = (PRICING.structuralCatalog||[]).some(a=>
-    (a.name||'').trim().toLowerCase()===name.toLowerCase() && (a.cat||'').trim().toLowerCase()===cat.toLowerCase()
-  );
+  const exists = (PRICING.structuralCatalog||[]).some(a=>(a.name||'').trim().toLowerCase()===name.toLowerCase());
   if(exists) return false;
-  PRICING.structuralCatalog.push({ cat, name, unit: unit||'pc', unitPrice: Number(unitPrice)||0 });
+  PRICING.structuralCatalog.push({ name, unit: unit||'pc', unitPrice: Number(unitPrice)||0 });
   save(DB_KEYS.pricing, PRICING);
   return true;
 }
@@ -652,8 +659,8 @@ function syncAccessoryCatalog(cat, name, unitPrice){
 }
 function getKnownStructuralCategories(){
   const set = new Set(STRUCTURAL_CATEGORY_ORDER);
-  (PRICING.structuralCatalog||[]).forEach(a=>{ if(a.cat) set.add(a.cat); });
   (QUOTES||[]).forEach(qt=>{ ((qt.structural&&qt.structural.items)||[]).forEach(a=>{ if(a.cat && a.cat!=='Other Structural Materials') set.add(a.cat); }); });
+  (TEMPLATES||[]).forEach(t=>{ (t.components||[]).forEach(c=>{ if(c.cat && c.cat!=='Other Structural Materials') set.add(c.cat); }); });
   const rest2 = [...set].filter(c=>!STRUCTURAL_CATEGORY_ORDER.includes(c)).sort((a,b)=>a.localeCompare(b));
   return [...STRUCTURAL_CATEGORY_ORDER, ...rest2, 'Other Structural Materials'];
 }
@@ -672,10 +679,9 @@ const DEFAULT_TEMPLATES = [
 ];
 
 let PRICING = load(DB_KEYS.pricing, null) || JSON.parse(JSON.stringify(DEFAULT_PRICING));
-if(!PRICING.laborHours) PRICING.laborHours = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborHours));
 if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog));
 if(PRICING.dailyRate===undefined) PRICING.dailyRate = DEFAULT_PRICING.dailyRate;
-ensureCategoryRates();
+ensurePricingShape();
 if(PRICING.standardDurationDays===undefined) PRICING.standardDurationDays = DEFAULT_PRICING.standardDurationDays;
 if(PRICING.rushFeePct===undefined) PRICING.rushFeePct = DEFAULT_PRICING.rushFeePct;
 let CUSTOMERS = load(DB_KEYS.customers, []);
@@ -962,11 +968,11 @@ function computeEngine(q){
   return { unitsCost, total };
 }
 function computeLabor(q){
-  // Labor hours and rates now come from the Pricing Database only — no more
-  // per-quote override — so every quotation uses the same current standard.
-  const hours = PRICING.laborHours || {}, rates = PRICING.laborRates || {};
+  // Labor days and DAILY rates come from the Pricing Database only — no per-quote
+  // override — so every quotation uses the same current standard.
+  const days = PRICING.laborDays || {}, rates = PRICING.laborDailyRates || {};
   const rows = Object.keys(rates).map(k=>({
-    key:k, hours:Number(hours[k])||0, rate: Number(rates[k])||0, cost: (Number(hours[k])||0)*(Number(rates[k])||0)
+    key:k, days:Number(days[k])||0, rate: Number(rates[k])||0, cost: (Number(days[k])||0)*(Number(rates[k])||0)
   }));
   const total = rows.reduce((s,r)=>s+r.cost,0);
   return { rows, total };
@@ -1536,17 +1542,11 @@ function renderTemplates(content, actions){
           <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Structural Components</div>
-            <div style="display:flex;gap:8px;">
-              <select id="compCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;">
-                <option value="">+ Add from catalog…</option>
-                ${(PRICING.structuralCatalog||[]).map((a,i)=>({...a,i})).sort((a,b)=>(a.cat||'').localeCompare(b.cat||'')||(a.name||'').localeCompare(b.name||'')).map(a=>`<option value="${a.i}">${esc(a.cat)} — ${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
-              </select>
-              <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Custom Item</button>
-            </div>
+            <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
           </div>
-          <table><thead><tr><th>Category</th><th>Item Name</th><th style="width:70px;">Unit</th><th style="width:64px;">Qty</th><th style="width:64px;">Formula</th><th></th></tr></thead>
+          <table><thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows"></tbody></table>
-          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (Labor Rate × Number of Days × Number of Laborers) + the cost of every material used (quantity × price per unit)</em>. Toggle "Formula" on a row to calculate its price from labor and material inputs instead of the Pricing Database.</div>
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (Labor Rate × Number of Days × Number of Laborers) + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>
         </div>
       </div>`;
 
@@ -1569,19 +1569,12 @@ function renderTemplates(content, actions){
     const body = document.getElementById('compRows');
     function drawComponents(){
       body.innerHTML = (t.components||[]).map((c,idx)=>{
-        migrateFormulaComponent(c);
+        migratePresetComponent(c);
         const rate = getCategoryRate(c.cat);
         const cats = presetCategoryList(c.cat);
-        const catItems = catalogItemsForCategory(c.cat);
-        const nameKey = (c.name||'').trim().toLowerCase();
-        const inCatalog = !!nameKey && catItems.some(a=>(a.name||'').trim().toLowerCase()===nameKey);
-        const customMode = !inCatalog && (_customRows.has(c) || (!!c.name && c.name!=='New Item') || c.name==='New Item');
-        const rateHint = rate && !c.useFormula
-          ? `<div class="hint" style="margin:3px 0 0 6px;font-size:10.5px;">Labor ${fmt(rate.laborRate)}/day — switch on ƒ(x) to add the materials used</div>` : '';
         const autoHint = rate
-          ? `<div class="hint" style="margin-top:6px;">Labor rate was filled in from <strong>${esc(c.cat)}</strong> in the Pricing Database, and each material's price comes from the catalog. You can still edit them. <span class="btn btn-ghost btn-sm" data-resetrates="${idx}">Reset labor rate</span></div>`
-          : `<div class="hint" style="margin-top:6px;">No labor rate saved for this category yet — enter it here, or add it under Pricing Database → Category Rates.</div>`;
-        ensureMaterials(c);
+          ? `<div class="hint" style="margin-top:6px;">Labor rate was filled in from the <strong>${esc(c.cat)}</strong> trade rate in the Pricing Database (per day), and each material's price comes from the Materials list. You can still edit them. <span class="btn btn-ghost btn-sm" data-resetrates="${idx}">Reset labor rate</span></div>`
+          : `<div class="hint" style="margin-top:6px;">No standard labor rate for this category — enter the rate per day here.</div>`;
         const matRows = (c.materials||[]).map((m,mi)=>`
           <tr>
             <td><input class="tbl-input mat-f" data-idx="${idx}" data-m="${mi}" data-f="name" value="${esc(m.name)}" placeholder="Material name"></td>
@@ -1591,27 +1584,6 @@ function renderTemplates(content, actions){
             <td class="right mono" style="width:120px;" id="matCost_${idx}_${mi}">${fmt((Number(m.qty)||0)*(Number(m.price)||0))}</td>
             <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-delmat="${idx}:${mi}" style="color:var(--danger);" title="Remove material">✕</span></td>
           </tr>`).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No materials yet — add what this component uses (for example fiberglass and resin).</td></tr>`;
-        const formulaRow = c.useFormula ? `
-          <tr class="comp-formula-row" data-formula-idx="${idx}">
-            <td colspan="6" style="background:var(--paper);padding:12px;">
-              <div class="grid g3" style="margin:0;">
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/day/person)</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="numberDays" value="${c.numberDays||0}"></div>
-                <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Laborers</label><input type="number" min="0" step="1" class="tbl-input comp-formula" data-idx="${idx}" data-f="numLaborers" value="${c.numLaborers||0}"></div>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
-                <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used${c.cat?` for ${esc(c.cat)}`:''}</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  <button type="button" class="btn btn-sm mat-pick" data-idx="${idx}">${icon('plus')} Choose materials${(c.materials||[]).length?` (${c.materials.length})`:''}</button>
-                  <button type="button" class="btn btn-ghost btn-sm mat-custom" data-idx="${idx}">${icon('plus')} Custom material</button>
-                </div>
-              </div>
-              <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead>
-              <tbody>${matRows}</tbody></table>
-              <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="formulaLabor_${idx}">${fmt(computeLaborCost(c))}</span> + Materials <span class="mono" id="formulaMat_${idx}">${fmt(materialLinesCost(c))}</span> = Total Work Cost <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span> <span style="font-weight:400;">(unit price: <span id="formulaUnit_${idx}">${fmt(c.qty>0?computeFormulaWorkCost(c)/c.qty:0)} per ${esc(c.unit||'unit')}</span>)</span></div>
-              ${autoHint}
-            </td>
-          </tr>` : '';
         return `
         <tr>
           <td>
@@ -1619,89 +1591,55 @@ function renderTemplates(content, actions){
               ${c.cat ? '' : '<option value="">— choose category —</option>'}
               ${cats.map(k=>`<option value="${esc(k)}" ${k===c.cat?'selected':''}>${esc(k)}</option>`).join('')}
               <option value="__new">+ New category…</option>
-            </select>${rateHint}
-          </td>
-          <td>
-            <select class="tbl-input comp-item" data-idx="${idx}">
-              <option value="">— choose item —</option>
-              ${catItems.map(a=>`<option value="${esc(a.name)}" ${inCatalog && (a.name||'').trim().toLowerCase()===nameKey?'selected':''}>${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
-              <option value="__custom" ${customMode?'selected':''}>Custom item…</option>
             </select>
-            ${customMode ? `<input class="tbl-input comp-f" data-idx="${idx}" data-f="name" value="${esc(c.name==='New Item'?'':c.name)}" placeholder="Type item name" style="margin-top:4px;">` : ''}
           </td>
-          <td><input class="tbl-input comp-f" data-idx="${idx}" data-f="unit" value="${esc(c.unit)}"></td>
-          <td><input class="tbl-input num comp-f" data-idx="${idx}" data-f="qty" type="number" step="any" value="${c.qty}"></td>
-          <td class="right"><label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer;"><input type="checkbox" class="comp-formula-toggle" data-idx="${idx}" ${c.useFormula?'checked':''} style="width:auto;"> ƒ(x)</label></td>
           <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
-        </tr>${formulaRow}`;
-      }).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No components yet.</td></tr>`;
-      body.querySelectorAll('.comp-f').forEach(i=>i.onchange=()=>{
-        const c = t.components[Number(i.dataset.idx)];
-        c[i.dataset.f] = i.dataset.f==='qty' ? Number(i.value) : i.value;
-        if(i.dataset.f==='qty') drawComponents(); // qty change affects the formula total display
-        // Once the user finishes editing any field on a component, add it to
-        // the shared Pricing Database catalog (if it isn't there already) so
-        // it's selectable everywhere else too.
-        const priceForCatalog = c.useFormula && c.qty>0 ? computeFormulaWorkCost(c)/c.qty : 0;
-        if(syncStructuralCatalog(c.cat, c.name, c.unit, priceForCatalog)) toast(`"${c.name}" added to the Pricing Database catalog`);
-      });
+        </tr>
+        <tr class="comp-formula-row" data-formula-idx="${idx}">
+          <td colspan="2" style="background:var(--paper);padding:12px;">
+            <div class="grid g3" style="margin:0;">
+              <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/day/person)</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
+              <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="numberDays" value="${c.numberDays||0}"></div>
+              <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Laborers</label><input type="number" min="0" step="1" class="tbl-input comp-formula" data-idx="${idx}" data-f="numLaborers" value="${c.numLaborers||0}"></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used${c.cat?` for ${esc(c.cat)}`:''}</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm mat-pick" data-idx="${idx}">${icon('plus')} Choose materials${(c.materials||[]).length?` (${c.materials.length})`:''}</button>
+                <button type="button" class="btn btn-ghost btn-sm mat-custom" data-idx="${idx}">${icon('plus')} Custom material</button>
+              </div>
+            </div>
+            <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead>
+            <tbody>${matRows}</tbody></table>
+            <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="formulaLabor_${idx}">${fmt(computeLaborCost(c))}</span> + Materials <span class="mono" id="formulaMat_${idx}">${fmt(materialLinesCost(c))}</span> = Total Work Cost <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span></div>
+            ${autoHint}
+          </td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="2" class="empty" style="padding:12px;">No components yet.</td></tr>`;
       body.querySelectorAll('.comp-cat').forEach(sel=>sel.onchange=()=>{
         const c = t.components[Number(sel.dataset.idx)];
-        const wasCatalogItem = catalogItemsForCategory(c.cat).some(a=>a.name===c.name);
         let v = sel.value;
         if(v==='__new'){
           v = (prompt('Name of the new category (for example: Fiberglass):')||'').trim();
           if(!v){ drawComponents(); return; }
-          if(!PRICING.categoryRates[v]){
-            PRICING.categoryRates[v] = { laborRate:0, materialPrice:0 };
-            save(DB_KEYS.pricing, PRICING);
-            toast(`"${v}" added — set its labor rate and material price in Pricing Database → Category Rates`);
-          }
         }
         c.cat = v;
-        if(wasCatalogItem){ c.name = ''; _customRows.delete(c); } // the old category's item no longer applies
         applyCategoryDefaults(c);
         const r = getCategoryRate(v);
-        let addedMats = 0;
-        if(r && r.materials.length){
-          if(!Array.isArray(c.materials)) c.materials = [];
-          if(!c.materials.length){ applyPickedMaterials(c, r.materials); addedMats = c.materials.length; }
-        }
-        if(r && (r.laborRate || addedMats)) toast(`${v}: labor rate ${fmt(r.laborRate)}/day filled in${addedMats?` and ${addedMats} default material${addedMats===1?'':'s'} added`:''}`);
-        drawComponents();
-      });
-      body.querySelectorAll('.comp-item').forEach(sel=>sel.onchange=()=>{
-        const c = t.components[Number(sel.dataset.idx)];
-        if(sel.value==='__custom'){ _customRows.add(c); c.name=''; }
-        else if(sel.value===''){ _customRows.delete(c); c.name=''; }
-        else {
-          _customRows.delete(c);
-          c.name = sel.value;
-          const it = catalogItemsForCategory(c.cat).find(a=>a.name===sel.value);
-          if(it && it.unit) c.unit = it.unit;
-          applyCategoryDefaults(c); // category labor rate + this item's material price
-        }
+        if(r && r.laborRate) toast(`${v}: labor rate ${fmt(r.laborRate)}/day filled in`);
         drawComponents();
       });
       body.querySelectorAll('[data-resetrates]').forEach(b=>b.onclick=()=>{
         applyCategoryDefaults(t.components[Number(b.dataset.resetrates)]);
         toast('Labor rate reset to the Pricing Database value'); drawComponents();
       });
-      body.querySelectorAll('.comp-formula-toggle').forEach(cb=>{
-        cb.addEventListener('change', ()=>{
-          t.components[Number(cb.dataset.idx)].useFormula = cb.checked;
-          drawComponents();
-        });
-      });
       // Patch totals in place (no redraw) so typing never loses focus.
       function patchFormulaTotals(idx){
         const c = t.components[idx];
         const setTxt = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
-        const total = computeFormulaWorkCost(c);
         setTxt(`formulaLabor_${idx}`, fmt(computeLaborCost(c)));
         setTxt(`formulaMat_${idx}`, fmt(materialLinesCost(c)));
-        setTxt(`formulaTotal_${idx}`, fmt(total));
-        setTxt(`formulaUnit_${idx}`, `${fmt(c.qty>0 ? total/c.qty : 0)} per ${c.unit||'unit'}`);
+        setTxt(`formulaTotal_${idx}`, fmt(computeFormulaWorkCost(c)));
       }
       body.querySelectorAll('.comp-formula').forEach(inp=>{
         inp.addEventListener('input', ()=>{
@@ -1726,14 +1664,13 @@ function renderTemplates(content, actions){
         openMaterialPicker({
           title: `Materials used${c.cat?` for ${c.cat}`:''}`,
           subtitle: 'Tick everything this component uses. You can set quantities afterwards.',
-          selected, focusCat: c.cat, confirmLabel: 'Apply materials',
+          selected, confirmLabel: 'Apply materials',
           onConfirm: keys=>{ applyPickedMaterials(c, keys); drawComponents(); }
         });
       });
       body.querySelectorAll('.mat-custom').forEach(b=>b.onclick=()=>{
         const c = t.components[Number(b.dataset.idx)];
-        const r = getCategoryRate(c.cat);
-        c.materials.push({cat:'', name:'', unit:'unit', qty:1, price: r ? r.materialPrice : 0});
+        c.materials.push({cat:'', name:'', unit:'unit', qty:1, price:0});
         drawComponents();
       });
       body.querySelectorAll('[data-delmat]').forEach(b=>b.onclick=()=>{
@@ -1786,7 +1723,7 @@ function renderTemplates(content, actions){
           </div>
           <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead><tbody>${matRows}</tbody></table>
           <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="hullLabor">${fmt(computeLaborCost(w))}</span> + Materials <span class="mono" id="hullMat">${fmt(materialLinesCost(w))}</span> = Total Hull Cost <span class="mono" id="hullTotal">${fmt(computeFormulaWorkCost(w))}</span></div>
-          <div class="hint" style="margin-top:6px;">${rate?`Labor rate is filled in from <strong>${esc(w.cat)}</strong> in the Pricing Database and each material's price comes from the catalog; you can still edit them. <span class="btn btn-ghost btn-sm" id="hullResetRate">Reset labor rate</span><br>`:`No labor rate saved for this category yet — enter it here, or add it under Pricing Database → Category Rates.<br>`}When this boat model is used in a quotation, this Total Hull Cost replaces the automatic fiberglass / resin / gelcoat estimate.</div>
+          <div class="hint" style="margin-top:6px;">${rate?`Labor rate is filled in from <strong>${esc(w.cat)}</strong> from the Pricing Database (per day) and each material's price comes from the Materials list; you can still edit them. <span class="btn btn-ghost btn-sm" id="hullResetRate">Reset labor rate</span><br>`:`No standard labor rate for this category — enter the rate per day here.<br>`}When this boat model is used in a quotation, this Total Hull Cost replaces the automatic fiberglass / resin / gelcoat estimate.</div>
         </div>`;
       const patch = ()=>{
         const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
@@ -1816,7 +1753,6 @@ function renderTemplates(content, actions){
         if(v==='__new'){
           v = (prompt('Name of the new category (for example: Fiberglass):')||'').trim();
           if(!v){ drawHullWork(); return; }
-          if(!PRICING.categoryRates[v]){ PRICING.categoryRates[v] = { laborRate:0, materialPrice:0 }; save(DB_KEYS.pricing, PRICING); toast(`"${v}" added — set its labor rate in Pricing Database → Category Rates`); }
         }
         w.cat = v;
         const r = getCategoryRate(v);
@@ -1828,17 +1764,8 @@ function renderTemplates(content, actions){
     drawComponents();
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
-      const nc = {cat:'Other Structural Materials', name:'New Item', unit:'pc', qty:1, useFormula:false, numberDays:0, numLaborers:0, laborRate:0, materialQty:0, materialPrice:0, materials:[]};
-      applyCategoryDefaults(nc); _customRows.add(nc); t.components.push(nc);
-      drawComponents();
-    };
-    document.getElementById('compCatalogPick').onchange = (e)=>{
-      if(e.target.value==='') return;
-      const item = PRICING.structuralCatalog[Number(e.target.value)];
-      if(!t.components) t.components = [];
-      const nc = {cat:item.cat, name:item.name, unit:item.unit, qty:1, useFormula:false, numberDays:0, numLaborers:0, laborRate:0, materialQty:0, materialPrice:0, materials:[]};
+      const nc = {cat:'Other Structural Materials', useFormula:true, numberDays:0, numLaborers:0, laborRate:0, materials:[]};
       applyCategoryDefaults(nc); t.components.push(nc);
-      e.target.value='';
       drawComponents();
     };
   }
@@ -1852,7 +1779,7 @@ function renderTemplates(content, actions){
 function renderPricing(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSavePricing">Save Pricing Database</button> <button class="btn btn-ghost" id="btnResetPricing">Reset to Defaults</button>`;
   const r = PRICING;
-  ensureCategoryRates();
+  ensurePricingShape();
   content.innerHTML = `
     <div class="section-lead">These values feed every new quotation's default rates (each quotation keeps its own editable snapshot, so changes here won't retroactively alter saved quotes).</div>
     <div class="grid g-wide">
@@ -1871,15 +1798,15 @@ function renderPricing(content, actions){
         ${numField('Topcoat Paint (₱/liter)','paintPerLiter',r.paintPerLiter)}
         ${numField('Paint Coverage (sqm/L per coat)','paintCoverage',r.paintCoverage)}
       </div></div>
-      <div class="card"><div class="card-head"><h3>Labor Hours &amp; Rates</h3></div><div class="card-body" style="padding:0;">
-        <div class="section-lead" style="padding:14px 20px 0;">Standard hours and hourly rate per category, applied to every quotation automatically. No longer editable per-quotation — change it here to affect all quotations at once.</div>
-        <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:110px;">Hours</th><th style="width:130px;">Rate (₱/hr)</th></tr></thead>
+      <div class="card"><div class="card-head"><h3>Labor Days &amp; Daily Rates</h3></div><div class="card-body" style="padding:0;">
+        <div class="section-lead" style="padding:14px 20px 0;">Standard labor days and daily rate per category, applied to every quotation automatically. No longer editable per-quotation — change it here to affect all quotations at once.</div>
+        <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:110px;">Days</th><th style="width:130px;">Rate (₱/day)</th></tr></thead>
         <tbody>
-          ${Object.keys(r.laborRates).map(k=>`
+          ${Object.keys(r.laborDailyRates).map(k=>`
             <tr>
               <td>${cap(k)}</td>
-              <td><input type="number" step="any" class="pf" data-key="hours_${k}" value="${(r.laborHours&&r.laborHours[k])||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
-              <td><input type="number" step="any" class="pf" data-key="labor_${k}" value="${r.laborRates[k]}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
+              <td><input type="number" step="any" class="pf" data-key="days_${k}" value="${(r.laborDays&&r.laborDays[k])||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
+              <td><input type="number" step="any" class="pf" data-key="labor_${k}" value="${r.laborDailyRates[k]}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
             </tr>`).join('')}
         </tbody></table>
       </div></div>
@@ -1889,14 +1816,9 @@ function renderPricing(content, actions){
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th>Item Name</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="accCatRows"></tbody></table></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Category Rates (Boat Presets formula)</h3><button class="btn btn-sm" id="addCatRate">${icon('plus')} Add Category</button></div>
-      <div class="card-body section-lead">When a category is picked in Boat Presets, its Labor Rate is filled into the formula and its default materials are added (you can tick as many as you like). The Material Price here is the default for custom materials; materials picked from the catalog use their own catalog price.</div>
-      <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th class="right" style="width:210px;">Labor Rate (₱/day/person)</th><th class="right" style="width:200px;">Default Material Price (₱)</th><th>Default materials</th><th></th></tr></thead><tbody id="catRateRows"></tbody></table></div>
-    </div>
-    <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Structural Components &amp; Core Materials Catalog</h3><button class="btn btn-sm" id="addStructItem">${icon('plus')} Add Item</button></div>
-      <div class="card-body section-lead">Stiffeners, bulkheads, urethane foam, coring, and other structural materials used in the Hull tab.</div>
-      <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th>Item Name</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="structCatRows"></tbody></table></div>
+      <div class="card-head"><h3>Materials</h3><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button></div>
+      <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials. These are the items you tick under "Choose materials" in Boat Presets, and the prices they start with.</div>
+      <div class="card-body" style="padding:0;"><table><thead><tr><th>Material</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="matCatRows"></tbody></table></div>
     </div>
   `;
   function numField(label,key,val){
@@ -1919,65 +1841,28 @@ function renderPricing(content, actions){
   }
   document.getElementById('addAccItem').onclick=()=>{ r.accessoryCatalog.push({cat:'Custom',name:'New Item',unitPrice:0}); drawAcc(); };
 
-  function drawStructCat(){
-    document.getElementById('structCatRows').innerHTML = r.structuralCatalog.map((a,idx)=>`
+  function drawMaterials(){
+    document.getElementById('matCatRows').innerHTML = r.structuralCatalog.map((a,idx)=>`
       <tr>
-        <td><input class="tbl-input structcat-f" data-idx="${idx}" data-f="cat" value="${esc(a.cat)}"></td>
-        <td><input class="tbl-input structcat-f" data-idx="${idx}" data-f="name" value="${esc(a.name)}"></td>
-        <td style="width:100px;"><input class="tbl-input structcat-f" data-idx="${idx}" data-f="unit" value="${esc(a.unit)}"></td>
-        <td style="width:150px;"><input class="tbl-input num structcat-f" data-idx="${idx}" data-f="unitPrice" type="number" value="${a.unitPrice}"></td>
-        <td class="right"><span class="btn btn-ghost btn-sm" data-del-structcat="${idx}" style="color:var(--danger);">Remove</span></td>
-      </tr>`).join('');
-    document.querySelectorAll('.structcat-f').forEach(i=>i.onchange=()=>{
-      r.structuralCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Number(i.value) : i.value;
+        <td><input class="tbl-input matcat-f" data-idx="${idx}" data-f="name" value="${esc(a.name)}"></td>
+        <td style="width:120px;"><input class="tbl-input matcat-f" data-idx="${idx}" data-f="unit" value="${esc(a.unit)}"></td>
+        <td style="width:160px;"><input class="tbl-input num matcat-f" data-idx="${idx}" data-f="unitPrice" type="number" min="0" step="any" value="${a.unitPrice}"></td>
+        <td class="right"><span class="btn btn-ghost btn-sm" data-del-matcat="${idx}" style="color:var(--danger);">Remove</span></td>
+      </tr>`).join('') || `<tr><td colspan="4" class="empty" style="padding:12px;">No materials yet.</td></tr>`;
+    document.querySelectorAll('.matcat-f').forEach(i=>i.onchange=()=>{
+      r.structuralCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
     });
-    document.querySelectorAll('[data-del-structcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delStructcat),1); drawStructCat(); });
+    document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); drawMaterials(); });
   }
-  document.getElementById('addStructItem').onclick=()=>{ r.structuralCatalog.push({cat:'Other Structural Materials',name:'New Item',unit:'pc',unitPrice:0}); drawStructCat(); };
+  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); drawMaterials(); };
 
-  function drawCatRates(){
-    const entries = Object.entries(r.categoryRates||{});
-    document.getElementById('catRateRows').innerHTML = entries.map(([cat,v])=>`
-      <tr>
-        <td style="font-weight:500;">${esc(cat)}</td>
-        <td><input class="tbl-input num catrate-f" type="number" min="0" step="any" data-cat="${esc(cat)}" data-f="laborRate" value="${Number(v.laborRate)||0}"></td>
-        <td><input class="tbl-input num catrate-f" type="number" min="0" step="any" data-cat="${esc(cat)}" data-f="materialPrice" value="${Number(v.materialPrice)||0}"></td>
-        <td>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="hint" style="margin:0;flex:1;min-width:0;">${(v.materials||[]).map(k=>{ const it=findCatalogByKey(k); return it?esc(it.name):''; }).filter(Boolean).join(', ') || 'None'}</span>
-            <button type="button" class="btn btn-sm catrate-mats" data-cat="${esc(cat)}">Choose…</button>
-          </div>
-        </td>
-        <td class="right"><span class="btn btn-ghost btn-sm" data-del-catrate="${esc(cat)}" style="color:var(--danger);">Remove</span></td>
-      </tr>`).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No categories yet.</td></tr>`;
-    document.querySelectorAll('.catrate-f').forEach(i=>i.onchange=()=>{
-      const row = r.categoryRates[i.dataset.cat]; if(row) row[i.dataset.f] = Math.max(0, Number(i.value)||0);
-    });
-    document.querySelectorAll('.catrate-mats').forEach(b=>b.onclick=()=>{
-      const cat = b.dataset.cat, row = r.categoryRates[cat]; if(!row) return;
-      openMaterialPicker({
-        title: `Default materials for ${cat}`,
-        subtitle: 'These are added automatically when this category is picked in Boat Presets.',
-        selected: row.materials||[], focusCat: cat, confirmLabel: 'Save',
-        onConfirm: keys=>{ row.materials = keys; drawCatRates(); toast('Default materials updated — click Save Pricing Database to keep them'); }
-      });
-    });
-    document.querySelectorAll('[data-del-catrate]').forEach(b=>b.onclick=()=>{ delete r.categoryRates[b.dataset.delCatrate]; drawCatRates(); });
-  }
-  document.getElementById('addCatRate').onclick=()=>{
-    const name = (prompt('Name of the new category:')||'').trim();
-    if(!name) return;
-    if(r.categoryRates[name]){ toast('That category already exists'); return; }
-    r.categoryRates[name] = { laborRate:0, materialPrice:0, materials:[] }; drawCatRates();
-  };
-
-  drawAcc(); drawCatRates(); drawStructCat();
+  drawAcc(); drawMaterials();
 
   document.getElementById('btnSavePricing').onclick = ()=>{
     document.querySelectorAll('.pf').forEach(i=>{
       const k = i.dataset.key, v = Number(i.value);
-      if(k.startsWith('labor_')) r.laborRates[k.replace('labor_','')] = v;
-      else if(k.startsWith('hours_')){ if(!r.laborHours) r.laborHours = {}; r.laborHours[k.replace('hours_','')] = v; }
+      if(k.startsWith('labor_')) r.laborDailyRates[k.replace('labor_','')] = v;
+      else if(k.startsWith('days_')) r.laborDays[k.replace('days_','')] = v;
       else r[k] = v;
     });
     save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
@@ -2008,7 +1893,7 @@ function openEditor(quoteId, templateId){
         q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:t.hullAreaOverride, layers:t.layers, glassPerLayer:t.glassPerLayer, coreArea:0, coreEnabled:false, work: t.hullWork ? JSON.parse(JSON.stringify(t.hullWork)) : null };
         q.paint = { items: ['1st Coat','2nd Coat','3rd Coat'].map(label=>({ id:uid('pi'), coatLabel:label, type:t.paintType||'Marine Polyurethane Topcoat', color:'', area:t.paintArea ?? null, pricePerSqm:(Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1) })) };
         if(!q.structural) q.structural = { items:[] };
-        q.structural.items = (t.components||[]).map(c=>({...c, materials: JSON.parse(JSON.stringify(c.materials||[])), id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
+        q.structural.items = (t.components||[]).map(presetComponentToQuoteItem);
         q.project.title = t.name;
         if(t.boatModel) q.project.boatModel = t.boatModel;
       }
@@ -2533,7 +2418,7 @@ function tabHull(host, q){
         <div style="display:flex;gap:8px;">
           <select id="structCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;">
             <option value="">+ Add from catalog…</option>
-            ${PRICING.structuralCatalog.map((a,i)=>`<option value="${i}">${esc(a.cat)} — ${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
+            ${PRICING.structuralCatalog.map((a,i)=>`<option value="${i}">${esc(a.name)} (${esc(a.unit)})</option>`).join('')}
           </select>
           <button class="btn btn-sm" id="addBlankStruct">${icon('plus')} Custom Item</button>
         </div>
@@ -2641,7 +2526,7 @@ function tabHull(host, q){
   document.getElementById('structCatalogPick').onchange = (e)=>{
     if(e.target.value==='') return;
     const item = PRICING.structuralCatalog[Number(e.target.value)];
-    q.structural.items.push({id:uid('si'), cat:item.cat, name:item.name, unit:item.unit, qty:1, unitPrice:item.unitPrice});
+    q.structural.items.push({id:uid('si'), cat:'Other Structural Materials', name:item.name, unit:item.unit, qty:1, unitPrice:item.unitPrice});
     e.target.value=''; persistQuote(q); drawStruct(); drawHullCalc(); updateLiveSummary(q);
   };
   document.getElementById('addBlankStruct').onclick = ()=>{
@@ -2661,7 +2546,7 @@ function tabHull(host, q){
         area: preset.paintArea ?? null, pricePerSqm: (Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1)
       }));
       if(!q.structural) q.structural = { items:[] };
-      q.structural.items = (preset.components||[]).map(c=>({...c, materials: JSON.parse(JSON.stringify(c.materials||[])), id:uid('si'), unitPrice: resolveComponentUnitPrice(c)}));
+      q.structural.items = (preset.components||[]).map(presetComponentToQuoteItem);
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
       toast(`Preset applied: ${preset.name}`);
     } else {
