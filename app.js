@@ -442,10 +442,33 @@ function migrateWeightToKg(){
   });
   return changed;
 }
+// Boat Model presets no longer have a separate Hull block or laminate / paint fields: the hull is just
+// another structural component (category "Hull"). Existing hull labor + materials move over once, so
+// no preset loses its hull cost.
+function moveHullToComponents(){
+  let changed = false;
+  (TEMPLATES||[]).forEach(t=>{
+    ['hullAreaOverride','layers','glassPerLayer','paintType','paintArea','coats'].forEach(k=>{ if(k in t){ delete t[k]; changed = true; } });
+    if(!('hullWork' in t)) return;
+    const w = t.hullWork;
+    if(w && typeof w==='object'){
+      ensureLaborTeams(w);
+      const hasLabor = laborTeamsOf(w).some(x=>(Number(x.laborers)||0)>0 && (Number(x.days)||0)>0);
+      const hasMats = (w.materials||[]).length>0;
+      if(hasLabor || hasMats){
+        if(!Array.isArray(t.components)) t.components = [];
+        t.components.unshift({ cat:'Hull', useFormula:true, numberDays:0, laborTeams:JSON.parse(JSON.stringify(w.laborTeams||[])), materials:JSON.parse(JSON.stringify(w.materials||[])) });
+      }
+    }
+    delete t.hullWork; changed = true;
+  });
+  return changed;
+}
 function migrateUnitsToImperial(){
   let changed = false;
   // 1. bring every preset component to the formula shape first (uses the catalog as it is right now)
   (TEMPLATES||[]).forEach(t=>{ (t.components||[]).forEach(c=>{ if(!c.useFormula){ migratePresetComponent(c); changed = true; } }); });
+  if(moveHullToComponents()) changed = true;
   // 2. preset material lines (components, hull)
   (TEMPLATES||[]).forEach(t=>{
     (t.components||[]).forEach(c=>(c.materials||[]).forEach(m=>{ if(convertMaterialLine(m)) changed = true; }));
@@ -787,8 +810,6 @@ function getKnownStructuralCategories(){
 
 const DEFAULT_TEMPLATES = [
   { id:uid('tpl'), name:"64' Passenger Boat — 80 Pax (Inboard)", boatModel:'Embassy Series', boatType:'Passenger Boat', loa:64, beam:14, depth:6, numHulls:1,
-    hullAreaOverride:null, layers:3, glassPerLayer:0.6,
-    paintType:'Marine Polyurethane Topcoat', paintArea:null, coats:3,
     components: [
       {cat:'Stiffeners & Bulkheads', name:'Plywood Bulkhead, 18mm Marine Grade', unit:'pc', qty:6},
       {cat:'Stiffeners & Bulkheads', name:'Fiberglass Stringer', unit:'lm', qty:64},
@@ -1044,8 +1065,9 @@ function computeHull(q){
   const work = h.work || null;
   const workCost = work ? computeFormulaWorkCost(work) : 0;
   const useWork = workCost > 0;
-  const total = (useWork ? workCost : glassCost + resinCost + gelcoatCost) + coreCost;
-  return { area, glassWeight, resinWeight, resinLiters, gelcoatWeight, glassCost, resinCost, gelcoatCost, coreCost, workCost, useWork, total };
+  const noLaminate = !!h.noLaminate && !useWork;   // hull is priced through the preset's structural components
+  const total = (useWork ? workCost : noLaminate ? 0 : glassCost + resinCost + gelcoatCost) + coreCost;
+  return { area, glassWeight, resinWeight, resinLiters, gelcoatWeight, glassCost, resinCost, gelcoatCost, coreCost, workCost, useWork, noLaminate, total };
 }
 function computePaint(q, hullCalc){
   const rows = (q.paint.items||[]).map(p=>{
@@ -1624,9 +1646,7 @@ function renderTemplates(content, actions){
 
   function blankPreset(model){
     return { id:uid('tpl'), name:model, boatModel:model, boatType:'Passenger Boat',
-      loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6,
-      paintType:'Marine Polyurethane Topcoat', paintArea:null, coats:3, components:[],
-      hullWork:{ useFormula:true, numberDays:0, laborTeams:[], materials:[] } };
+      loa:0, beam:0, depth:0, numHulls:1, components:[] };
   }
   function getPreset(model){
     let t = TEMPLATES.find(x=>x.boatModel===model);
@@ -1924,24 +1944,6 @@ function renderTemplates(content, actions){
             <div class="field"><label>Depth (ft)</label><input type="number" step="any" class="tpl-f" data-f="depth" value="${t.depth||0}"></div>
             <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
           </div>
-          <div class="grid g3">
-            <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-f="layers" value="${t.layers||0}"></div>
-            <div class="field"><label>Glass per Layer (kg/sq ft)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" data-conv="${GLASS_LAYER_F}" value="${r4((t.glassPerLayer||0)*GLASS_LAYER_F)}"></div>
-            <div class="field"><label>Hull Area Override (sq ft)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" data-conv="${SQFT_PER_SQM}" value="${(t.hullAreaOverride==null||t.hullAreaOverride==='')?'':r4(t.hullAreaOverride*SQFT_PER_SQM)}" placeholder="auto"></div>
-          </div>
-          <div class="grid g3">
-            <div class="field"><label>Paint Type</label><input class="tpl-f" data-f="paintType" value="${esc(t.paintType||'')}"></div>
-            <div class="field"><label>Paint Area Override (sq ft)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" data-conv="${SQFT_PER_SQM}" value="${(t.paintArea==null||t.paintArea==='')?'':r4(t.paintArea*SQFT_PER_SQM)}" placeholder="auto"></div>
-            <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button type="button" class="btn btn-ghost btn-sm" id="hullToggle" aria-expanded="true" title="Hide labor and materials" style="padding:6px 8px;"></button>
-              <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
-              <span class="hint" id="hullSummary" style="margin:0;"></span>
-            </div>
-          </div>
-          <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
           ${componentEditorHTML('Structural Components')}
         </div>
       </div>`;
@@ -1976,79 +1978,10 @@ function renderTemplates(content, actions){
     };
     grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
       const f = i.dataset.f, conv = Number(i.dataset.conv)||1;   // glass weight and areas are stored metric
-      if(['loa','beam','depth','numHulls','layers','glassPerLayer','coats'].includes(f)) t[f] = (Number(i.value)||0) / conv;
-      else if(['hullAreaOverride','paintArea'].includes(f)) t[f] = i.value===''? null : Number(i.value) / conv;
+      if(['loa','beam','depth','numHulls'].includes(f)) t[f] = (Number(i.value)||0) / conv;
       else t[f] = i.value;
     });
 
-    /* ---------- Hull: formula + materials (no item name / unit / quantity) ---------- */
-    function ensureHullWork(){
-      if(!t.hullWork || typeof t.hullWork!=='object') t.hullWork = { useFormula:true, numberDays:0, laborTeams:[], materials:[] };
-      const w = t.hullWork;
-      w.useFormula = true;
-      if(!Array.isArray(w.materials)) w.materials = [];
-      ensureLaborTeams(w);   // reads the old single rate + head-count (using the old hull category) before dropping it
-      delete w.cat;          // the Hull no longer has a category
-      return w;
-    }
-    function drawHullWork(){
-      const w = ensureHullWork();
-      const host = document.getElementById('hullWork');
-      const collapsed = _collapsedWork.has(w);
-      const tog = document.getElementById('hullToggle');
-      tog.innerHTML = chevronIcon(collapsed); tog.setAttribute('aria-expanded', String(!collapsed)); tog.title = (collapsed?'Show':'Hide')+' labor and materials';
-      document.getElementById('hullSummary').innerHTML = collapsed ? workSummaryHTML(w) : '';
-      if(collapsed){ host.innerHTML = ''; return; }
-      const matRows = w.materials.map((m,mi)=>`
-        <tr>
-          <td><input class="tbl-input hmat-f" data-m="${mi}" data-f="name" value="${esc(m.name)}" placeholder="Material name"></td>
-          <td style="width:76px;"><input class="tbl-input hmat-f" data-m="${mi}" data-f="unit" value="${esc(m.unit)}"></td>
-          <td style="width:86px;"><input class="tbl-input num hmat-f" type="number" min="0" step="any" data-m="${mi}" data-f="qty" value="${Number(m.qty)||0}"></td>
-          <td style="width:120px;"><input class="tbl-input num hmat-f" type="number" min="0" step="any" data-m="${mi}" data-f="price" value="${Number(m.price)||0}"></td>
-          <td class="right mono" style="width:120px;" id="hmatCost_${mi}">${fmt((Number(m.qty)||0)*(Number(m.price)||0))}</td>
-          <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-hdelmat="${mi}" style="color:var(--danger);" title="Remove material">✕</span></td>
-        </tr>`).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No materials yet — add what the hull uses (for example fiberglass, resin and gelcoat).</td></tr>`;
-      host.innerHTML = `
-        <div style="background:var(--paper);border-radius:12px;padding:12px;">
-          ${laborPanelHTML(w, 'hull')}
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
-            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used for the hull</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button type="button" class="btn btn-sm" id="hullMatPick">${icon('plus')} Choose materials${w.materials.length?` (${w.materials.length})`:''}</button>
-              <button type="button" class="btn btn-ghost btn-sm" id="hullMatCustom">${icon('plus')} Custom material</button>
-            </div>
-          </div>
-          <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead><tbody>${matRows}</tbody></table>
-          <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="hullLabor">${fmt(computeLaborCost(w))}</span> + Materials <span class="mono" id="hullMat">${fmt(materialLinesCost(w))}</span> = Total Hull Cost <span class="mono" id="hullTotal">${fmt(computeFormulaWorkCost(w))}</span></div>
-        </div>`;
-      const patch = ()=>{
-        const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
-        set('hullLabor', fmt(computeLaborCost(w))); set('hullMat', fmt(materialLinesCost(w))); set('hullTotal', fmt(computeFormulaWorkCost(w)));
-      };
-      bindLaborPanel(host, w, 'hull', patch, drawHullWork);
-      host.querySelectorAll('.hmat-f').forEach(inp=>inp.addEventListener('input', ()=>{
-        const mi = Number(inp.dataset.m), f = inp.dataset.f, m = w.materials[mi];
-        m[f] = (f==='qty'||f==='price') ? Math.max(0, Number(inp.value)||0) : inp.value;
-        const cost = document.getElementById(`hmatCost_${mi}`); if(cost) cost.textContent = fmt((Number(m.qty)||0)*(Number(m.price)||0));
-        patch();
-      }));
-      host.querySelectorAll('.hmat-f').forEach(inp=>inp.addEventListener('change', ()=>{ syncMaterialLine(w.materials[Number(inp.dataset.m)]); }));
-      host.querySelectorAll('[data-hdelmat]').forEach(b=>b.onclick=()=>{ w.materials.splice(Number(b.dataset.hdelmat),1); drawHullWork(); });
-      document.getElementById('hullMatCustom').onclick = ()=>{
-        w.materials.push({cat:'', name:'', unit:'unit', qty:1, price:0}); drawHullWork();
-      };
-      document.getElementById('hullMatPick').onclick = ()=>{
-        const selected = w.materials.filter(m=>m.cat && findCatalogByKey(catalogKey(m.cat,m.name))).map(m=>catalogKey(m.cat,m.name));
-        openMaterialPicker({ title:'Materials used for the hull', subtitle:'Tick everything the hull uses. You can set quantities afterwards.', selected, confirmLabel:'Apply materials',
-          onConfirm: keys=>{ applyPickedMaterials(w, keys); drawHullWork(); } });
-      };
-    }
-    document.getElementById('hullToggle').onclick = ()=>{
-      const w = ensureHullWork();
-      if(_collapsedWork.has(w)) _collapsedWork.delete(w); else _collapsedWork.add(w);
-      drawHullWork();
-    };
-    drawHullWork();
     initComponentEditor(t, 'Other Structural Materials');
   }
 
@@ -2165,8 +2098,8 @@ function openEditor(quoteId, templateId){
     if(templateId){
       const t = TEMPLATES.find(x=>x.id===templateId);
       if(t){
-        q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:t.hullAreaOverride, layers:t.layers, glassPerLayer:t.glassPerLayer, coreArea:0, coreEnabled:false, work: t.hullWork ? JSON.parse(JSON.stringify(t.hullWork)) : null };
-        q.paint = { items: ['1st Coat','2nd Coat','3rd Coat'].map(label=>({ id:uid('pi'), coatLabel:label, type:t.paintType||'Marine Polyurethane Topcoat', color:'', area:t.paintArea ?? null, pricePerSqm:(Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1) })) };
+        q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
+        q.paint = { items: [] };
         if(!q.structural) q.structural = { items:[] };
         q.structural.items = (t.components||[]).map(presetComponentToQuoteItem);
         q.project.title = t.name;
@@ -2851,11 +2784,8 @@ function tabHull(host, q){
     q.project.boatModel = e.target.value;
     const preset = TEMPLATES.find(t=>t.boatModel && t.boatModel===e.target.value);
     if(preset){
-      q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:preset.hullAreaOverride, layers:preset.layers, glassPerLayer:preset.glassPerLayer, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false, work: preset.hullWork ? JSON.parse(JSON.stringify(preset.hullWork)) : null };
-      q.paint.items = ['1st Coat','2nd Coat','3rd Coat'].map(label=>({
-        id: uid('pi'), coatLabel: label, type: preset.paintType || 'Marine Polyurethane Topcoat', color: '',
-        area: preset.paintArea ?? null, pricePerSqm: (Number(PRICING.paintPerLiter)||0)/(Number(PRICING.paintCoverage)||1)
-      }));
+      q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false, work:null, noLaminate:true };
+      q.paint.items = [];
       if(!q.structural) q.structural = { items:[] };
       { const addons = (q.structural.items||[]).filter(i=>i.presetType); q.structural.items = [...(preset.components||[]).map(presetComponentToQuoteItem), ...addons]; }
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
@@ -2900,7 +2830,7 @@ function tabHull(host, q){
         <tbody>
           ${c.useWork ? `
           <tr><td>Hull Labor (from Boat Preset formula)</td><td class="right mono">${fmt(computeLaborCost(q.hull.work))}</td></tr>
-          <tr><td>Hull Materials (from Boat Preset formula)</td><td class="right mono">${fmt(materialLinesCost(q.hull.work))}</td></tr>` : `
+          <tr><td>Hull Materials (from Boat Preset formula)</td><td class="right mono">${fmt(materialLinesCost(q.hull.work))}</td></tr>` : c.noLaminate ? '' : `
           <tr><td>Fiberglass Cost</td><td class="right mono">${fmt(c.glassCost)}</td></tr>
           <tr><td>Resin Cost</td><td class="right mono">${fmt(c.resinCost)}</td></tr>
           <tr><td>Gelcoat Cost</td><td class="right mono">${fmt(c.gelcoatCost)}</td></tr>`}
