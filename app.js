@@ -410,6 +410,10 @@ function ensureLaborTeams(c){
     c.laborTeams = n>0 ? [{cat, laborers:n, rate:r}] : [];
   }
   delete c.laborRate; delete c.numLaborers;
+  // Each labor category has its own number of days. Teams saved before this inherit the old
+  // shared value, so existing prices do not change.
+  const shared = Math.max(0, Number(c.numberDays)||0);
+  c.laborTeams.forEach(tm=>{ if(tm.days===undefined) tm.days = shared; });
 }
 function presetCategoryList(extra){
   const list = [...Object.keys(CATEGORY_LABOR_TRADE), ...getKnownStructuralCategories()];
@@ -501,15 +505,17 @@ function lookupStructuralPrice(cat, name){
   if(hit) return hit.unitPrice;
   return Number((PRICING.legacyStructuralPrices||{})[k])||0;
 }
-// Total Work Cost = (Labor Rate × Number of Days × Number of Laborers)
+// Total Work Cost = for each labor category (Laborers × Rate × that category's own Days)
 //                 + the sum of (Quantity × Price per Unit) for every material used
 // The result is converted to a per-unit price so the quote's existing
 // quantity × unit-price calculation continues to work.
 function computeLaborCost(c){
-  // (rate x laborers) summed over every labor team, times the number of days
-  const days = Math.max(0, Number(c.numberDays)||0);
-  const perDay = laborTeamsOf(c).reduce((sum,t)=> sum + Math.max(0,Number(t.laborers)||0) * Math.max(0,Number(t.rate)||0), 0);
-  return perDay * days;
+  // laborers x rate x days, summed over every labor category (each has its own days)
+  const shared = Math.max(0, Number(c.numberDays)||0);   // only used by presets saved before per-category days
+  return laborTeamsOf(c).reduce((sum,t)=>{
+    const days = t.days!==undefined ? Math.max(0, Number(t.days)||0) : shared;
+    return sum + Math.max(0,Number(t.laborers)||0) * Math.max(0,Number(t.rate)||0) * days;
+  }, 0);
 }
 // Each material used by a component is its own line: quantity x price per unit.
 function materialLinesCost(c){
@@ -1408,9 +1414,9 @@ const PRESET_KINDS = {
 /* Labor panel shared by the Hull, structural components and the Transom / Console / Deck presets. */
 function laborPanelHTML(c, owner){
   ensureLaborTeams(c);
-  const days = Math.max(0, Number(c.numberDays)||0);
   const names = laborCategoryNames();
   const heads = c.laborTeams.reduce((sum,t)=>sum+(Number(t.laborers)||0),0);
+  const teamCost = tm => (Number(tm.rate)||0)*(Number(tm.laborers)||0)*(Number(tm.days)||0);
   const rows = c.laborTeams.map((tm,ti)=>{
     const cur = String(tm.cat||'').toLowerCase();
     const known = names.some(n=>n.toLowerCase()===cur);
@@ -1419,32 +1425,27 @@ function laborPanelHTML(c, owner){
       + names.map(n=>`<option value="${esc(n)}" ${n.toLowerCase()===cur?'selected':''}>${esc(capFirst(n))}</option>`).join('');
     return `<tr>
       <td><select class="tbl-input lp-cat" data-lp="${owner}" data-t="${ti}">${opts}</select></td>
-      <td style="width:96px;"><input class="tbl-input num lp-num" type="number" min="0" step="1" data-lp="${owner}" data-t="${ti}" data-f="laborers" value="${Number(tm.laborers)||0}"></td>
-      <td style="width:132px;"><input class="tbl-input num lp-num" type="number" min="0" step="any" data-lp="${owner}" data-t="${ti}" data-f="rate" value="${Number(tm.rate)||0}"></td>
-      <td class="right mono" style="width:120px;" id="lpCost_${owner}_${ti}">${fmt((Number(tm.rate)||0)*(Number(tm.laborers)||0)*days)}</td>
+      <td style="width:92px;"><input class="tbl-input num lp-num" type="number" min="0" step="1" data-lp="${owner}" data-t="${ti}" data-f="laborers" value="${Number(tm.laborers)||0}"></td>
+      <td style="width:92px;"><input class="tbl-input num lp-num" type="number" min="0" step="any" data-lp="${owner}" data-t="${ti}" data-f="days" value="${Number(tm.days)||0}"></td>
+      <td style="width:128px;"><input class="tbl-input num lp-num" type="number" min="0" step="any" data-lp="${owner}" data-t="${ti}" data-f="rate" value="${Number(tm.rate)||0}"></td>
+      <td class="right mono" style="width:120px;" id="lpCost_${owner}_${ti}">${fmt(teamCost(tm))}</td>
       <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-lp-del="${owner}:${ti}" style="color:var(--danger);" title="Remove this labor category">✕</span></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No laborers yet — add a labor category (for example Carpentry or Fiberglass) and how many laborers it needs.</td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No laborers yet — add a labor category (for example Carpentry or Fiberglass), then set how many laborers it needs and for how many days.</td></tr>`;
   return `
-    <div class="grid g3" style="margin:0 0 12px;">
-      <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input lp-days" data-lp="${owner}" value="${days}"></div>
-      <div class="field" style="margin:0;"><label style="font-size:10px;">Total Laborers</label><div class="mono" style="padding:8px 0;font-weight:600;" id="lpHeads_${owner}">${heads}</div></div>
-    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:4px 0;">
-      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Labor</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Labor <span style="text-transform:none;letter-spacing:0;font-weight:500;">· <span id="lpHeads_${owner}">${heads}</span> laborer${heads===1?'':'s'} in total</span></div>
       <button type="button" class="btn btn-sm" data-lp-add="${owner}">${icon('plus')} Add laborers</button>
     </div>
-    <table class="mat-table"><thead><tr><th>Labor category</th><th class="right">Laborers</th><th class="right">Rate (₱/day/person)</th><th class="right">Cost (× days)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    <table class="mat-table"><thead><tr><th>Labor category</th><th class="right">Laborers</th><th class="right">Days</th><th class="right">Rate (₱/day/person)</th><th class="right">Cost</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function bindLaborPanel(root, c, owner, onTotals, redraw){
   ensureLaborTeams(c);
   const refresh = ()=>{
-    const days = Math.max(0, Number(c.numberDays)||0);
-    c.laborTeams.forEach((tm,ti)=>{ const el = document.getElementById(`lpCost_${owner}_${ti}`); if(el) el.textContent = fmt((Number(tm.rate)||0)*(Number(tm.laborers)||0)*days); });
+    c.laborTeams.forEach((tm,ti)=>{ const el = document.getElementById(`lpCost_${owner}_${ti}`); if(el) el.textContent = fmt((Number(tm.rate)||0)*(Number(tm.laborers)||0)*(Number(tm.days)||0)); });
     const h = document.getElementById(`lpHeads_${owner}`); if(h) h.textContent = c.laborTeams.reduce((sum,tm)=>sum+(Number(tm.laborers)||0),0);
     onTotals();
   };
-  root.querySelectorAll(`.lp-days[data-lp="${owner}"]`).forEach(inp=>inp.addEventListener('input', ()=>{ c.numberDays = Math.max(0, Number(inp.value)||0); refresh(); }));
   root.querySelectorAll(`.lp-num[data-lp="${owner}"]`).forEach(inp=>inp.addEventListener('input', ()=>{ c.laborTeams[Number(inp.dataset.t)][inp.dataset.f] = Math.max(0, Number(inp.value)||0); refresh(); }));
   root.querySelectorAll(`.lp-cat[data-lp="${owner}"]`).forEach(sel=>sel.onchange = ()=>{
     const tm = c.laborTeams[Number(sel.dataset.t)]; tm.cat = sel.value; tm.rate = laborRateFor(sel.value); redraw();
@@ -1454,7 +1455,8 @@ function bindLaborPanel(root, c, owner, onTotals, redraw){
     const used = new Set(c.laborTeams.map(t=>String(t.cat||'').toLowerCase()));
     const names = laborCategoryNames();
     const pick = names.find(n=>!used.has(n.toLowerCase())) || names[0] || '';
-    c.laborTeams.push({cat:pick, laborers:1, rate:laborRateFor(pick)});
+    const last = c.laborTeams[c.laborTeams.length-1];
+    c.laborTeams.push({cat:pick, laborers:1, days: last ? (Number(last.days)||0) : 0, rate:laborRateFor(pick)});
     redraw();
   });
 }
@@ -1614,7 +1616,7 @@ function renderTemplates(content, actions){
           </div>
           <table><thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows"></tbody></table>
-          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (for each labor category: Rate × Laborers) × Number of Days + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>`;
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = for each labor category (Rate × Laborers × its own Days) + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>`;
   }
   function initComponentEditor(t, defaultCat){
     const body = document.getElementById('compRows');
