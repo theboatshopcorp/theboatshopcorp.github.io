@@ -91,8 +91,8 @@ function applyRemoteValue(key, val){
   if(val === null || val === undefined) return;
   if(key === DB_KEYS.quotes){ mergeRecordArray(QUOTES, val||[]); QUOTES.forEach(ensureQuoteDefaults); }
   else if(key === DB_KEYS.customers){ mergeRecordArray(CUSTOMERS, val||[]); }
-  else if(key === DB_KEYS.pricing){ mergeInPlace(PRICING, val); if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog)); ensurePricingShape(); }
-  else if(key === DB_KEYS.templates){ mergeRecordArray(TEMPLATES, val||DEFAULT_TEMPLATES); }
+  else if(key === DB_KEYS.pricing){ mergeInPlace(PRICING, val); if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog)); ensurePricingShape(); migrateUnitsToImperial(); }
+  else if(key === DB_KEYS.templates){ mergeRecordArray(TEMPLATES, val||DEFAULT_TEMPLATES); migrateUnitsToImperial(); }
   else if(key === DB_KEYS.signatories){ mergeInPlace(SIGNATORIES, val); ['prepared','approved','received'].forEach(k=>{ if(!SIGNATORIES[k]) SIGNATORIES[k]={name:'',title:'',img:''}; }); }
   else if(key === DB_KEYS.logo){ mergeInPlace(LOGO, val || { img:'', width:100, top:null, left:null }); }
   else if(key === DB_KEYS.company){ mergeInPlace(COMPANY, val); if(!COMPANY.bank) COMPANY.bank = []; }
@@ -384,6 +384,53 @@ function ensureMaterialsCatalog(){
   PRICING.structuralCatalog = keep;
   ['categoryRates','categorySeedV1','categorySeedV2','categorySeedV3'].forEach(k=>delete PRICING[k]);
 }
+/* ---------- Imperial units ----------
+   The shop works in ft / in / sq ft / lb (liters stay for fuel, water, resin and paint).
+   Material lists (the Materials catalog and the lines inside presets) are converted ONCE, with
+   quantity and price converted together so every line keeps the same cost. Hull measurements and
+   the Pricing Database rates stay stored exactly as before and are converted only on screen. */
+const SQFT_PER_SQM = 10.763910417, LB_PER_KG = 2.2046226218, FT_PER_M = 3.280839895;
+const r4 = v => Math.round((Number(v)||0)*10000)/10000;
+const sqft = sqm => (Number(sqm)||0) * SQFT_PER_SQM;
+const METRIC_UNITS = {
+  sqm:{u:'sq ft',f:SQFT_PER_SQM}, m2:{u:'sq ft',f:SQFT_PER_SQM}, 'm²':{u:'sq ft',f:SQFT_PER_SQM},
+  linearm:{u:'ft',f:FT_PER_M}, lm:{u:'ft',f:FT_PER_M}, linearmeter:{u:'ft',f:FT_PER_M},
+  kg:{u:'lb',f:LB_PER_KG}, kgs:{u:'lb',f:LB_PER_KG}
+};
+const unitKey = u => String(u||'').toLowerCase().replace(/[\s.]/g,'');
+function metricUnitInfo(unit){ return METRIC_UNITS[unitKey(unit)] || null; }
+function convertMaterialLine(m){
+  const mu = metricUnitInfo(m && m.unit); if(!mu) return false;
+  m.qty = r4((Number(m.qty)||0) * mu.f); m.price = r4((Number(m.price)||0) / mu.f); m.unit = mu.u; return true;
+}
+function convertCatalogItem(a){
+  const mu = metricUnitInfo(a && a.unit); if(!mu) return false;
+  a.unitPrice = r4((Number(a.unitPrice)||0) / mu.f); a.unit = mu.u; return true;
+}
+// Pricing Database rates shown in imperial (stored value x f = shown value).
+const IMPERIAL_RATE_FIELDS = {
+  fiberglassPerKg:{ f:1/LB_PER_KG,               label:'Fiberglass (₱/lb)' },
+  resinDensity:   { f:LB_PER_KG,                 label:'Resin Density (lb/L)' },
+  gelcoatPerKg:   { f:1/LB_PER_KG,               label:'Gelcoat (₱/lb)' },
+  gelcoatCoverage:{ f:LB_PER_KG/SQFT_PER_SQM,    label:'Gelcoat Coverage (lb/sq ft)' },
+  corePerSqm:     { f:1/SQFT_PER_SQM,            label:'Core Material (₱/sq ft)' },
+  primerCoverage: { f:SQFT_PER_SQM,              label:'Primer Coverage (sq ft/L)' },
+  paintCoverage:  { f:SQFT_PER_SQM,              label:'Paint Coverage (sq ft/L per coat)' }
+};
+const GLASS_LAYER_F = LB_PER_KG/SQFT_PER_SQM;   // kg/sqm -> lb/sq ft
+function migrateUnitsToImperial(){
+  let changed = false;
+  // 1. bring every preset component to the formula shape first (uses the catalog as it is right now)
+  (TEMPLATES||[]).forEach(t=>{ (t.components||[]).forEach(c=>{ if(!c.useFormula){ migratePresetComponent(c); changed = true; } }); });
+  // 2. preset material lines (components, hull)
+  (TEMPLATES||[]).forEach(t=>{
+    (t.components||[]).forEach(c=>(c.materials||[]).forEach(m=>{ if(convertMaterialLine(m)) changed = true; }));
+    if(t.hullWork && Array.isArray(t.hullWork.materials)) t.hullWork.materials.forEach(m=>{ if(convertMaterialLine(m)) changed = true; });
+  });
+  // 3. the Materials catalog
+  (PRICING.structuralCatalog||[]).forEach(a=>{ if(convertCatalogItem(a)) changed = true; });
+  return changed;
+}
 function ensurePricingShape(){ ensureLaborDaily(); ensureMaterialsCatalog(); }
 // ---------- Labor teams: a preset can use several labor categories, each with its own head-count ----------
 function laborCategoryNames(){ return Object.keys(PRICING.laborDailyRates||{}); }
@@ -634,8 +681,13 @@ function resolveComponentUnitPrice(c){
 function migratePresetComponent(c){
   if(!c) return;
   if(!c.useFormula){
-    const qty = Math.max(0, Number(c.qty)||0), price = lookupStructuralPrice(c.cat, c.name);
-    c.materials = (qty>0 && price>0) ? [{cat:'', name:c.name||c.cat||'Material', unit:c.unit||'unit', qty, price}] : [];
+    let qty = Math.max(0, Number(c.qty)||0), unit = c.unit||'unit';
+    const price = lookupStructuralPrice(c.cat, c.name);
+    const nameKey = (c.name||'').trim().toLowerCase();
+    const hit = (PRICING.structuralCatalog||[]).find(a=>(a.name||'').trim().toLowerCase()===nameKey);
+    const mu = metricUnitInfo(unit);
+    if(hit && mu && unitKey(hit.unit)===unitKey(mu.u)){ qty = qty*mu.f; unit = mu.u; }   // the catalog already uses imperial units for this item
+    c.materials = (qty>0 && price>0) ? [{cat:'', name:c.name||c.cat||'Material', unit, qty, price}] : [];
     c.numberDays = 0; c.numLaborers = 0;
     c.useFormula = true;
   } else {
@@ -714,6 +766,7 @@ if(!Array.isArray(SALES)){ SALES = salesSeed(); localSave(DB_KEYS.sales, SALES);
 let TEMPLATES = load(DB_KEYS.templates, null) || DEFAULT_TEMPLATES;
 if(!load(DB_KEYS.templates,null)) save(DB_KEYS.templates, TEMPLATES);
 if(!load(DB_KEYS.pricing,null)) save(DB_KEYS.pricing, PRICING);
+migrateUnitsToImperial();
 
 const DEFAULT_COMPANY = {
   name:'The Boat Shop Corporation',
@@ -1403,6 +1456,14 @@ function splitAddressTwoLines(addr){
    BOAT PRESETS
    ============================================================ */
 let _presetOpenModel = null;
+const _collapsedWork = new WeakSet();   // preset components / the hull that are currently minimised
+function chevronIcon(collapsed){
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .15s;transform:rotate(${collapsed?-90:0}deg);display:block;"><polyline points="6 9 12 15 18 9"/></svg>`;
+}
+function workSummaryHTML(w){
+  const heads = laborTeamsOf(w).reduce((sum,t)=>sum+(Number(t.laborers)||0),0), mats = (w.materials||[]).length;
+  return `Labor <b class="mono">${fmt(computeLaborCost(w))}</b> · Materials <b class="mono">${fmt(materialLinesCost(w))}</b> · Total <b class="mono">${fmt(computeFormulaWorkCost(w))}</b> <span style="color:var(--ink-faint);">(${heads} laborer${heads===1?'':'s'}, ${mats} material${mats===1?'':'s'})</span>`;
+}
 let _presetKind = 'boat';      // which tab of the Presets page is showing
 let _presetOpenId = null;      // open Transom / Console / Deck preset (by id)
 const PRESET_KINDS = {
@@ -1612,7 +1673,10 @@ function renderTemplates(content, actions){
   function componentEditorHTML(title){
     return `<div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">${esc(title)}</div>
-            <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-ghost btn-sm" id="btnCollapseAll">Collapse all</button>
+              <button class="btn btn-ghost btn-sm" id="btnAddComp">${icon('plus')} Add Component</button>
+            </div>
           </div>
           <table><thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows"></tbody></table>
@@ -1633,18 +1697,23 @@ function renderTemplates(content, actions){
             <td class="right mono" style="width:120px;" id="matCost_${idx}_${mi}">${fmt((Number(m.qty)||0)*(Number(m.price)||0))}</td>
             <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-delmat="${idx}:${mi}" style="color:var(--danger);" title="Remove material">✕</span></td>
           </tr>`).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No materials yet — add what this component uses (for example fiberglass and resin).</td></tr>`;
+        const collapsed = _collapsedWork.has(c);
         return `
         <tr>
           <td>
-            <select class="tbl-input comp-cat" data-idx="${idx}">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-ghost btn-sm comp-toggle" data-idx="${idx}" aria-expanded="${!collapsed}" title="${collapsed?'Show':'Hide'} labor and materials" style="padding:6px 8px;">${chevronIcon(collapsed)}</button>
+            <select class="tbl-input comp-cat" data-idx="${idx}" style="flex:1;min-width:180px;max-width:340px;">
               ${c.cat ? '' : '<option value="">— choose category —</option>'}
               ${cats.map(k=>`<option value="${esc(k)}" ${k===c.cat?'selected':''}>${esc(k)}</option>`).join('')}
               <option value="__new">+ New category…</option>
             </select>
+            ${collapsed ? `<span class="hint" style="margin:0;">${workSummaryHTML(c)}</span>` : ''}
+            </div>
           </td>
           <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
         </tr>
-        <tr class="comp-formula-row" data-formula-idx="${idx}">
+        ${collapsed ? '' : `<tr class="comp-formula-row" data-formula-idx="${idx}">
           <td colspan="2" style="background:var(--paper);padding:12px;">
             ${laborPanelHTML(c, idx)}
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
@@ -1658,8 +1727,19 @@ function renderTemplates(content, actions){
             <tbody>${matRows}</tbody></table>
             <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="formulaLabor_${idx}">${fmt(computeLaborCost(c))}</span> + Materials <span class="mono" id="formulaMat_${idx}">${fmt(materialLinesCost(c))}</span> = Total Work Cost <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span></div>
           </td>
-        </tr>`;
+        </tr>`}`;
       }).join('') || `<tr><td colspan="2" class="empty" style="padding:12px;">No components yet.</td></tr>`;
+      const allBtn = document.getElementById('btnCollapseAll');
+      if(allBtn){
+        const comps = t.components||[];
+        allBtn.style.display = comps.length ? '' : 'none';
+        allBtn.textContent = comps.length && comps.every(c=>_collapsedWork.has(c)) ? 'Expand all' : 'Collapse all';
+      }
+      body.querySelectorAll('.comp-toggle').forEach(b=>b.onclick=()=>{
+        const c = t.components[Number(b.dataset.idx)];
+        if(_collapsedWork.has(c)) _collapsedWork.delete(c); else _collapsedWork.add(c);
+        drawComponents();
+      });
       body.querySelectorAll('.comp-cat').forEach(sel=>sel.onchange=()=>{
         const c = t.components[Number(sel.dataset.idx)];
         let v = sel.value;
@@ -1715,6 +1795,11 @@ function renderTemplates(content, actions){
     }
 
     drawComponents();
+    document.getElementById('btnCollapseAll').onclick = ()=>{
+      const comps = t.components||[], allCollapsed = comps.length>0 && comps.every(c=>_collapsedWork.has(c));
+      comps.forEach(c=>{ if(allCollapsed) _collapsedWork.delete(c); else _collapsedWork.add(c); });
+      drawComponents();
+    };
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
       const nc = {cat:defaultCat, useFormula:true, numberDays:0, laborTeams:[], materials:[]};
@@ -1791,16 +1876,20 @@ function renderTemplates(content, actions){
           </div>
           <div class="grid g3">
             <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-f="layers" value="${t.layers||0}"></div>
-            <div class="field"><label>Glass per Layer (kg/sqm)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" value="${t.glassPerLayer||0}"></div>
-            <div class="field"><label>Hull Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" value="${t.hullAreaOverride??''}" placeholder="auto"></div>
+            <div class="field"><label>Glass per Layer (lb/sq ft)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" data-conv="${GLASS_LAYER_F}" value="${r4((t.glassPerLayer||0)*GLASS_LAYER_F)}"></div>
+            <div class="field"><label>Hull Area Override (sq ft)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" data-conv="${SQFT_PER_SQM}" value="${(t.hullAreaOverride==null||t.hullAreaOverride==='')?'':r4(t.hullAreaOverride*SQFT_PER_SQM)}" placeholder="auto"></div>
           </div>
           <div class="grid g3">
             <div class="field"><label>Paint Type</label><input class="tpl-f" data-f="paintType" value="${esc(t.paintType||'')}"></div>
-            <div class="field"><label>Paint Area Override (sqm)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" value="${t.paintArea??''}" placeholder="auto"></div>
+            <div class="field"><label>Paint Area Override (sq ft)</label><input type="number" step="any" class="tpl-f" data-f="paintArea" data-conv="${SQFT_PER_SQM}" value="${(t.paintArea==null||t.paintArea==='')?'':r4(t.paintArea*SQFT_PER_SQM)}" placeholder="auto"></div>
             <div class="field"><label>Coats</label><input type="number" class="tpl-f" data-f="coats" value="${t.coats||0}"></div>
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
-            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-ghost btn-sm" id="hullToggle" aria-expanded="true" title="Hide labor and materials" style="padding:6px 8px;"></button>
+              <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
+              <span class="hint" id="hullSummary" style="margin:0;"></span>
+            </div>
           </div>
           <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
           ${componentEditorHTML('Structural Components')}
@@ -1836,9 +1925,9 @@ function renderTemplates(content, actions){
       toast('Boat Model renamed — click Save Presets to keep the change');
     };
     grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
-      const f = i.dataset.f;
-      if(['loa','beam','depth','numHulls','layers','glassPerLayer','coats'].includes(f)) t[f] = Number(i.value)||0;
-      else if(['hullAreaOverride','paintArea'].includes(f)) t[f] = i.value===''? null : Number(i.value);
+      const f = i.dataset.f, conv = Number(i.dataset.conv)||1;   // glass weight and areas are stored metric
+      if(['loa','beam','depth','numHulls','layers','glassPerLayer','coats'].includes(f)) t[f] = (Number(i.value)||0) / conv;
+      else if(['hullAreaOverride','paintArea'].includes(f)) t[f] = i.value===''? null : Number(i.value) / conv;
       else t[f] = i.value;
     });
 
@@ -1855,6 +1944,11 @@ function renderTemplates(content, actions){
     function drawHullWork(){
       const w = ensureHullWork();
       const host = document.getElementById('hullWork');
+      const collapsed = _collapsedWork.has(w);
+      const tog = document.getElementById('hullToggle');
+      tog.innerHTML = chevronIcon(collapsed); tog.setAttribute('aria-expanded', String(!collapsed)); tog.title = (collapsed?'Show':'Hide')+' labor and materials';
+      document.getElementById('hullSummary').innerHTML = collapsed ? workSummaryHTML(w) : '';
+      if(collapsed){ host.innerHTML = ''; return; }
       const matRows = w.materials.map((m,mi)=>`
         <tr>
           <td><input class="tbl-input hmat-f" data-m="${mi}" data-f="name" value="${esc(m.name)}" placeholder="Material name"></td>
@@ -1898,6 +1992,11 @@ function renderTemplates(content, actions){
           onConfirm: keys=>{ applyPickedMaterials(w, keys); drawHullWork(); } });
       };
     }
+    document.getElementById('hullToggle').onclick = ()=>{
+      const w = ensureHullWork();
+      if(_collapsedWork.has(w)) _collapsedWork.delete(w); else _collapsedWork.add(w);
+      drawHullWork();
+    };
     drawHullWork();
     initComponentEditor(t, 'Other Structural Materials');
   }
@@ -1947,7 +2046,8 @@ function renderPricing(content, actions){
     </div>
   `;
   function numField(label,key,val){
-    return `<div class="field"><label>${label}</label><input type="number" step="any" class="pf" data-key="${key}" value="${val}"></div>`;
+    const c = IMPERIAL_RATE_FIELDS[key], f = c ? c.f : 1;
+    return `<div class="field"><label>${c ? c.label : label}</label><input type="number" step="any" class="pf" data-key="${key}" data-f="${f}" value="${c ? r4(Number(val)*f) : val}"></div>`;
   }
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 
@@ -1979,7 +2079,7 @@ function renderPricing(content, actions){
     });
     document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); drawMaterials(); });
   }
-  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); drawMaterials(); };
+  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'lb',unitPrice:0}); drawMaterials(); };
 
   function drawLaborRates(){
     const names = Object.keys(r.laborDailyRates);
@@ -2005,17 +2105,19 @@ function renderPricing(content, actions){
     const inputs = document.querySelectorAll('.lr-f'); if(inputs.length) inputs[inputs.length-1].focus();
   };
 
+  document.querySelectorAll('.pf').forEach(i=>i.addEventListener('input', ()=>{ i.dataset.dirty = '1'; }));
   drawAcc(); drawMaterials(); drawLaborRates();
 
   document.getElementById('btnSavePricing').onclick = ()=>{
+    // Only fields you actually edited are written back, so converting to/from lb and sq ft never nudges the others.
     document.querySelectorAll('.pf').forEach(i=>{
-      const k = i.dataset.key, v = Number(i.value);
-      r[k] = v;
+      if(i.dataset.dirty!=='1') return;
+      r[i.dataset.key] = Number(i.value) / (Number(i.dataset.f)||1);
     });
     save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
   };
   document.getElementById('btnResetPricing').onclick = ()=>{
-    if(confirm('Reset all pricing to factory defaults?')){ PRICING = JSON.parse(JSON.stringify(DEFAULT_PRICING)); save(DB_KEYS.pricing,PRICING); renderPricing(content,actions); }
+    if(confirm('Reset all pricing to factory defaults?')){ PRICING = JSON.parse(JSON.stringify(DEFAULT_PRICING)); migrateUnitsToImperial(); save(DB_KEYS.pricing,PRICING); renderPricing(content,actions); }
   };
 }
 
@@ -2358,7 +2460,7 @@ function updateLiveSummary(q){
       <div class="row">
         <div class="cell"><div class="l">LOA</div><div class="v">${q.hull.loa||0}′</div></div>
         <div class="cell"><div class="l">Beam</div><div class="v">${q.hull.beam||0}′</div></div>
-        <div class="cell"><div class="l">Hull Area</div><div class="v">${fmtNum(c.hull.area,1)}m²</div></div>
+        <div class="cell"><div class="l">Hull Area</div><div class="v">${fmtNum(sqft(c.hull.area),1)} sq ft</div></div>
       </div>
     </div>
     <div class="sum-row"><span class="k">Materials &amp; Labor</span><span class="v">${fmt(c.materialCost)}</span></div>
@@ -2541,7 +2643,7 @@ function tabHull(host, q){
         </div>
         <div class="grid g3">
           <div class="field"><label>Number of Hulls</label><input type="number" id="hHulls" value="${h.numHulls}"></div>
-          <div class="field"><label>Hull Area Override (sqm)</label><input type="number" step="any" id="hAreaOv" value="${h.hullAreaOverride??''}" placeholder="auto"><div class="hint">Leave blank to auto-estimate from LOA and Beam</div></div>
+          <div class="field"><label>Hull Area Override (sq ft)</label><input type="number" step="any" id="hAreaOv" value="${(h.hullAreaOverride==null||h.hullAreaOverride==='')?'':r4(h.hullAreaOverride*SQFT_PER_SQM)}" placeholder="auto"><div class="hint">Leave blank to auto-estimate from LOA and Beam</div></div>
           <div></div>
         </div>
       </div>
@@ -2552,7 +2654,7 @@ function tabHull(host, q){
         <div class="section-lead" style="margin-top:0;">Laminate layers and glass weight are set by the boat model's preset in Presets, not edited per-quotation.</div>
         <div class="grid g3">
           <div class="field"><label class="field-inline"><input type="checkbox" id="hCoreOn" ${h.coreEnabled?'checked':''} style="width:auto;"> Core Material</label>
-            <input type="number" step="any" id="hCoreArea" value="${h.coreArea}" placeholder="Core area (sqm)" ${h.coreEnabled?'':'disabled'}>
+            <input type="number" step="any" id="hCoreArea" value="${r4((Number(h.coreArea)||0)*SQFT_PER_SQM)}" placeholder="Core area (sq ft)" ${h.coreEnabled?'':'disabled'}>
           </div>
         </div>
       </div>
@@ -2753,10 +2855,10 @@ function tabHull(host, q){
   });
   ['hHulls','hAreaOv','hCoreArea'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=>{
-      h.numHulls = Number(document.getElementById('hHulls').value)||1;
-      const ov = document.getElementById('hAreaOv').value;
-      h.hullAreaOverride = ov===''? null : Number(ov);
-      h.coreArea = Number(document.getElementById('hCoreArea').value);
+      // areas are stored in sqm; the fields show sq ft. Only convert the field being edited.
+      if(id==='hHulls') h.numHulls = Number(document.getElementById('hHulls').value)||1;
+      if(id==='hAreaOv'){ const ov = document.getElementById('hAreaOv').value; h.hullAreaOverride = ov===''? null : Number(ov)/SQFT_PER_SQM; }
+      if(id==='hCoreArea') h.coreArea = (Number(document.getElementById('hCoreArea').value)||0)/SQFT_PER_SQM;
       persistQuote(q); drawHullCalc(); updateLiveSummary(q);
     });
   });
@@ -2770,10 +2872,10 @@ function tabHull(host, q){
     document.getElementById('hullCalcOut').innerHTML = `
       <table>
         <tbody>
-          <tr><td>Estimated Hull Surface Area</td><td class="right mono">${fmtNum(c.area,2)} sqm</td></tr>
-          <tr><td>Fiberglass Weight Required</td><td class="right mono">${fmtNum(c.glassWeight,1)} kg</td></tr>
+          <tr><td>Estimated Hull Surface Area</td><td class="right mono">${fmtNum(sqft(c.area),2)} sq ft</td></tr>
+          <tr><td>Fiberglass Weight Required</td><td class="right mono">${fmtNum(c.glassWeight*LB_PER_KG,1)} lb</td></tr>
           <tr><td>Resin Consumption</td><td class="right mono">${fmtNum(c.resinLiters,1)} L</td></tr>
-          <tr><td>Gelcoat Requirement</td><td class="right mono">${fmtNum(c.gelcoatWeight,1)} kg</td></tr>
+          <tr><td>Gelcoat Requirement</td><td class="right mono">${fmtNum(c.gelcoatWeight*LB_PER_KG,1)} lb</td></tr>
           ${c.useWork ? `
           <tr><td>Hull Labor (from Boat Preset formula)</td><td class="right mono">${fmt(computeLaborCost(q.hull.work))}</td></tr>
           <tr><td>Hull Materials (from Boat Preset formula)</td><td class="right mono">${fmt(materialLinesCost(q.hull.work))}</td></tr>` : `
@@ -2800,7 +2902,7 @@ function tabPaint(host, q){
       </div>
       <div class="section-lead" style="padding:10px 20px 0;">Clicking "Add Paint" adds a 1st, 2nd, and 3rd Coat row together — edit the Type/Color/Area/Price for each. Leave Area blank to use the hull's calculated surface area automatically.</div>
       <div class="card-body" style="padding:0;">
-        <table><thead><tr><th style="width:80px;">Coat</th><th style="width:18%;">Type</th><th style="width:14%;">Color</th><th style="width:90px;">Area (sqm)</th><th style="width:100px;">Price/sqm</th><th class="right" style="width:110px;">Cost</th><th></th></tr></thead>
+        <table><thead><tr><th style="width:80px;">Coat</th><th style="width:18%;">Type</th><th style="width:14%;">Color</th><th style="width:90px;">Area (sq ft)</th><th style="width:100px;">Price/sq ft</th><th class="right" style="width:110px;">Cost</th><th></th></tr></thead>
           <tbody id="paintRows"></tbody>
         </table>
       </div>
@@ -2815,8 +2917,8 @@ function tabPaint(host, q){
         <td><input class="tbl-input prow" data-idx="${idx}" data-f="coatLabel" value="${esc(r.coatLabel||'')}" placeholder="e.g. 1st Coat"></td>
         <td><input class="tbl-input prow" data-idx="${idx}" data-f="type" value="${esc(r.type)}"></td>
         <td><input class="tbl-input prow" data-idx="${idx}" data-f="color" value="${esc(r.color)}"></td>
-        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="area" value="${q.paint.items[idx].area??''}" placeholder="${fmtNum(hull.area,1)}"></td>
-        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="pricePerSqm" value="${r.pricePerSqm}"></td>
+        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="area" value="${(q.paint.items[idx].area==null||q.paint.items[idx].area==='')?'':r4(q.paint.items[idx].area*SQFT_PER_SQM)}" placeholder="${fmtNum(sqft(hull.area),1)}"></td>
+        <td><input type="number" step="any" class="tbl-input num prow" data-idx="${idx}" data-f="pricePerSqm" value="${r4((Number(r.pricePerSqm)||0)/SQFT_PER_SQM)}"></td>
         <td class="right mono">${fmt(r.cost)}</td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-delpaint="${idx}" style="color:var(--danger);">✕</span></td>
       </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No paint items yet. Click "Add Paint" to add a 1st/2nd/3rd Coat set.</div></td></tr>`;
@@ -2826,8 +2928,8 @@ function tabPaint(host, q){
         const idx = Number(inp.dataset.idx);
         const item = q.paint.items[idx];
         const f = inp.dataset.f;
-        if(f==='area') item.area = inp.value===''? null : Number(inp.value);
-        else if(f==='pricePerSqm') item[f] = Number(inp.value);
+        if(f==='area') item.area = inp.value===''? null : Number(inp.value)/SQFT_PER_SQM;     // stored in sqm
+        else if(f==='pricePerSqm') item[f] = Number(inp.value)*SQFT_PER_SQM;                  // stored per sqm
         else item[f] = inp.value;
         persistQuote(q); updateLiveSummary(q);
         // Patch just this row's Cost cell instead of a full redraw, so
