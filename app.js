@@ -302,6 +302,7 @@ const DEFAULT_PRICING = {
   // Labor rate card: daily rate PER LABORER for each labor category. Boat Presets pick categories + head-count + days.
   laborDailyRates: { fabrication:1440, fiberglass:1520, painting:1280, electrical:1600, assembly:1360, testing:1680 },
   materialsFlatV1: true,
+  materialsKgV1: true,
   overheadPct: 12,
   contingencyPct: 5,
   marginPct: 18,
@@ -385,7 +386,7 @@ function ensureMaterialsCatalog(){
   ['categoryRates','categorySeedV1','categorySeedV2','categorySeedV3'].forEach(k=>delete PRICING[k]);
 }
 /* ---------- Imperial units ----------
-   The shop works in ft / in / sq ft / lb (liters stay for fuel, water, resin and paint).
+   The shop works in ft / in / sq ft, and weight stays in kg (liters stay for fuel, water, resin and paint).
    Material lists (the Materials catalog and the lines inside presets) are converted ONCE, with
    quantity and price converted together so every line keeps the same cost. Hull measurements and
    the Pricing Database rates stay stored exactly as before and are converted only on screen. */
@@ -394,8 +395,8 @@ const r4 = v => Math.round((Number(v)||0)*10000)/10000;
 const sqft = sqm => (Number(sqm)||0) * SQFT_PER_SQM;
 const METRIC_UNITS = {
   sqm:{u:'sq ft',f:SQFT_PER_SQM}, m2:{u:'sq ft',f:SQFT_PER_SQM}, 'm²':{u:'sq ft',f:SQFT_PER_SQM},
-  linearm:{u:'ft',f:FT_PER_M}, lm:{u:'ft',f:FT_PER_M}, linearmeter:{u:'ft',f:FT_PER_M},
-  kg:{u:'lb',f:LB_PER_KG}, kgs:{u:'lb',f:LB_PER_KG}
+  linearm:{u:'ft',f:FT_PER_M}, lm:{u:'ft',f:FT_PER_M}, linearmeter:{u:'ft',f:FT_PER_M}
+  // Weight stays in kg for materials (no kg -> lb conversion).
 };
 const unitKey = u => String(u||'').toLowerCase().replace(/[\s.]/g,'');
 function metricUnitInfo(unit){ return METRIC_UNITS[unitKey(unit)] || null; }
@@ -417,7 +418,30 @@ const IMPERIAL_RATE_FIELDS = {
   primerCoverage: { f:SQFT_PER_SQM,              label:'Primer Coverage (sq ft/L)' },
   paintCoverage:  { f:SQFT_PER_SQM,              label:'Paint Coverage (sq ft/L per coat)' }
 };
-const GLASS_LAYER_F = LB_PER_KG/SQFT_PER_SQM;   // kg/sqm -> lb/sq ft
+const GLASS_LAYER_F = 1/SQFT_PER_SQM;   // kg/sqm -> kg/sq ft
+// Earlier versions converted kg materials to lb. Weight is kg again: this turns those lb lines back
+// into kg ONCE (quantity and price converted together, so every line keeps the same cost).
+const isLbUnit = u => ['lb','lbs'].includes(unitKey(u));
+function revertLbToKg(m, priceKey){
+  if(!m || !isLbUnit(m.unit)) return false;
+  if(priceKey==='qty'){ m.qty = r4((Number(m.qty)||0) / LB_PER_KG); m.price = r4((Number(m.price)||0) * LB_PER_KG); }
+  else { m.unitPrice = r4((Number(m.unitPrice)||0) * LB_PER_KG); }
+  m.unit = 'kg'; return true;
+}
+function migrateWeightToKg(){
+  let changed = false;
+  if(!PRICING.materialsKgV1){
+    (PRICING.structuralCatalog||[]).forEach(a=>{ revertLbToKg(a,'unitPrice'); });
+    PRICING.materialsKgV1 = true; changed = true;
+  }
+  (TEMPLATES||[]).forEach(t=>{
+    if(t.materialsKgV1) return;
+    (t.components||[]).forEach(c=>(c.materials||[]).forEach(m=>revertLbToKg(m,'qty')));
+    if(t.hullWork && Array.isArray(t.hullWork.materials)) t.hullWork.materials.forEach(m=>revertLbToKg(m,'qty'));
+    t.materialsKgV1 = true; changed = true;
+  });
+  return changed;
+}
 function migrateUnitsToImperial(){
   let changed = false;
   // 1. bring every preset component to the formula shape first (uses the catalog as it is right now)
@@ -429,6 +453,8 @@ function migrateUnitsToImperial(){
   });
   // 3. the Materials catalog
   (PRICING.structuralCatalog||[]).forEach(a=>{ if(convertCatalogItem(a)) changed = true; });
+  // 4. weight is kg: undo the old kg -> lb conversion (runs once)
+  if(migrateWeightToKg()) changed = true;
   return changed;
 }
 function ensurePricingShape(){ ensureLaborDaily(); ensureMaterialsCatalog(); }
@@ -1876,7 +1902,7 @@ function renderTemplates(content, actions){
           </div>
           <div class="grid g3">
             <div class="field"><label>Laminate Layers</label><input type="number" class="tpl-f" data-f="layers" value="${t.layers||0}"></div>
-            <div class="field"><label>Glass per Layer (lb/sq ft)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" data-conv="${GLASS_LAYER_F}" value="${r4((t.glassPerLayer||0)*GLASS_LAYER_F)}"></div>
+            <div class="field"><label>Glass per Layer (kg/sq ft)</label><input type="number" step="any" class="tpl-f" data-f="glassPerLayer" data-conv="${GLASS_LAYER_F}" value="${r4((t.glassPerLayer||0)*GLASS_LAYER_F)}"></div>
             <div class="field"><label>Hull Area Override (sq ft)</label><input type="number" step="any" class="tpl-f" data-f="hullAreaOverride" data-conv="${SQFT_PER_SQM}" value="${(t.hullAreaOverride==null||t.hullAreaOverride==='')?'':r4(t.hullAreaOverride*SQFT_PER_SQM)}" placeholder="auto"></div>
           </div>
           <div class="grid g3">
@@ -2014,21 +2040,6 @@ function renderPricing(content, actions){
   content.innerHTML = `
     <div class="section-lead">These values feed every new quotation's default rates (each quotation keeps its own editable snapshot, so changes here won't retroactively alter saved quotes).</div>
     <div class="grid g-wide">
-      <div class="card"><div class="card-head"><h3>Hull Materials</h3></div><div class="card-body grid g2">
-        ${numField('Fiberglass (₱/kg)','fiberglassPerKg',r.fiberglassPerKg)}
-        ${numField('Resin (₱/liter)','resinPerLiter',r.resinPerLiter)}
-        ${numField('Resin Density (kg/L)','resinDensity',r.resinDensity)}
-        ${numField('Resin:Glass Ratio','resinRatio',r.resinRatio)}
-        ${numField('Gelcoat (₱/kg)','gelcoatPerKg',r.gelcoatPerKg)}
-        ${numField('Gelcoat Coverage (kg/sqm)','gelcoatCoverage',r.gelcoatCoverage)}
-        ${numField('Core Material (₱/sqm)','corePerSqm',r.corePerSqm)}
-      </div></div>
-      <div class="card"><div class="card-head"><h3>Paint &amp; Finishing</h3></div><div class="card-body grid g2">
-        ${numField('Primer (₱/liter)','primerPerLiter',r.primerPerLiter)}
-        ${numField('Primer Coverage (sqm/L)','primerCoverage',r.primerCoverage)}
-        ${numField('Topcoat Paint (₱/liter)','paintPerLiter',r.paintPerLiter)}
-        ${numField('Paint Coverage (sqm/L per coat)','paintCoverage',r.paintCoverage)}
-      </div></div>
       <div class="card"><div class="card-head"><h3>Labor Rates</h3><button class="btn btn-sm" id="addLaborCat">${icon('plus')} Add Category</button></div><div class="card-body" style="padding:0;">
         <div class="section-lead" style="padding:14px 20px 0;">Daily rate per laborer for each labor category (for example Carpentry or Fiberglass). Boat Presets use these: pick the categories, how many laborers each needs, and the number of days. Add or remove categories as your shop needs.</div>
         <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:150px;">Rate (₱/day)</th><th style="width:60px;"></th></tr></thead>
@@ -2041,14 +2052,10 @@ function renderPricing(content, actions){
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Materials</h3><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button></div>
-      <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials. These are the items you tick under "Choose materials" in Presets, and the prices they start with.</div>
+      <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials (weights in kg). These are the items you tick under "Choose materials" in Presets, and the prices they start with.</div>
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Material</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="matCatRows"></tbody></table></div>
     </div>
   `;
-  function numField(label,key,val){
-    const c = IMPERIAL_RATE_FIELDS[key], f = c ? c.f : 1;
-    return `<div class="field"><label>${c ? c.label : label}</label><input type="number" step="any" class="pf" data-key="${key}" data-f="${f}" value="${c ? r4(Number(val)*f) : val}"></div>`;
-  }
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 
   function drawAcc(){
@@ -2079,7 +2086,7 @@ function renderPricing(content, actions){
     });
     document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); drawMaterials(); });
   }
-  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'lb',unitPrice:0}); drawMaterials(); };
+  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); drawMaterials(); };
 
   function drawLaborRates(){
     const names = Object.keys(r.laborDailyRates);
@@ -2105,15 +2112,9 @@ function renderPricing(content, actions){
     const inputs = document.querySelectorAll('.lr-f'); if(inputs.length) inputs[inputs.length-1].focus();
   };
 
-  document.querySelectorAll('.pf').forEach(i=>i.addEventListener('input', ()=>{ i.dataset.dirty = '1'; }));
   drawAcc(); drawMaterials(); drawLaborRates();
 
   document.getElementById('btnSavePricing').onclick = ()=>{
-    // Only fields you actually edited are written back, so converting to/from lb and sq ft never nudges the others.
-    document.querySelectorAll('.pf').forEach(i=>{
-      if(i.dataset.dirty!=='1') return;
-      r[i.dataset.key] = Number(i.value) / (Number(i.dataset.f)||1);
-    });
     save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
   };
   document.getElementById('btnResetPricing').onclick = ()=>{
@@ -2873,9 +2874,9 @@ function tabHull(host, q){
       <table>
         <tbody>
           <tr><td>Estimated Hull Surface Area</td><td class="right mono">${fmtNum(sqft(c.area),2)} sq ft</td></tr>
-          <tr><td>Fiberglass Weight Required</td><td class="right mono">${fmtNum(c.glassWeight*LB_PER_KG,1)} lb</td></tr>
+          <tr><td>Fiberglass Weight Required</td><td class="right mono">${fmtNum(c.glassWeight,1)} kg</td></tr>
           <tr><td>Resin Consumption</td><td class="right mono">${fmtNum(c.resinLiters,1)} L</td></tr>
-          <tr><td>Gelcoat Requirement</td><td class="right mono">${fmtNum(c.gelcoatWeight*LB_PER_KG,1)} lb</td></tr>
+          <tr><td>Gelcoat Requirement</td><td class="right mono">${fmtNum(c.gelcoatWeight,1)} kg</td></tr>
           ${c.useWork ? `
           <tr><td>Hull Labor (from Boat Preset formula)</td><td class="right mono">${fmt(computeLaborCost(q.hull.work))}</td></tr>
           <tr><td>Hull Materials (from Boat Preset formula)</td><td class="right mono">${fmt(materialLinesCost(q.hull.work))}</td></tr>` : `
