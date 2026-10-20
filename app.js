@@ -4154,4 +4154,41 @@ document.getElementById('loginForm').addEventListener('submit', async (e)=>{
   const email = document.getElementById('loginEmail').value.trim();
   const password = document.getElementById('loginPassword').value;
   try{
-    const { data, error } = await supabaseClient.auth.signInWithPasswo
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if(error){
+      errEl.textContent = error.message || 'Sign in failed. Check your email and password.';
+      errEl.style.display = 'block';
+      return;
+    }
+    if(!data || !data.session){
+      errEl.textContent = 'Sign-in did not return a session. Please try again.';
+      errEl.style.display = 'block';
+      return;
+    }
+    await startApp(data.session);
+  }catch(error){
+    console.error('Sign-in failed', error);
+    errEl.textContent = 'Unable to sign in right now. Check your connection and try again.';
+    errEl.style.display = 'block';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
+});
+
+supabaseClient.auth.onAuthStateChange((event)=>{
+  if(event === 'SIGNED_OUT') location.reload();
+});
+
+(async function boot(){
+  try{
+    const { data, error } = await supabaseClient.auth.getSession();
+    if(error) throw error;
+    const session = data && data.session;
+    if(session) await startApp(session);
+    else showLogin();
+  }catch(error){
+    console.error('Application startup failed', error);
+    showLogin('Unable to connect to the sign-in service. Check your internet connection and try again.');
+  }
+})();
