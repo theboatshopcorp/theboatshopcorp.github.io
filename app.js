@@ -745,6 +745,27 @@ function syncStructuralCatalog(cat, name, unit, unitPrice){
   save(DB_KEYS.pricing, PRICING);
   return true;
 }
+// A material typed into a preset line (Choose materials -> Custom material) registers itself in
+// Pricing Database -> Materials. Lines picked from the catalog are left alone. A line that this
+// function registered keeps its catalog entry's unit and price in step while you finish typing.
+function syncMaterialLine(m){
+  const name = (m.name||'').trim();
+  if(!name) return false;
+  const cat = PRICING.structuralCatalog = PRICING.structuralCatalog || [];
+  const key = name.toLowerCase();
+  const hit = cat.find(a=>(a.name||'').trim().toLowerCase()===key);
+  if(!hit){
+    cat.push({ name, unit:(m.unit||'').trim()||'pc', unitPrice:Number(m.price)||0 });
+    m.catName = name; save(DB_KEYS.pricing, PRICING);
+    toast(`"${name}" added to Pricing Database → Materials`);
+    return true;
+  }
+  if((m.catName||'').trim().toLowerCase()===key){
+    const u = (m.unit||'').trim()||'pc', p = Number(m.price)||0;
+    if(hit.unit!==u || hit.unitPrice!==p){ hit.unit = u; hit.unitPrice = p; save(DB_KEYS.pricing, PRICING); }
+  }
+  return false;
+}
 function syncAccessoryCatalog(cat, name, unitPrice){
   cat = (cat||'').trim(); name = (name||'').trim();
   if(!cat || !name || name==='New Item') return false;
@@ -1794,6 +1815,9 @@ function renderTemplates(content, actions){
           if(cost) cost.textContent = fmt((Number(m.qty)||0)*(Number(m.price)||0));
           patchFormulaTotals(idx);
         });
+        inp.addEventListener('change', ()=>{
+          syncMaterialLine(t.components[Number(inp.dataset.idx)].materials[Number(inp.dataset.m)]);
+        });
       });
       body.querySelectorAll('.mat-pick').forEach(btn=>btn.onclick=()=>{
         const c = t.components[Number(btn.dataset.idx)];
@@ -2008,6 +2032,7 @@ function renderTemplates(content, actions){
         const cost = document.getElementById(`hmatCost_${mi}`); if(cost) cost.textContent = fmt((Number(m.qty)||0)*(Number(m.price)||0));
         patch();
       }));
+      host.querySelectorAll('.hmat-f').forEach(inp=>inp.addEventListener('change', ()=>{ syncMaterialLine(w.materials[Number(inp.dataset.m)]); }));
       host.querySelectorAll('[data-hdelmat]').forEach(b=>b.onclick=()=>{ w.materials.splice(Number(b.dataset.hdelmat),1); drawHullWork(); });
       document.getElementById('hullMatCustom').onclick = ()=>{
         w.materials.push({cat:'', name:'', unit:'unit', qty:1, price:0}); drawHullWork();
@@ -2873,10 +2898,6 @@ function tabHull(host, q){
     document.getElementById('hullCalcOut').innerHTML = `
       <table>
         <tbody>
-          <tr><td>Estimated Hull Surface Area</td><td class="right mono">${fmtNum(sqft(c.area),2)} sq ft</td></tr>
-          <tr><td>Fiberglass Weight Required</td><td class="right mono">${fmtNum(c.glassWeight,1)} kg</td></tr>
-          <tr><td>Resin Consumption</td><td class="right mono">${fmtNum(c.resinLiters,1)} L</td></tr>
-          <tr><td>Gelcoat Requirement</td><td class="right mono">${fmtNum(c.gelcoatWeight,1)} kg</td></tr>
           ${c.useWork ? `
           <tr><td>Hull Labor (from Boat Preset formula)</td><td class="right mono">${fmt(computeLaborCost(q.hull.work))}</td></tr>
           <tr><td>Hull Materials (from Boat Preset formula)</td><td class="right mono">${fmt(materialLinesCost(q.hull.work))}</td></tr>` : `
