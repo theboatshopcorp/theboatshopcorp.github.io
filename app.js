@@ -299,10 +299,8 @@ const DEFAULT_PRICING = {
   primerCoverage: 6,
   paintPerLiter: 480,
   paintCoverage: 8,
-  // Labor is priced per DAY: cost = days x daily rate. (Converted from the old hourly table at 8 hours/day,
-  // so every total stays exactly the same: 900 h @ 180/h  ->  112.5 days @ 1,440/day.)
+  // Labor rate card: daily rate PER LABORER for each labor category. Boat Presets pick categories + head-count + days.
   laborDailyRates: { fabrication:1440, fiberglass:1520, painting:1280, electrical:1600, assembly:1360, testing:1680 },
-  laborDays: { fabrication:112.5, fiberglass:75, painting:32.5, electrical:40, assembly:50, testing:15 },
   materialsFlatV1: true,
   overheadPct: 12,
   contingencyPct: 5,
@@ -356,19 +354,17 @@ const CATEGORY_LABOR_TRADE = {
 };
 // Old default catalog entries that were structural components rather than materials.
 const LEGACY_COMPONENT_ITEMS = ['longitudinal stiffener (glassed-in)','transverse frame / stringer','hat-section stringer (foam-cored)','plywood bulkhead (marine ply, glassed both sides)','frp sandwich bulkhead (foam core)','collision / watertight bulkhead','deck beam / carlin (frp)'];
-// One-time: hourly labor table -> daily (8 h/day) with identical totals.
+// Labor rate card. (The old per-category "Days" were removed: labor now comes from the labor teams
+// inside each preset, so any leftover laborDays is dropped.)
 function ensureLaborDaily(){
-  if(PRICING.laborDailyRates && PRICING.laborDays) return;
-  const rates = PRICING.laborRates, hours = PRICING.laborHours;
+  delete PRICING.laborDays;
+  if(PRICING.laborDailyRates && typeof PRICING.laborDailyRates==='object') return;
+  const rates = PRICING.laborRates;
   if(rates && typeof rates==='object'){
-    PRICING.laborDailyRates = {}; PRICING.laborDays = {};
-    Object.keys(rates).forEach(k=>{
-      PRICING.laborDailyRates[k] = +((Number(rates[k])||0)*8).toFixed(2);
-      PRICING.laborDays[k] = +(((hours && Number(hours[k]))||0)/8).toFixed(4);
-    });
+    PRICING.laborDailyRates = {};
+    Object.keys(rates).forEach(k=>{ PRICING.laborDailyRates[k] = +((Number(rates[k])||0)*8).toFixed(2); });
   } else {
     PRICING.laborDailyRates = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborDailyRates));
-    PRICING.laborDays = JSON.parse(JSON.stringify(DEFAULT_PRICING.laborDays));
   }
 }
 // One-time: Structural catalog -> flat Materials list. Component-type items (stiffeners, bulkheads...)
@@ -389,19 +385,36 @@ function ensureMaterialsCatalog(){
   ['categoryRates','categorySeedV1','categorySeedV2','categorySeedV3'].forEach(k=>delete PRICING[k]);
 }
 function ensurePricingShape(){ ensureLaborDaily(); ensureMaterialsCatalog(); }
-function getCategoryRate(cat){
-  const trade = CATEGORY_LABOR_TRADE[cat]; if(!trade) return null;
-  return { laborRate: Number((PRICING.laborDailyRates||{})[trade])||0, materialPrice:0, materials:[] };
+// ---------- Labor teams: a preset can use several labor categories, each with its own head-count ----------
+function laborCategoryNames(){ return Object.keys(PRICING.laborDailyRates||{}); }
+function capFirst(str){ str = String(str||''); return str.charAt(0).toUpperCase() + str.slice(1); }
+function laborRateFor(name){
+  const k = String(name||'').trim().toLowerCase();
+  const rates = PRICING.laborDailyRates || {};
+  const hit = Object.keys(rates).find(x=>x.trim().toLowerCase()===k);
+  return hit===undefined ? 0 : (Number(rates[hit])||0);
+}
+// Older presets stored ONE labor rate + ONE head-count; they read as a single team with the same cost.
+function laborTeamsOf(c){
+  if(Array.isArray(c.laborTeams)) return c.laborTeams;
+  const n = Number(c.numLaborers)||0, r = Number(c.laborRate)||0;
+  return n>0 ? [{cat:'', laborers:n, rate:r}] : [];
+}
+function ensureLaborTeams(c){
+  if(!c) return;
+  if(!Array.isArray(c.laborTeams)){
+    const n = Math.max(0, Number(c.numLaborers)||0), r = Math.max(0, Number(c.laborRate)||0);
+    let cat = '';
+    const trade = CATEGORY_LABOR_TRADE[c.cat];
+    if(trade){ const hit = laborCategoryNames().find(x=>x.toLowerCase()===trade); if(hit) cat = hit; }
+    c.laborTeams = n>0 ? [{cat, laborers:n, rate:r}] : [];
+  }
+  delete c.laborRate; delete c.numLaborers;
 }
 function presetCategoryList(extra){
   const list = [...Object.keys(CATEGORY_LABOR_TRADE), ...getKnownStructuralCategories()];
   if(extra) list.push(extra);
   return [...new Set(list.filter(Boolean))];
-}
-// Picking a category fills in that trade's daily labor rate (still editable).
-function applyCategoryDefaults(c){
-  const r = getCategoryRate(c.cat);
-  if(r) c.laborRate = r.laborRate;
 }
 
 /* ---------- Accessories: category order, sorting, and "known categories" ----------
@@ -493,10 +506,10 @@ function lookupStructuralPrice(cat, name){
 // The result is converted to a per-unit price so the quote's existing
 // quantity × unit-price calculation continues to work.
 function computeLaborCost(c){
+  // (rate x laborers) summed over every labor team, times the number of days
   const days = Math.max(0, Number(c.numberDays)||0);
-  const laborers = Math.max(0, Number(c.numLaborers)||0);
-  const laborRate = Math.max(0, Number(c.laborRate)||0);
-  return laborRate * days * laborers;
+  const perDay = laborTeamsOf(c).reduce((sum,t)=> sum + Math.max(0,Number(t.laborers)||0) * Math.max(0,Number(t.rate)||0), 0);
+  return perDay * days;
 }
 // Each material used by a component is its own line: quantity x price per unit.
 function materialLinesCost(c){
@@ -624,14 +637,14 @@ function migratePresetComponent(c){
   }
   ensureMaterials(c);
   if(c.numberDays===undefined) c.numberDays = 0;
-  if(c.numLaborers===undefined) c.numLaborers = 0;
+  ensureLaborTeams(c);
 }
 // A preset component becomes one line on the quotation's structural list, named after its category.
 function presetComponentToQuoteItem(c){
   migratePresetComponent(c);
   const qty = Math.max(0, Number(c.qty)||0) || 1;
   return {...c, name: c.name || c.cat || 'Structural component', unit: c.unit || 'lot', qty,
-    materials: JSON.parse(JSON.stringify(c.materials||[])), id:uid('si'), unitPrice: computeFormulaWorkCost(c)/qty};
+    materials: JSON.parse(JSON.stringify(c.materials||[])), laborTeams: JSON.parse(JSON.stringify(c.laborTeams||[])), id:uid('si'), unitPrice: computeFormulaWorkCost(c)/qty};
 }
 // Whenever a new custom item is typed anywhere — the Quotation Editor's Hull
 // tab, its Accessories tab, or Boat Presets' Structural Components — it gets
@@ -970,16 +983,6 @@ function computeEngine(q){
   const total = unitsCost;
   return { unitsCost, total };
 }
-function computeLabor(q){
-  // Labor days and DAILY rates come from the Pricing Database only — no per-quote
-  // override — so every quotation uses the same current standard.
-  const days = PRICING.laborDays || {}, rates = PRICING.laborDailyRates || {};
-  const rows = Object.keys(rates).map(k=>({
-    key:k, days:Number(days[k])||0, rate: Number(rates[k])||0, cost: (Number(days[k])||0)*(Number(rates[k])||0)
-  }));
-  const total = rows.reduce((s,r)=>s+r.cost,0);
-  return { rows, total };
-}
 function computeAll(q){
   const hull = computeHull(q);
   const paint = computePaint(q, hull);
@@ -987,11 +990,10 @@ function computeAll(q){
   const acc = computeAccessories(q);
   const testing = computeTestingDelivery(q);
   const eng = computeEngine(q);
-  const labor = computeLabor(q);
   const materialCost = hull.total + paint.total + structural.total;
   const equipmentCost = acc.total + eng.total;
-  const laborCost = labor.total;
-  const base = materialCost + equipmentCost + laborCost;
+  // Labor now lives inside the preset lines (hull / structural), so there is no separate labor charge.
+  const base = materialCost + equipmentCost;
   const overheadCost = base * (Number(q.rates.overheadPct)||0)/100;
   const contingencyCost = base * (Number(q.rates.contingencyPct)||0)/100;
   const marginCost = base * (Number(q.rates.marginPct)||0)/100;
@@ -1003,11 +1005,11 @@ function computeAll(q){
   const rushFee = isRush ? base * (Number(q.rates.rushFeePct)||0)/100 : 0;
   const deliveryDate = sch.startDate ? new Date(new Date(sch.startDate).getTime() + requestedDays*86400000) : null;
   const marinaCost = (q.marina && Array.isArray(q.marina.items)) ? q.marina.items.reduce((s,it)=>s+(Number(it.price)||0),0) : 0;
-  const unitFinalTotal = materialCost + laborCost + equipmentCost + overheadCost + contingencyCost + marginCost + durationCost + rushFee + marinaCost + testing.total;
+  const unitFinalTotal = materialCost + equipmentCost + overheadCost + contingencyCost + marginCost + durationCost + rushFee + marinaCost + testing.total;
   const numBoats = Math.max(1, Number(q.project.numBoats)||1);
   const multiplyPrice = !!q.project.multiplyPrice;
   const finalTotal = multiplyPrice ? unitFinalTotal * numBoats : unitFinalTotal;
-  return { hull, paint, structural, acc, testing, eng, labor, materialCost, equipmentCost, laborCost, overheadCost, contingencyCost, marginCost, marinaCost, base, standardDays, requestedDays, durationCost, isRush, rushFee, deliveryDate, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
+  return { hull, paint, structural, acc, testing, eng, materialCost, equipmentCost, overheadCost, contingencyCost, marginCost, marinaCost, base, standardDays, requestedDays, durationCost, isRush, rushFee, deliveryDate, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
 }
 function computeInvoiceTotals(q, c){
   const inv = q.invoice || { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:0 };
@@ -1403,6 +1405,59 @@ const PRESET_KINDS = {
   console: { label:'Console',               singular:'Console',               defaultCat:'Console', single:true  },
   deck:    { label:'Deck & Superstructure', singular:'Deck / Superstructure', defaultCat:'Deck',    single:false }
 };
+/* Labor panel shared by the Hull, structural components and the Transom / Console / Deck presets. */
+function laborPanelHTML(c, owner){
+  ensureLaborTeams(c);
+  const days = Math.max(0, Number(c.numberDays)||0);
+  const names = laborCategoryNames();
+  const heads = c.laborTeams.reduce((sum,t)=>sum+(Number(t.laborers)||0),0);
+  const rows = c.laborTeams.map((tm,ti)=>{
+    const cur = String(tm.cat||'').toLowerCase();
+    const known = names.some(n=>n.toLowerCase()===cur);
+    const opts = (tm.cat ? '' : '<option value="">— choose category —</option>')
+      + (tm.cat && !known ? `<option value="${esc(tm.cat)}" selected>${esc(tm.cat)} (not in Pricing Database)</option>` : '')
+      + names.map(n=>`<option value="${esc(n)}" ${n.toLowerCase()===cur?'selected':''}>${esc(capFirst(n))}</option>`).join('');
+    return `<tr>
+      <td><select class="tbl-input lp-cat" data-lp="${owner}" data-t="${ti}">${opts}</select></td>
+      <td style="width:96px;"><input class="tbl-input num lp-num" type="number" min="0" step="1" data-lp="${owner}" data-t="${ti}" data-f="laborers" value="${Number(tm.laborers)||0}"></td>
+      <td style="width:132px;"><input class="tbl-input num lp-num" type="number" min="0" step="any" data-lp="${owner}" data-t="${ti}" data-f="rate" value="${Number(tm.rate)||0}"></td>
+      <td class="right mono" style="width:120px;" id="lpCost_${owner}_${ti}">${fmt((Number(tm.rate)||0)*(Number(tm.laborers)||0)*days)}</td>
+      <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-lp-del="${owner}:${ti}" style="color:var(--danger);" title="Remove this labor category">✕</span></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" class="empty" style="padding:12px;">No laborers yet — add a labor category (for example Carpentry or Fiberglass) and how many laborers it needs.</td></tr>`;
+  return `
+    <div class="grid g3" style="margin:0 0 12px;">
+      <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input lp-days" data-lp="${owner}" value="${days}"></div>
+      <div class="field" style="margin:0;"><label style="font-size:10px;">Total Laborers</label><div class="mono" style="padding:8px 0;font-weight:600;" id="lpHeads_${owner}">${heads}</div></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:4px 0;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Labor</div>
+      <button type="button" class="btn btn-sm" data-lp-add="${owner}">${icon('plus')} Add laborers</button>
+    </div>
+    <table class="mat-table"><thead><tr><th>Labor category</th><th class="right">Laborers</th><th class="right">Rate (₱/day/person)</th><th class="right">Cost (× days)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function bindLaborPanel(root, c, owner, onTotals, redraw){
+  ensureLaborTeams(c);
+  const refresh = ()=>{
+    const days = Math.max(0, Number(c.numberDays)||0);
+    c.laborTeams.forEach((tm,ti)=>{ const el = document.getElementById(`lpCost_${owner}_${ti}`); if(el) el.textContent = fmt((Number(tm.rate)||0)*(Number(tm.laborers)||0)*days); });
+    const h = document.getElementById(`lpHeads_${owner}`); if(h) h.textContent = c.laborTeams.reduce((sum,tm)=>sum+(Number(tm.laborers)||0),0);
+    onTotals();
+  };
+  root.querySelectorAll(`.lp-days[data-lp="${owner}"]`).forEach(inp=>inp.addEventListener('input', ()=>{ c.numberDays = Math.max(0, Number(inp.value)||0); refresh(); }));
+  root.querySelectorAll(`.lp-num[data-lp="${owner}"]`).forEach(inp=>inp.addEventListener('input', ()=>{ c.laborTeams[Number(inp.dataset.t)][inp.dataset.f] = Math.max(0, Number(inp.value)||0); refresh(); }));
+  root.querySelectorAll(`.lp-cat[data-lp="${owner}"]`).forEach(sel=>sel.onchange = ()=>{
+    const tm = c.laborTeams[Number(sel.dataset.t)]; tm.cat = sel.value; tm.rate = laborRateFor(sel.value); redraw();
+  });
+  root.querySelectorAll(`[data-lp-del^="${owner}:"]`).forEach(b=>b.onclick = ()=>{ c.laborTeams.splice(Number(b.dataset.lpDel.split(':')[1]),1); redraw(); });
+  root.querySelectorAll(`[data-lp-add="${owner}"]`).forEach(b=>b.onclick = ()=>{
+    const used = new Set(c.laborTeams.map(t=>String(t.cat||'').toLowerCase()));
+    const names = laborCategoryNames();
+    const pick = names.find(n=>!used.has(n.toLowerCase())) || names[0] || '';
+    c.laborTeams.push({cat:pick, laborers:1, rate:laborRateFor(pick)});
+    redraw();
+  });
+}
 function addonPresets(kind){
   return (TEMPLATES||[]).filter(t=>t.presetType===kind).sort((a,b)=>(Number.isFinite(a.order)?a.order:1e9)-(Number.isFinite(b.order)?b.order:1e9));
 }
@@ -1461,7 +1516,7 @@ function renderTemplates(content, actions){
     return { id:uid('tpl'), name:model, boatModel:model, boatType:'Passenger Boat',
       loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6,
       paintType:'Marine Polyurethane Topcoat', paintArea:null, coats:3, components:[],
-      hullWork:{ cat:'Fiberglass', useFormula:true, laborRate:0, numberDays:0, numLaborers:0, materials:[] } };
+      hullWork:{ useFormula:true, numberDays:0, laborTeams:[], materials:[] } };
   }
   function getPreset(model){
     let t = TEMPLATES.find(x=>x.boatModel===model);
@@ -1559,18 +1614,14 @@ function renderTemplates(content, actions){
           </div>
           <table><thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows"></tbody></table>
-          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (Labor Rate × Number of Days × Number of Laborers) + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>`;
+          <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = (for each labor category: Rate × Laborers) × Number of Days + the cost of every material used (quantity × price per unit)</em>. Each component becomes one line on the quotation's structural list, named after its category.</div>`;
   }
   function initComponentEditor(t, defaultCat){
     const body = document.getElementById('compRows');
     function drawComponents(){
       body.innerHTML = (t.components||[]).map((c,idx)=>{
         migratePresetComponent(c);
-        const rate = getCategoryRate(c.cat);
         const cats = presetCategoryList(c.cat);
-        const autoHint = rate
-          ? `<div class="hint" style="margin-top:6px;">Labor rate was filled in from the <strong>${esc(c.cat)}</strong> trade rate in the Pricing Database (per day), and each material's price comes from the Materials list. You can still edit them. <span class="btn btn-ghost btn-sm" data-resetrates="${idx}">Reset labor rate</span></div>`
-          : `<div class="hint" style="margin-top:6px;">No standard labor rate for this category — enter the rate per day here.</div>`;
         const matRows = (c.materials||[]).map((m,mi)=>`
           <tr>
             <td><input class="tbl-input mat-f" data-idx="${idx}" data-m="${mi}" data-f="name" value="${esc(m.name)}" placeholder="Material name"></td>
@@ -1593,11 +1644,7 @@ function renderTemplates(content, actions){
         </tr>
         <tr class="comp-formula-row" data-formula-idx="${idx}">
           <td colspan="2" style="background:var(--paper);padding:12px;">
-            <div class="grid g3" style="margin:0;">
-              <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/day/person)</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="laborRate" value="${c.laborRate||0}"></div>
-              <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input comp-formula" data-idx="${idx}" data-f="numberDays" value="${c.numberDays||0}"></div>
-              <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Laborers</label><input type="number" min="0" step="1" class="tbl-input comp-formula" data-idx="${idx}" data-f="numLaborers" value="${c.numLaborers||0}"></div>
-            </div>
+            ${laborPanelHTML(c, idx)}
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
               <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used${c.cat?` for ${esc(c.cat)}`:''}</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1608,7 +1655,6 @@ function renderTemplates(content, actions){
             <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead>
             <tbody>${matRows}</tbody></table>
             <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="formulaLabor_${idx}">${fmt(computeLaborCost(c))}</span> + Materials <span class="mono" id="formulaMat_${idx}">${fmt(materialLinesCost(c))}</span> = Total Work Cost <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span></div>
-            ${autoHint}
           </td>
         </tr>`;
       }).join('') || `<tr><td colspan="2" class="empty" style="padding:12px;">No components yet.</td></tr>`;
@@ -1620,14 +1666,7 @@ function renderTemplates(content, actions){
           if(!v){ drawComponents(); return; }
         }
         c.cat = v;
-        applyCategoryDefaults(c);
-        const r = getCategoryRate(v);
-        if(r && r.laborRate) toast(`${v}: labor rate ${fmt(r.laborRate)}/day filled in`);
         drawComponents();
-      });
-      body.querySelectorAll('[data-resetrates]').forEach(b=>b.onclick=()=>{
-        applyCategoryDefaults(t.components[Number(b.dataset.resetrates)]);
-        toast('Labor rate reset to the Pricing Database value'); drawComponents();
       });
       // Patch totals in place (no redraw) so typing never loses focus.
       function patchFormulaTotals(idx){
@@ -1637,13 +1676,7 @@ function renderTemplates(content, actions){
         setTxt(`formulaMat_${idx}`, fmt(materialLinesCost(c)));
         setTxt(`formulaTotal_${idx}`, fmt(computeFormulaWorkCost(c)));
       }
-      body.querySelectorAll('.comp-formula').forEach(inp=>{
-        inp.addEventListener('input', ()=>{
-          const idx = Number(inp.dataset.idx);
-          t.components[idx][inp.dataset.f] = Number(inp.value)||0;
-          patchFormulaTotals(idx);
-        });
-      });
+      (t.components||[]).forEach((c,idx)=> bindLaborPanel(body, c, idx, ()=>patchFormulaTotals(idx), drawComponents));
       body.querySelectorAll('.mat-f').forEach(inp=>{
         inp.addEventListener('input', ()=>{
           const idx = Number(inp.dataset.idx), mi = Number(inp.dataset.m), f = inp.dataset.f;
@@ -1682,8 +1715,8 @@ function renderTemplates(content, actions){
     drawComponents();
     document.getElementById('btnAddComp').onclick = ()=>{
       if(!t.components) t.components = [];
-      const nc = {cat:defaultCat, useFormula:true, numberDays:0, numLaborers:0, laborRate:0, materials:[]};
-      applyCategoryDefaults(nc); t.components.push(nc);
+      const nc = {cat:defaultCat, useFormula:true, numberDays:0, laborTeams:[], materials:[]};
+      t.components.push(nc);
       drawComponents();
     };
   }
@@ -1766,10 +1799,6 @@ function renderTemplates(content, actions){
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Hull</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <label style="font-size:11.5px;color:var(--ink-soft);font-weight:600;">Category</label>
-              <select id="hullCat" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;font-size:12px;"></select>
-            </div>
           </div>
           <div id="hullWork" class="hull-work" style="margin-bottom:6px;"></div>
           ${componentEditorHTML('Structural Components')}
@@ -1813,19 +1842,17 @@ function renderTemplates(content, actions){
 
     /* ---------- Hull: formula + materials (no item name / unit / quantity) ---------- */
     function ensureHullWork(){
-      if(!t.hullWork || typeof t.hullWork!=='object') t.hullWork = { cat:'Fiberglass', useFormula:true, laborRate:0, numberDays:0, numLaborers:0, materials:[] };
+      if(!t.hullWork || typeof t.hullWork!=='object') t.hullWork = { useFormula:true, numberDays:0, laborTeams:[], materials:[] };
       const w = t.hullWork;
       w.useFormula = true;
       if(!Array.isArray(w.materials)) w.materials = [];
-      if(!w.cat) w.cat = 'Fiberglass';
+      ensureLaborTeams(w);   // reads the old single rate + head-count (using the old hull category) before dropping it
+      delete w.cat;          // the Hull no longer has a category
       return w;
     }
     function drawHullWork(){
       const w = ensureHullWork();
       const host = document.getElementById('hullWork');
-      const catSel = document.getElementById('hullCat');
-      catSel.innerHTML = presetCategoryList(w.cat).map(k=>`<option value="${esc(k)}" ${k===w.cat?'selected':''}>${esc(k)}</option>`).join('') + '<option value="__new">+ New category…</option>';
-      const rate = getCategoryRate(w.cat);
       const matRows = w.materials.map((m,mi)=>`
         <tr>
           <td><input class="tbl-input hmat-f" data-m="${mi}" data-f="name" value="${esc(m.name)}" placeholder="Material name"></td>
@@ -1837,11 +1864,7 @@ function renderTemplates(content, actions){
         </tr>`).join('') || `<tr><td colspan="6" class="empty" style="padding:12px;">No materials yet — add what the hull uses (for example fiberglass, resin and gelcoat).</td></tr>`;
       host.innerHTML = `
         <div style="background:var(--paper);border-radius:12px;padding:12px;">
-          <div class="grid g3" style="margin:0;">
-            <div class="field" style="margin:0;"><label style="font-size:10px;">Labor Rate (₱/day/person)</label><input type="number" min="0" step="any" class="tbl-input hull-formula" data-f="laborRate" value="${w.laborRate||0}"></div>
-            <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Days</label><input type="number" min="0" step="any" class="tbl-input hull-formula" data-f="numberDays" value="${w.numberDays||0}"></div>
-            <div class="field" style="margin:0;"><label style="font-size:10px;">Number of Laborers</label><input type="number" min="0" step="1" class="tbl-input hull-formula" data-f="numLaborers" value="${w.numLaborers||0}"></div>
-          </div>
+          ${laborPanelHTML(w, 'hull')}
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">Materials used for the hull</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1851,13 +1874,12 @@ function renderTemplates(content, actions){
           </div>
           <table class="mat-table"><thead><tr><th>Material</th><th>Unit</th><th class="right">Qty</th><th class="right">Price / unit (₱)</th><th class="right">Cost</th><th></th></tr></thead><tbody>${matRows}</tbody></table>
           <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="hullLabor">${fmt(computeLaborCost(w))}</span> + Materials <span class="mono" id="hullMat">${fmt(materialLinesCost(w))}</span> = Total Hull Cost <span class="mono" id="hullTotal">${fmt(computeFormulaWorkCost(w))}</span></div>
-          <div class="hint" style="margin-top:6px;">${rate?`Labor rate is filled in from <strong>${esc(w.cat)}</strong> from the Pricing Database (per day) and each material's price comes from the Materials list; you can still edit them. <span class="btn btn-ghost btn-sm" id="hullResetRate">Reset labor rate</span><br>`:`No standard labor rate for this category — enter the rate per day here.<br>`}When this boat model is used in a quotation, this Total Hull Cost replaces the automatic fiberglass / resin / gelcoat estimate.</div>
         </div>`;
       const patch = ()=>{
         const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
         set('hullLabor', fmt(computeLaborCost(w))); set('hullMat', fmt(materialLinesCost(w))); set('hullTotal', fmt(computeFormulaWorkCost(w)));
       };
-      host.querySelectorAll('.hull-formula').forEach(inp=>inp.addEventListener('input', ()=>{ w[inp.dataset.f] = Number(inp.value)||0; patch(); }));
+      bindLaborPanel(host, w, 'hull', patch, drawHullWork);
       host.querySelectorAll('.hmat-f').forEach(inp=>inp.addEventListener('input', ()=>{
         const mi = Number(inp.dataset.m), f = inp.dataset.f, m = w.materials[mi];
         m[f] = (f==='qty'||f==='price') ? Math.max(0, Number(inp.value)||0) : inp.value;
@@ -1866,26 +1888,12 @@ function renderTemplates(content, actions){
       }));
       host.querySelectorAll('[data-hdelmat]').forEach(b=>b.onclick=()=>{ w.materials.splice(Number(b.dataset.hdelmat),1); drawHullWork(); });
       document.getElementById('hullMatCustom').onclick = ()=>{
-        const r = getCategoryRate(w.cat);
-        w.materials.push({cat:'', name:'', unit:'unit', qty:1, price: r ? r.materialPrice : 0}); drawHullWork();
+        w.materials.push({cat:'', name:'', unit:'unit', qty:1, price:0}); drawHullWork();
       };
       document.getElementById('hullMatPick').onclick = ()=>{
         const selected = w.materials.filter(m=>m.cat && findCatalogByKey(catalogKey(m.cat,m.name))).map(m=>catalogKey(m.cat,m.name));
-        openMaterialPicker({ title:'Materials used for the hull', subtitle:'Tick everything the hull uses. You can set quantities afterwards.', selected, focusCat:w.cat, confirmLabel:'Apply materials',
+        openMaterialPicker({ title:'Materials used for the hull', subtitle:'Tick everything the hull uses. You can set quantities afterwards.', selected, confirmLabel:'Apply materials',
           onConfirm: keys=>{ applyPickedMaterials(w, keys); drawHullWork(); } });
-      };
-      const rr = document.getElementById('hullResetRate');
-      if(rr) rr.onclick = ()=>{ const r=getCategoryRate(w.cat); if(r){ w.laborRate=r.laborRate; toast('Labor rate reset to the Pricing Database value'); drawHullWork(); } };
-      catSel.onchange = ()=>{
-        let v = catSel.value;
-        if(v==='__new'){
-          v = (prompt('Name of the new category (for example: Fiberglass):')||'').trim();
-          if(!v){ drawHullWork(); return; }
-        }
-        w.cat = v;
-        const r = getCategoryRate(v);
-        if(r){ w.laborRate = r.laborRate; if(r.materials.length && !w.materials.length) applyPickedMaterials(w, r.materials); }
-        drawHullWork();
       };
     }
     drawHullWork();
@@ -1920,17 +1928,10 @@ function renderPricing(content, actions){
         ${numField('Topcoat Paint (₱/liter)','paintPerLiter',r.paintPerLiter)}
         ${numField('Paint Coverage (sqm/L per coat)','paintCoverage',r.paintCoverage)}
       </div></div>
-      <div class="card"><div class="card-head"><h3>Labor Days &amp; Daily Rates</h3></div><div class="card-body" style="padding:0;">
-        <div class="section-lead" style="padding:14px 20px 0;">Standard labor days and daily rate per category, applied to every quotation automatically. No longer editable per-quotation — change it here to affect all quotations at once.</div>
-        <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:110px;">Days</th><th style="width:130px;">Rate (₱/day)</th></tr></thead>
-        <tbody>
-          ${Object.keys(r.laborDailyRates).map(k=>`
-            <tr>
-              <td>${cap(k)}</td>
-              <td><input type="number" step="any" class="pf" data-key="days_${k}" value="${(r.laborDays&&r.laborDays[k])||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
-              <td><input type="number" step="any" class="pf" data-key="labor_${k}" value="${r.laborDailyRates[k]}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
-            </tr>`).join('')}
-        </tbody></table>
+      <div class="card"><div class="card-head"><h3>Labor Rates</h3><button class="btn btn-sm" id="addLaborCat">${icon('plus')} Add Category</button></div><div class="card-body" style="padding:0;">
+        <div class="section-lead" style="padding:14px 20px 0;">Daily rate per laborer for each labor category (for example Carpentry or Fiberglass). Boat Presets use these: pick the categories, how many laborers each needs, and the number of days. Add or remove categories as your shop needs.</div>
+        <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:150px;">Rate (₱/day)</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="laborRows"></tbody></table>
       </div></div>
     </div>
     <div class="card" style="margin-top:16px;">
@@ -1978,14 +1979,36 @@ function renderPricing(content, actions){
   }
   document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); drawMaterials(); };
 
-  drawAcc(); drawMaterials();
+  function drawLaborRates(){
+    const names = Object.keys(r.laborDailyRates);
+    document.getElementById('laborRows').innerHTML = names.map(k=>`
+      <tr>
+        <td>${esc(capFirst(k))}</td>
+        <td><input type="number" min="0" step="any" class="lr-f" data-k="${esc(k)}" value="${Number(r.laborDailyRates[k])||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
+        <td class="right"><span class="btn btn-ghost btn-sm" data-del-lr="${esc(k)}" style="color:var(--danger);" title="Remove this category">✕</span></td>
+      </tr>`).join('') || `<tr><td colspan="3" class="empty" style="padding:12px;">No labor categories yet. Click "Add Category".</td></tr>`;
+    document.querySelectorAll('.lr-f').forEach(i=>i.addEventListener('input', ()=>{ r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0); }));
+    document.querySelectorAll('[data-del-lr]').forEach(b=>b.onclick=()=>{
+      const k = b.dataset.delLr;
+      if(!confirm(`Remove the "${capFirst(k)}" labor category? Presets that already use it keep the rate they saved.`)) return;
+      delete r.laborDailyRates[k]; drawLaborRates();
+    });
+  }
+  document.getElementById('addLaborCat').onclick = ()=>{
+    let nm = (prompt('Name of the new labor category (for example: Carpentry):')||'').trim();
+    if(!nm) return;
+    nm = nm.charAt(0).toUpperCase() + nm.slice(1);
+    if(Object.keys(r.laborDailyRates).some(k=>k.trim().toLowerCase()===nm.toLowerCase())){ toast('That labor category already exists'); return; }
+    r.laborDailyRates[nm] = 0; drawLaborRates();
+    const inputs = document.querySelectorAll('.lr-f'); if(inputs.length) inputs[inputs.length-1].focus();
+  };
+
+  drawAcc(); drawMaterials(); drawLaborRates();
 
   document.getElementById('btnSavePricing').onclick = ()=>{
     document.querySelectorAll('.pf').forEach(i=>{
       const k = i.dataset.key, v = Number(i.value);
-      if(k.startsWith('labor_')) r.laborDailyRates[k.replace('labor_','')] = v;
-      else if(k.startsWith('days_')) r.laborDays[k.replace('days_','')] = v;
-      else r[k] = v;
+      r[k] = v;
     });
     save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
   };
@@ -2336,8 +2359,7 @@ function updateLiveSummary(q){
         <div class="cell"><div class="l">Hull Area</div><div class="v">${fmtNum(c.hull.area,1)}m²</div></div>
       </div>
     </div>
-    <div class="sum-row"><span class="k">Material Cost</span><span class="v">${fmt(c.materialCost)}</span></div>
-    <div class="sum-row"><span class="k">Labor Cost</span><span class="v">${fmt(c.laborCost)}</span></div>
+    <div class="sum-row"><span class="k">Materials &amp; Labor</span><span class="v">${fmt(c.materialCost)}</span></div>
     <div class="sum-row"><span class="k">Equipment Cost</span><span class="v">${fmt(c.equipmentCost)}</span></div>
     <div class="sum-row"><span class="k">Overhead (${q.rates.overheadPct}%)</span><span class="v">${fmt(c.overheadCost)}</span></div>
     <div class="sum-row"><span class="k">Contingency (${q.rates.contingencyPct}%)</span><span class="v">${fmt(c.contingencyCost)}</span></div>
@@ -3250,68 +3272,6 @@ function tabEngine(host, q){
       </tbody></table>`;
   }
   drawEng();
-}
-
-/* ---- Tab: Overhead & Margin ---- */
-function tabPricing(host, q){
-  const r = q.rates;
-  const sch = q.schedule;
-  host.innerHTML = `
-    <div class="card">
-      <div class="card-head"><h3>Construction Timeline</h3></div>
-      <div class="card-body">
-        <div class="section-lead">Price scales with how long the build takes — every day of construction carries a facility/overhead cost, and delivery dates faster than the standard build time carry a rush surcharge.</div>
-        <div class="grid g3">
-          <div class="field"><label>Construction Start Date</label><input type="date" id="schStart" value="${sch.startDate}"></div>
-          <div class="field"><label>Standard Build Duration (days)</label><input type="number" id="schStandard" value="${sch.standardDays}"></div>
-          <div class="field"><label>Requested / Quoted Duration (days)</label><input type="number" id="schRequested" value="${sch.requestedDays}"></div>
-        </div>
-        <div class="field"><label>Daily Rate (₱/day)</label><input type="number" step="any" id="schDailyRate" value="${r.dailyRate}"><div class="hint">Facility, utilities, and standby crew cost accrued per calendar day of construction.</div></div>
-        <div class="field"><label>Rush Surcharge (%)</label><input type="number" step="any" id="schRushPct" value="${r.rushFeePct}"><div class="hint">Applied to base cost only if the requested duration is shorter than the standard build duration.</div></div>
-        <div id="timelineOut"></div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Full Pricing Formula</h3></div>
-      <div class="card-body"><div class="hint" style="margin:0 0 10px;">Overhead, contingency and profit margin are edited in the side panel (Overhead, Contingency &amp; Margin).</div><div id="formulaOut"></div></div>
-    </div>
-  `;
-  ['schStart','schStandard','schRequested','schDailyRate','schRushPct'].forEach(id=>{
-    document.getElementById(id).addEventListener('input', ()=>{
-      sch.startDate = document.getElementById('schStart').value;
-      sch.standardDays = Number(document.getElementById('schStandard').value);
-      sch.requestedDays = Number(document.getElementById('schRequested').value);
-      r.dailyRate = Number(document.getElementById('schDailyRate').value);
-      r.rushFeePct = Number(document.getElementById('schRushPct').value);
-      persistQuote(q); drawFormula(); updateLiveSummary(q);
-    });
-  });
-  function drawFormula(){
-    const c = computeAll(q);
-    document.getElementById('timelineOut').innerHTML = `
-      <table style="margin-top:6px;"><tbody>
-        <tr><td>Requested Duration</td><td class="right mono">${c.requestedDays} days</td></tr>
-        <tr><td>Estimated Delivery Date</td><td class="right mono">${c.deliveryDate? c.deliveryDate.toISOString().slice(0,10) : '—'}</td></tr>
-        <tr><td>${c.isRush? 'Rush Build (faster than standard)' : 'Standard Build Schedule'}</td><td class="right">${c.isRush? '⚡ Rush surcharge applies' : '✓ No surcharge'}</td></tr>
-      </tbody></table>`;
-    document.getElementById('formulaOut').innerHTML = `
-      <table><tbody>
-        <tr><td>Material Cost</td><td class="right mono">${fmt(c.materialCost)}</td></tr>
-        <tr><td>+ Labor Cost</td><td class="right mono">${fmt(c.laborCost)}</td></tr>
-        <tr><td>+ Equipment Cost</td><td class="right mono">${fmt(c.equipmentCost)}</td></tr>
-        <tr><td style="border-top:1px solid var(--paper-line);">= Base Cost</td><td class="right mono" style="border-top:1px solid var(--paper-line);">${fmt(c.base)}</td></tr>
-        <tr><td>+ Overhead (${r.overheadPct}%)</td><td class="right mono">${fmt(c.overheadCost)}</td></tr>
-        <tr><td>+ Contingency (${r.contingencyPct}%)</td><td class="right mono">${fmt(c.contingencyCost)}</td></tr>
-        <tr><td>+ Profit Margin (${r.marginPct}%)</td><td class="right mono">${fmt(c.marginCost)}</td></tr>
-        <tr><td>+ Construction Duration Cost (${c.requestedDays} days × ${fmt(r.dailyRate)}/day)</td><td class="right mono">${fmt(c.durationCost)}</td></tr>
-        <tr><td>+ Rush Surcharge ${c.isRush?`(${r.rushFeePct}%)`:'(not applicable)'}</td><td class="right mono">${fmt(c.rushFee)}</td></tr>
-        <tr><td>+ MARINA Documentation &amp; Regulatory Requirements</td><td class="right mono">${fmt(c.marinaCost)}</td></tr>
-        ${c.multiplyPrice && c.numBoats>1 ? `<tr><td style="border-top:1px solid var(--paper-line);">= Per-Unit Price</td><td class="right mono" style="border-top:1px solid var(--paper-line);">${fmt(c.unitFinalTotal)}</td></tr>
-        <tr><td>× Number of Boats</td><td class="right mono">${c.numBoats}</td></tr>` : ``}
-        <tr class="grand"><td style="font-weight:700;">= Final Quotation Price</td><td class="right mono" style="font-weight:700;">${fmt(c.finalTotal)}</td></tr>
-      </tbody></table>`;
-  }
-  drawFormula();
 }
 
 /* ---- Tab: MARINA Documentation ---- */
