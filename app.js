@@ -866,7 +866,7 @@ if(!Array.isArray(SALES)){ SALES = salesSeed(); localSave(DB_KEYS.sales, SALES);
 let TEMPLATES = load(DB_KEYS.templates, null) || DEFAULT_TEMPLATES;
 if(!load(DB_KEYS.templates,null)) save(DB_KEYS.templates, TEMPLATES);
 if(!load(DB_KEYS.pricing,null)) save(DB_KEYS.pricing, PRICING);
-migrateUnitsToImperial();
+try{ migrateUnitsToImperial(); }catch(e){ console.error('Unit/preset migration skipped', e); }
 
 const DEFAULT_COMPANY = {
   name:'The Boat Shop Corporation',
@@ -2019,8 +2019,9 @@ function renderTemplates(content, actions){
           <div class="field" style="max-width:420px;"><label>Boat Model name</label><input id="boatModelName" value="${esc(m)}"><div class="hint">Renaming updates this preset. Existing quotations keep the name they were saved with.</div></div>
           <div class="grid g4">
             <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
-            <div class="field"><label>Beam (ft)</label><input type="number" step="any" class="tpl-f" data-f="beam" value="${t.beam||0}"></div>
-            <div class="field"><label>Depth (ft)</label><input type="number" step="any" class="tpl-f" data-f="depth" value="${t.depth||0}"></div>
+            ${['beam','depth'].map(f=>{ const v = decToFtIn(t[f]); return `<div class="field"><label>${f==='beam'?'Beam':'Depth'} (ft / in)</label><div style="display:flex;gap:6px;">
+              <input type="number" step="any" class="tpl-ftin" data-f="${f}" data-p="ft" value="${v.ft}" placeholder="ft" style="flex:1;min-width:0;">
+              <input type="number" min="0" max="11" step="1" class="tpl-ftin" data-f="${f}" data-p="in" value="${v.inch}" placeholder="in" style="flex:1;min-width:0;"></div></div>`; }).join('')}
             <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
           </div>
           ${componentEditorHTML('Structural Components')}
@@ -2055,6 +2056,11 @@ function renderTemplates(content, actions){
       if(card) card.dataset.model = nm;
       toast('Boat Model renamed — click Save Presets to keep the change');
     };
+    grid.querySelectorAll('.tpl-ftin').forEach(i=>i.onchange=()=>{
+      const f = i.dataset.f, pair = {};
+      grid.querySelectorAll(`.tpl-ftin[data-f="${f}"]`).forEach(x=>{ pair[x.dataset.p] = x.value; });
+      t[f] = ftInToDec(pair.ft, pair.in);
+    });
     grid.querySelectorAll('.tpl-f').forEach(i=>i.onchange=()=>{
       const f = i.dataset.f, conv = Number(i.dataset.conv)||1;   // glass weight and areas are stored metric
       if(['loa','beam','depth','numHulls'].includes(f)) t[f] = (Number(i.value)||0) / conv;
