@@ -370,15 +370,11 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 }
 .doc-wrap{background:#eef0f3;padding:40px 24px;border-radius:var(--radius);overflow-x:auto;}
 .doc{
-  background:#fff;max-width:840px;margin:0 auto;padding:0;
+  background:#fff;width:100%;max-width:188mm;margin:0 auto;padding:0;
   box-shadow:0 1px 2px rgba(15,23,42,.04), 0 24px 48px -24px rgba(15,23,42,.16);
   color:var(--doc-ink);font-size:10.5px;line-height:1.42;border-radius:6px;
   -webkit-font-smoothing:antialiased;
-  zoom:1.15; /* screen-only enlargement; print resets this to 1 below so
-                on-screen and printed proportions/wrapping stay identical.
-                Kept modest (rather than larger) so the effective width
-                (~966px) fits alongside the sidebar on typical laptop
-                screens without horizontal scrolling. */
+  zoom:1; /* Keep preview and print at the same scale to avoid reflow differences. */
 }
 .doc h1,.doc h2,.doc h3{font-family:'Sora',sans-serif;letter-spacing:-.01em;}
 .doc table{font-size:12px;border-collapse:collapse;width:100%;}
@@ -391,7 +387,7 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
    company name/tagline upper-left, logo upper-right; below that,
    unboxed title left, company contact details centre, and quote reference/date right. */
 .doc-header-top{
-  position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;
+  position:relative;display:flex;align-items:center;justify-content:space-between;gap:20px;
   min-height:0;padding:2px 0 18px;margin-bottom:12px;border-bottom:0;
 }
 .doc-header-top .co{flex:1 1 auto;min-width:0;}
@@ -400,11 +396,11 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 
 /* Second header row: title / company details / reference and dates. */
 .doc-header-row{
-  display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1.45fr) minmax(0,.98fr);
-  align-items:center;column-gap:18px;margin-top:0;
+  display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.5fr) minmax(0,.95fr);
+  align-items:center;column-gap:12px;margin-top:0;
 }
 .doc-header-left{min-width:0;display:flex;align-items:center;}
-.doc-header-mid{min-width:0;}
+.doc-header-mid{min-width:0;padding-left:10px;}
 .doc-header-right{min-width:0;}
 .doc-titlebar{
   font-family:'Sora',sans-serif;font-size:23px;line-height:1.18;font-weight:700;
@@ -587,12 +583,14 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 @media print{
   body *{visibility:hidden;}
   .doc-wrap,.doc-wrap *{visibility:visible;}
-  .doc-wrap{position:absolute;left:0;top:0;padding:0;background:#fff;width:100%;}
+  html,body{margin:0!important;padding:0!important;background:#fff!important;}
+  .doc{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .doc-wrap{position:absolute;left:0;top:0;padding:0;background:#fff;width:100%;overflow:visible;container-type:normal;}
   /* Reset the screen-only enlargement so print renders at true 100% size —
      every font-size/padding/margin below this point is otherwise now
      identical between screen and print, so what you see in the app's
      Quotation Output tab is what actually prints. */
-  .doc{box-shadow:none;margin:0;max-width:100%;border-radius:0;zoom:1;}
+  .doc{box-shadow:none;margin:0;width:100%;max-width:188mm;border-radius:0;zoom:1;break-inside:auto;}
   .no-print{display:none!important;}
   .doc-section-title{page-break-after:avoid;break-after:avoid;}
   .doc-band-row,.doc-words-row,.doc-sign,.doc-item-table tr,.doc-bank-row .acct,.doc-cost-row{
