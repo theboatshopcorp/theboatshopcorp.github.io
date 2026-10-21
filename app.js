@@ -885,7 +885,7 @@ try{ migrateUnitsToImperial(); }catch(e){ console.error('Unit/preset migration s
 
 const DEFAULT_COMPANY = {
   name:'The Boat Shop Corporation',
-  tagline:'Crafted for Performance. Refined Through Experience since 1957',
+  tagline:'Crafted for Performance, Refined Through Experience since 1957',
   address:'239 Marseilla St, Silangan I, Rosario, Cavite, Philippines',
   contact:'+63 917 804 0766',
   email:'info@boatshopphilippines.com',
@@ -3842,36 +3842,27 @@ function tabOutput(host, q){
 
         <div class="doc-header-row">
           <div class="doc-header-left">
-            <div class="doc-titlebar">Quotation</div>
+            <div class="doc-titlebar">QUOTATION</div>
           </div>
           <div class="doc-header-mid">
-            <div class="doc-info-panel">
-              <div class="panel-head">Quotation Information</div>
-              <table>
-                <tbody>
-                  <tr><td class="lbl">Client</td><td class="val">${esc(customerDisplayName(q.customerSnap))||'—'}</td></tr>
-                  <tr><td class="lbl">Project</td><td class="val">${esc(generateProjectTitle(q))||'—'}</td></tr>
-                  <tr><td class="lbl">Boat Model</td><td class="val">${esc(q.project.boatModel)||'—'}</td></tr>
-                  <tr><td class="lbl">Application</td><td class="val">${esc(q.project.boatApplication==='Other' ? (q.project.boatApplicationOther||'Other') : q.project.boatApplication)||'—'}</td></tr>
-                  <tr><td class="lbl">Prepared By</td><td class="val">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.full_name || q.createdByEmail || '')||'—'; })()}</td></tr>
-                </tbody>
-              </table>
-            </div>
+            <table class="doc-info-table">
+              <tbody>
+                <tr><td class="lbl">Address</td><td class="val">${splitAddressTwoLines(COMPANY.address)}</td></tr>
+                <tr><td class="lbl">Contact</td><td class="val">${esc(COMPANY.contact)}</td></tr>
+                <tr><td class="lbl">Email</td><td class="val">${esc(COMPANY.email)}</td></tr>
+                <tr><td class="lbl">TIN</td><td class="val">${esc(COMPANY.tin)}</td></tr>
+              </tbody>
+            </table>
           </div>
           <div class="doc-header-right">
-            <div class="doc-ref-block">
-              <div class="doc-ref-row"><span class="rlbl">Ref No.:</span><span class="rval">${esc(q.refNo)||'—'}</span></div>
-              <div class="doc-ref-row"><span class="rlbl">Date:</span><span class="rval">${dateIssuedStr}</span></div>
-              <div class="doc-ref-row"><span class="rlbl">Valid Until:</span><span class="rval">${(validUntil.getMonth()+1)+'/'+validUntil.getDate()+'/'+validUntil.getFullYear()}</span></div>
-            </div>
+            <table class="doc-info-table">
+              <tbody>
+                <tr><td class="lbl">PI Ref No.</td><td class="val">${esc(q.refNo)}</td></tr>
+                <tr><td class="lbl">Date Issued</td><td class="val">${dateIssuedStr}</td></tr>
+                <tr><td class="lbl">Expiry Date</td><td class="val">${(validUntil.getMonth()+1)+'/'+validUntil.getDate()+'/'+validUntil.getFullYear()}</td></tr>
+              </tbody>
+            </table>
           </div>
-        </div>
-
-        <div class="doc-co-strip">
-          <span><b>Address</b> ${esc(COMPANY.address)}</span>
-          <span><b>Tel</b> ${esc(COMPANY.contact)}</span>
-          <span><b>Email</b> ${esc(COMPANY.email)}</span>
-          <span><b>TIN</b> ${esc(COMPANY.tin)}</span>
         </div>
         <div class="doc-header-divider"></div>
 
