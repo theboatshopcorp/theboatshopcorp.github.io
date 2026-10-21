@@ -306,7 +306,6 @@ const DEFAULT_PRICING = {
   overheadPct: 12,
   contingencyPct: 5,
   marginPct: 18,
-  dailyRate: 3500,
   standardDurationDays: 180,
   rushFeePct: 15,
   accessoryCatalog: [
@@ -868,7 +867,6 @@ const DEFAULT_TEMPLATES = [
 
 let PRICING = load(DB_KEYS.pricing, null) || JSON.parse(JSON.stringify(DEFAULT_PRICING));
 if(!PRICING.structuralCatalog) PRICING.structuralCatalog = JSON.parse(JSON.stringify(DEFAULT_PRICING.structuralCatalog));
-if(PRICING.dailyRate===undefined) PRICING.dailyRate = DEFAULT_PRICING.dailyRate;
 ensurePricingShape();
 if(PRICING.standardDurationDays===undefined) PRICING.standardDurationDays = DEFAULT_PRICING.standardDurationDays;
 if(PRICING.rushFeePct===undefined) PRICING.rushFeePct = DEFAULT_PRICING.rushFeePct;
@@ -1180,12 +1178,14 @@ function computeAll(q){
   const sch = q.schedule || { startDate: todayISO(), standardDays: q.rates.standardDurationDays||180, requestedDays: q.rates.standardDurationDays||180 };
   const standardDays = Number(sch.standardDays)||0;
   const requestedDays = Number(sch.requestedDays)||standardDays;
-  const durationCost = requestedDays * (Number(q.rates.dailyRate)||0);
+  // Project duration is used for scheduling only. It is not a billable cost
+  // and must never be added to the quotation total.
+  const durationCost = 0;
   const isRush = standardDays>0 && requestedDays < standardDays;
   const rushFee = isRush ? base * (Number(q.rates.rushFeePct)||0)/100 : 0;
   const deliveryDate = sch.startDate ? new Date(new Date(sch.startDate).getTime() + requestedDays*86400000) : null;
   const marinaCost = (q.marina && Array.isArray(q.marina.items)) ? q.marina.items.reduce((s,it)=>s+(Number(it.price)||0),0) : 0;
-  const unitFinalTotal = materialCost + equipmentCost + overheadCost + contingencyCost + marginCost + durationCost + rushFee + marinaCost + testing.total;
+  const unitFinalTotal = materialCost + equipmentCost + overheadCost + contingencyCost + marginCost + rushFee + marinaCost + testing.total;
   const numBoats = Math.max(1, Number(q.project.numBoats)||1);
   const multiplyPrice = !!q.project.multiplyPrice;
   const finalTotal = multiplyPrice ? unitFinalTotal * numBoats : unitFinalTotal;
