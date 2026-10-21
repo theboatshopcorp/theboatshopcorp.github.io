@@ -790,3 +790,14 @@ input, select, textarea { max-width: 100%; }
 .sl-bold{font-weight:600;}
 .sl-tag{display:inline-block;padding:2px 10px;border-radius:var(--pill);font-size:11px;font-weight:600;}
 .sl-tag.t-fast{background:var(--teal-soft);color:var(--teal-dark);} .sl-tag.t-normal{background:var(--amber-soft);color:var(--amber-dark);} .sl-tag.t-slow{background:var(--danger-soft);color:var(--danger);}
+
+/* Live Total: editable rows (Overhead / Contingency / Margin / Discount / VAT) */
+.sum-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 6px;}
+.sum-row.sum-edit{align-items:center;gap:8px;}
+.sum-row.sum-edit .k{min-width:84px;}
+.sum-ctl{display:flex;align-items:center;gap:6px;margin-left:auto;}
+.sum-ctl .unit{color:var(--ink-faint);font-size:12px;}
+.sum-input{width:64px;padding:5px 10px;}
+.sum-select{width:auto;padding:5px 8px;}
+.sum-row.sum-edit .v{min-width:92px;text-align:right;}
+.sum-total.sum-total-contract{border-top:2px solid var(--ink);margin-top:10px;}
