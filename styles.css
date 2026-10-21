@@ -815,3 +815,10 @@ input, select, textarea { max-width: 100%; }
 .sum-select{width:auto;padding:5px 8px;}
 .sum-row.sum-edit .v{min-width:92px;text-align:right;}
 .sum-total.sum-total-contract{border-top:2px solid var(--ink);margin-top:10px;}
+
+/* Discount: optional reason + hint under the Discount row in the Live Total */
+.sum-sub{padding:0 0 9px;border-bottom:1px solid var(--paper-line);}
+.sum-sub input[type=text]{width:100%;padding:5px 10px;font-size:12px;}
+.sum-hint{font-size:11px;color:var(--ink-faint);margin-top:4px;min-height:14px;}
+.sum-hint.warn{color:var(--danger);font-weight:600;}
+.doc-totalsbox .row.net{font-weight:600;}
