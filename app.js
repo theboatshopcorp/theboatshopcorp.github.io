@@ -2395,7 +2395,6 @@ function renderEditor(content, actions){
                   <div class="hint">${esc(q.approvedBy && q.approvedBy.position || '')||'Position not set'}</div>
                 </div>
               </div>
-              ${CURRENT_IS_ADMIN ? `<button class="btn btn-sm btn-ghost" id="btnUnapprove" style="margin-top:10px;">Revoke Approval</button>` : ``}
             ` : ``}
           </div>
         </div>
@@ -2483,14 +2482,6 @@ function renderEditor(content, actions){
     persistQuote(q); save(DB_KEYS.quotes, QUOTES);
     toast(`Sent back for revision — ${copy.refNo} created`);
     CURRENT.view = 'quotes'; renderAll();
-  };
-
-  const unapproveBtn = document.getElementById('btnUnapprove');
-  if(unapproveBtn) unapproveBtn.onclick = ()=>{
-    if(!confirm('Revoke this approval? The quotation will return to "For Approval" status.')) return;
-    q.approvedBy = null;
-    q.status = 'for_approval';
-    persistQuote(q); toast('Approval revoked'); renderEditor(content, actions);
   };
 
   const tabsEl = document.getElementById('editTabs');
