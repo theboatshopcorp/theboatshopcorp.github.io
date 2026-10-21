@@ -370,7 +370,7 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 }
 .doc-wrap{background:#eef0f3;padding:40px 24px;border-radius:var(--radius);overflow-x:auto;}
 .doc{
-  background:#fff;max-width:840px;margin:0 auto;padding:28px 32px 36px;
+  background:#fff;max-width:840px;margin:0 auto;padding:0;
   box-shadow:0 1px 2px rgba(15,23,42,.04), 0 24px 48px -24px rgba(15,23,42,.16);
   color:var(--doc-ink);font-size:10.5px;line-height:1.42;border-radius:6px;
   -webkit-font-smoothing:antialiased;
@@ -387,90 +387,47 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 .doc-terms ol{padding-left:16px;}
 .doc-terms li{margin-bottom:4px;}
 
-/* Header: company + tagline (left) / logo (right) — matches official form letterhead */
+/* Quotation header arranged like a formal company document:
+   company name/tagline upper-left, logo upper-right; below that,
+   unboxed title left, company contact details centre, and quote reference/date right. */
 .doc-header-top{
-  position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
-  min-height:0;padding:0 0 12px;margin:0 0 14px;border-bottom:none;
+  position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;
+  min-height:0;padding:2px 0 18px;margin-bottom:12px;border-bottom:0;
 }
-.doc-header-top .co h2{
-  font-family:'Sora',sans-serif;font-size:15px;color:var(--doc-ink);font-weight:700;
-  margin:0 0 2px;letter-spacing:-.01em;line-height:1.25;
-}
-.doc-header-top .co .tag{
-  font-size:10px;letter-spacing:.01em;color:var(--doc-ink-soft);font-style:italic;line-height:1.35;
-}
+.doc-header-top .co{flex:1 1 auto;min-width:0;}
+.doc-header-top .co h2{font-size:16px;color:var(--doc-ink);font-weight:700;margin-bottom:4px;letter-spacing:-.01em;}
+.doc-header-top .co .tag{font-size:10.5px;letter-spacing:.01em;color:var(--doc-ink-soft);font-style:italic;}
 
-/* Title + Quotation Information — same layout as the Employee Evaluation Form */
+/* Second header row: title / company details / reference and dates. */
 .doc-header-row{
-  display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,1.55fr) minmax(110px,.65fr);
-  gap:12px 16px;align-items:start;margin:0 0 4px;
+  display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1.45fr) minmax(0,.98fr);
+  align-items:center;column-gap:18px;margin-top:0;
 }
-.doc-header-left{display:flex;align-items:center;min-height:100%;}
-.doc-titlebar{
-  font-family:'Sora',sans-serif;font-size:22px;font-weight:700;letter-spacing:.02em;
-  color:var(--doc-ink);line-height:1.15;text-transform:uppercase;
-}
+.doc-header-left{min-width:0;display:flex;align-items:center;}
 .doc-header-mid{min-width:0;}
 .doc-header-right{min-width:0;}
-
-/* Bordered info panel (like “Evaluation Information” on the form) */
-.doc-info-panel{
-  border:1.5px solid var(--doc-ink);border-radius:0;overflow:hidden;background:#fff;
+.doc-titlebar{
+  font-family:'Sora',sans-serif;font-size:23px;line-height:1.18;font-weight:700;
+  letter-spacing:0;color:var(--doc-ink);background:transparent;border:0;padding:0;
 }
-.doc-info-panel .panel-head{
-  font-family:'Sora',sans-serif;font-size:11px;font-weight:700;letter-spacing:.02em;
-  padding:6px 10px;border-bottom:1.5px solid var(--doc-ink);color:var(--doc-ink);
-  background:var(--doc-tint);
-}
-.doc-info-panel table{width:100%;border-collapse:collapse;}
-.doc-info-panel td{
-  padding:5px 10px;vertical-align:middle;line-height:1.35;
-  border-bottom:1px solid var(--doc-line);font-size:10px;
-}
-.doc-info-panel tr:last-child td{border-bottom:none;}
-.doc-info-panel td.lbl{
-  width:36%;color:var(--doc-ink);font-weight:600;white-space:nowrap;padding-right:6px;
-}
-.doc-info-panel td.val{
-  color:var(--doc-ink);font-weight:500;word-break:break-word;
-  border-bottom:1px solid var(--doc-ink);
-  min-height:18px;
+@media(max-width:700px){
+  .doc-header-row{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:12px;}
+  .doc-header-left{grid-column:1;grid-row:1;}
+  .doc-header-mid{grid-column:1 / -1;grid-row:2;}
+  .doc-header-right{grid-column:2;grid-row:1;}
+  .doc-titlebar{font-size:19px;}
 }
 
-/* Ref No. / Date block (top-right, form style) */
-.doc-ref-block{display:flex;flex-direction:column;gap:8px;padding-top:2px;}
-.doc-ref-row{
-  display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:end;
-  font-size:10.5px;line-height:1.2;
-}
-.doc-ref-row .rlbl{font-weight:700;color:var(--doc-ink);white-space:nowrap;}
-.doc-ref-row .rval{
-  font-weight:600;color:var(--doc-ink);border-bottom:1.5px solid var(--doc-ink);
-  min-height:16px;padding:0 2px 2px;text-align:left;
-}
-
-/* Legacy info table (company address strip, etc.) */
+/* Right-side info table: fixed label column so every value starts at the
+   same horizontal position; rows all share equal height/spacing; wrapped
+   values (e.g. Address) stay aligned to the value column, not the label. */
 .doc-info-table{width:100%;border-collapse:collapse;table-layout:fixed;}
 .doc-info-table td{padding:3px 0;vertical-align:middle;line-height:1.5;}
 .doc-info-table td.lbl{width:80px;color:var(--doc-ink-faint);font-size:9px;font-weight:700;letter-spacing:.02em;white-space:nowrap;padding-right:10px;}
 .doc-info-table td.val{color:var(--doc-ink);font-size:9.3px;font-weight:600;word-break:break-word;width:auto;}
 
-/* Quiet company contact strip under letterhead */
-.doc-co-strip{
-  display:flex;flex-wrap:wrap;gap:4px 16px;font-size:9.5px;color:var(--doc-ink-soft);
-  padding:0 0 10px;margin:0;
-}
-.doc-co-strip span{white-space:nowrap;}
-.doc-co-strip b{font-weight:600;color:var(--doc-ink);}
-
 /* Bold divider separating the whole header from the quotation content below */
-.doc-header-divider{border-bottom:2px solid var(--doc-ink);margin:8px 0 16px;}
-
-@media (max-width:720px){
-  .doc-header-row{grid-template-columns:1fr;gap:12px;}
-  .doc-titlebar{font-size:20px;}
-  .doc-ref-block{flex-direction:row;flex-wrap:wrap;gap:10px 18px;}
-}
+.doc-header-divider{border-bottom:1px solid var(--doc-line);margin:14px 0 14px;}
 
 /* Draggable / resizable logo */
 .doc-logo-wrap{position:relative;flex:none;cursor:move;user-select:none;}
@@ -497,8 +454,8 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
   content:'';position:absolute;top:2px;bottom:2px;right:-20px;width:1px;background:var(--doc-line);
 }
 .doc-band-head{
-  font-family:'Sora',sans-serif;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--doc-ink);margin-bottom:10px;
+  font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--doc-accent-dark);margin-bottom:12px;
 }
 .doc-band-body{}
 .doc-kv-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--doc-line);font-size:11.3px;}
@@ -511,13 +468,13 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 
 /* Centered project statement — quiet rule above/below instead of a bold block */
 .doc-project-bar{
-  text-align:center;font-family:'Sora',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:.005em;
-  padding:10px 8px;margin:4px 0 14px;color:var(--doc-ink);
-  border-top:1.5px solid var(--doc-ink);border-bottom:1.5px solid var(--doc-ink);
+  text-align:center;font-weight:600;font-size:12px;letter-spacing:.005em;
+  padding:7px 0;margin:0 0 12px;color:var(--doc-ink);
+  border-top:1px solid var(--doc-line);border-bottom:1px solid var(--doc-line);
 }
 .doc-project-note{
   text-align:center;font-size:11px;color:var(--doc-ink-soft);
-  padding:0 24px 4px;margin:0 0 14px;line-height:1.6;
+  padding:6px 24px 0;margin:0 0 12px;line-height:1.6;
 }
 
 /* Logo manager card (editing UI, hidden on print) */
@@ -532,12 +489,11 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 
 /* Section labels: small accent tab + quiet uppercase text, not a solid color bar */
 .doc-section-title{
-  font-family:'Sora',sans-serif;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--doc-ink);margin:18px 0 8px;padding:0 0 5px 12px;position:relative;
-  border-bottom:1px solid var(--doc-line);
+  font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--doc-ink);margin:12px 0 7px;padding-left:13px;position:relative;
 }
 .doc-section-title::before{
-  content:'';position:absolute;left:0;top:2px;bottom:6px;width:3px;border-radius:1px;background:var(--doc-ink);
+  content:'';position:absolute;left:0;top:1px;bottom:1px;width:3px;border-radius:2px;background:var(--doc-accent);
 }
 
 /* Item / cost tables — hairline rules, quiet uppercase headers, no filled bars */
