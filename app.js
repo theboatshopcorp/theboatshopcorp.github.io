@@ -1138,7 +1138,7 @@ function computeStructural(q){
 function computeAccessories(q){
   // Special Features / Accessories only count (and only print) while its checkbox is ticked.
   const sf = q.specialFeatures;
-  const sfItems = (sf && sf.enabled) ? (sf.items||[]).map(a=>({...a, cat:SPECIAL_FEATURES_CAT, isSpecial:true})) : [];
+  const sfItems = (sf && sf.enabled) ? (sf.items||[]).map(a=>({...a, cat:String(a.cat||'').trim() || SPECIAL_FEATURES_CAT, isSpecial:true})) : [];
   const rows = [...q.accessories, ...sfItems].map(a=>{
     const base = (Number(a.qty)||0) * (Number(a.unitPrice)||0);
     const total = base * (1 + (Number(a.markup)||0)/100);
@@ -2363,34 +2363,7 @@ function renderEditor(content, actions){
       <div class="summary-panel">
         <div class="card">
           <div class="card-head"><h3>Live Total</h3></div>
-          <div class="card-body" id="liveSummary"></div>
-        </div>
-        <div class="card" style="margin-top:16px;">
-          <div class="card-head"><h3>Overhead, Contingency &amp; Margin</h3></div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
-            <div class="side-row"><label for="sbOverhead">Overhead</label><input type="number" min="0" step="any" id="sbOverhead" class="side-input" value="${q.rates.overheadPct}"><span>%</span></div>
-            <div class="side-row"><label for="sbContingency">Contingency</label><input type="number" min="0" step="any" id="sbContingency" class="side-input" value="${q.rates.contingencyPct}"><span>%</span></div>
-            <div class="side-row"><label for="sbMargin">Profit Margin</label><input type="number" min="0" step="any" id="sbMargin" class="side-input" value="${q.rates.marginPct}"><span>%</span></div>
-            <div class="hint" style="margin:0;">Applied to this quotation's base cost. Changes update the Live Total instantly.</div>
-          </div>
-        </div>
-        <div class="card" style="margin-top:16px;">
-          <div class="card-head"><h3>VAT &amp; Discount</h3></div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
-            <div class="field-inline" style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;">
-              <span style="min-width:52px;">VAT</span>
-              <input type="number" id="vatPct" value="${q.invoice.vatPct}" class="side-input">
-              <span>%</span>
-            </div>
-            <div class="field-inline" style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <span style="min-width:52px;">Discount</span>
-              <select id="discountType" class="side-input" style="width:auto;">
-                <option value="pct" ${q.invoice.discountType==='pct'?'selected':''}>%</option>
-                <option value="fixed" ${q.invoice.discountType==='fixed'?'selected':''}>₱ Fixed</option>
-              </select>
-              <input type="number" id="discountValue" value="${q.invoice.discountValue}" class="side-input" style="width:96px;">
-            </div>
-          </div>
+          <div class="card-body" id="liveSummary">${liveSummaryShell(q)}</div>
         </div>
         <div class="card" style="margin-top:16px;">
           <div class="card-head"><h3>Status</h3></div>
@@ -2438,15 +2411,15 @@ function renderEditor(content, actions){
       updateLiveSummary(q);
     });
   });
-  document.getElementById('vatPct').onchange = (e)=>{
-    q.invoice.vatPct = Number(e.target.value)||0; persistQuote(q); renderEditor(content, actions);
-  };
-  document.getElementById('discountType').onchange = (e)=>{
-    q.invoice.discountType = e.target.value; persistQuote(q); renderEditor(content, actions);
-  };
-  document.getElementById('discountValue').onchange = (e)=>{
-    q.invoice.discountValue = Number(e.target.value)||0; persistQuote(q); renderEditor(content, actions);
-  };
+  // VAT & Discount live inside the Live Total now.
+  const refreshAfterEdit = ()=>{ persistQuote(q); updateLiveSummary(q); };
+  document.getElementById('vatPct').addEventListener('input', (e)=>{ q.invoice.vatPct = Math.max(0, Number(e.target.value)||0); refreshAfterEdit(); });
+  document.getElementById('discountType').addEventListener('change', (e)=>{ q.invoice.discountType = e.target.value; refreshAfterEdit(); });
+  document.getElementById('discountValue').addEventListener('input', (e)=>{ q.invoice.discountValue = Math.max(0, Number(e.target.value)||0); refreshAfterEdit(); });
+  // If the printed preview is showing, redraw it once the person finishes editing a Live Total field.
+  ['sbOverhead','sbContingency','sbMargin','vatPct','discountType','discountValue'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', ()=>{ if(CURRENT.tab==='output') renderEditor(content, actions); });
+  });
   document.getElementById('btnBackList').onclick = ()=>{ CURRENT.view='quotes'; renderAll(); };
   document.getElementById('btnGoOutput').onclick = ()=>{ CURRENT.tab='output'; renderEditor(content,actions); };
   document.querySelectorAll('.summary-panel [data-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.open));
@@ -2524,27 +2497,66 @@ function renderEditor(content, actions){
   updateLiveSummary(q);
 }
 
-function updateLiveSummary(q){
-  const c = computeAll(q);
-  document.getElementById('liveSummary').innerHTML = `
+// Dimensions in the shop's style: LOA as 32ft, Beam / Depth as 07ft 08in (no decimals).
+function fmtFtIn(dec, ftOnlyWhenNoInches){
+  const {ft, inch} = decToFtIn(dec);
+  const f = String(ft).padStart(2,'0') + 'ft';
+  return (ftOnlyWhenNoInches && inch===0) ? f : `${f} ${String(inch).padStart(2,'0')}in`;
+}
+// Built once with the editor so typing in these fields never loses focus; updateLiveSummary() only patches the numbers.
+function liveSummaryShell(q){
+  const inv = q.invoice || {};
+  const pctRow = (label, id, val, outId)=>`
+    <div class="sum-row sum-edit"><span class="k">${label}</span>
+      <span class="sum-ctl"><input type="number" min="0" step="any" id="${id}" class="side-input sum-input" value="${val}"><span class="unit">%</span></span>
+      <span class="v" id="${outId}"></span></div>`;
+  return `
+    <div class="sum-label">Particulars</div>
     <div class="spec-plate" style="margin:0 0 14px;padding:12px 14px;">
       <div class="row">
-        <div class="cell"><div class="l">LOA</div><div class="v">${q.hull.loa||0}′</div></div>
-        <div class="cell"><div class="l">Beam</div><div class="v">${q.hull.beam||0}′</div></div>
-        <div class="cell"><div class="l">Hull Area</div><div class="v">${fmtNum(sqft(c.hull.area),1)} sq ft</div></div>
+        <div class="cell"><div class="l">LOA</div><div class="v" id="lsLoa"></div></div>
+        <div class="cell"><div class="l">Beam</div><div class="v" id="lsBeam"></div></div>
+        <div class="cell"><div class="l">Depth</div><div class="v" id="lsDepth"></div></div>
+        <div class="cell"><div class="l">Hull Area</div><div class="v" id="lsArea"></div></div>
       </div>
     </div>
-    <div class="sum-row"><span class="k">Materials &amp; Labor</span><span class="v">${fmt(c.materialCost)}</span></div>
-    <div class="sum-row"><span class="k">Equipment Cost</span><span class="v">${fmt(c.equipmentCost)}</span></div>
-    <div class="sum-row"><span class="k">Overhead (${q.rates.overheadPct}%)</span><span class="v">${fmt(c.overheadCost)}</span></div>
-    <div class="sum-row"><span class="k">Contingency (${q.rates.contingencyPct}%)</span><span class="v">${fmt(c.contingencyCost)}</span></div>
-    <div class="sum-row"><span class="k">Profit Margin (${q.rates.marginPct}%)</span><span class="v">${fmt(c.marginCost)}</span></div>
-    <div class="sum-row"><span class="k">Duration (${c.requestedDays}d × ${fmt(q.rates.dailyRate)})</span><span class="v">${fmt(c.durationCost)}</span></div>
-    <div class="sum-row"><span class="k">Rush Surcharge${c.isRush?'':' (n/a)'}</span><span class="v">${fmt(c.rushFee)}</span></div>
-    <div class="sum-row"><span class="k">MARINA Documentation</span><span class="v">${fmt(c.marinaCost)}</span></div>
-    ${c.numBoats>1 ? `<div class="sum-row"><span class="k">Number of Boats</span><span class="v">${c.numBoats}${c.multiplyPrice? ` × unit price` : ' (price not multiplied)'}</span></div>` : ``}
-    <div class="sum-total"><span class="k">Final Price</span><span class="v">${fmt(c.finalTotal)}</span></div>
+    <div class="sum-row"><span class="k">Materials &amp; Labor</span><span class="v" id="lsMaterials"></span></div>
+    <div class="sum-row"><span class="k">MARINA Documentation</span><span class="v" id="lsMarina"></span></div>
+    <div class="sum-row" id="lsBoatsRow" style="display:none;"><span class="k">Number of Boats</span><span class="v" id="lsBoats"></span></div>
+    ${pctRow('Overhead','sbOverhead',q.rates.overheadPct,'lsOverhead')}
+    ${pctRow('Contingency','sbContingency',q.rates.contingencyPct,'lsContingency')}
+    ${pctRow('Profit Margin','sbMargin',q.rates.marginPct,'lsMargin')}
+    <div class="sum-total"><span class="k">Final Price</span><span class="v" id="lsFinal"></span></div>
+    <div class="sum-row sum-edit"><span class="k">Discount</span>
+      <span class="sum-ctl">
+        <select id="discountType" class="side-input sum-select"><option value="pct" ${inv.discountType!=='fixed'?'selected':''}>%</option><option value="fixed" ${inv.discountType==='fixed'?'selected':''}>₱ Fixed</option></select>
+        <input type="number" min="0" step="any" id="discountValue" class="side-input sum-input" value="${Number(inv.discountValue)||0}">
+      </span>
+      <span class="v" id="lsDiscount"></span></div>
+    ${pctRow('VAT','vatPct',Number(inv.vatPct)||0,'lsVat')}
+    <div class="sum-total sum-total-contract"><span class="k">Total Contract Amount</span><span class="v" id="lsContract"></span></div>
   `;
+}
+function updateLiveSummary(q){
+  if(!document.getElementById('liveSummary')) return;
+  const c = computeAll(q), inv = computeInvoiceTotals(q, c);
+  const set = (id, v)=>{ const el = document.getElementById(id); if(el) el.textContent = v; };
+  set('lsLoa', fmtFtIn(q.hull.loa, true));
+  set('lsBeam', fmtFtIn(q.hull.beam));
+  set('lsDepth', fmtFtIn(q.hull.depth));
+  set('lsArea', fmtNum(sqft(c.hull.area),1) + ' sq ft');
+  set('lsMaterials', fmt(c.materialCost));
+  set('lsMarina', fmt(c.marinaCost));
+  const boats = document.getElementById('lsBoatsRow');
+  if(boats) boats.style.display = c.numBoats>1 ? '' : 'none';
+  set('lsBoats', c.numBoats + (c.multiplyPrice ? ' × unit price' : ' (price not multiplied)'));
+  set('lsOverhead', fmt(c.overheadCost));
+  set('lsContingency', fmt(c.contingencyCost));
+  set('lsMargin', fmt(c.marginCost));
+  set('lsFinal', fmt(c.finalTotal));
+  set('lsDiscount', inv.discountAmount>0 ? '-' + fmt(inv.discountAmount) : fmt(0));
+  set('lsVat', fmt(inv.vatAmount));
+  set('lsContract', fmt(inv.totalContractAmount));
 }
 
 /* ---- Tab: Client & Project ---- */
@@ -3018,6 +3030,15 @@ function tabPaint(host, q){
   draw();
 }
 
+/* Category suggestions for Special Features: the default heading, categories typed on any quotation's
+   special features, and the regular accessory categories. Typing a new name simply creates it. */
+function sfKnownCategories(q){
+  const set = new Set([SPECIAL_FEATURES_CAT]);
+  (QUOTES||[]).concat(q?[q]:[]).forEach(qt=>{ ((qt.specialFeatures&&qt.specialFeatures.items)||[]).forEach(a=>{ if(a.cat && String(a.cat).trim()) set.add(String(a.cat).trim()); }); });
+  getKnownAccessoryCategories().forEach(c=>{ if(c!=='Custom') set.add(c); });
+  return [...set];
+}
+
 /* ---- Tab: Accessories ---- */
 function tabAccessories(host, q){
   host.innerHTML = `
@@ -3050,7 +3071,8 @@ function tabAccessories(host, q){
           <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
             <button class="btn btn-sm" id="sfAdd">${icon('plus')} Add Special Feature</button>
           </div>
-          <table><thead><tr><th>Item / Description</th><th style="width:70px;">Unit</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th style="width:75px;">Markup %</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
+          <datalist id="sfCatList">${sfKnownCategories(q).map(c=>`<option value="${esc(c)}"></option>`).join('')}</datalist>
+          <table><thead><tr><th style="width:21%;">Category</th><th>Item / Description</th><th style="width:70px;">Unit</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th style="width:75px;">Markup %</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
             <tbody id="sfRows"></tbody>
           </table>
         </div>
@@ -3179,6 +3201,7 @@ function tabAccessories(host, q){
     const rowTotal = a => (Number(a.qty)||0)*(Number(a.unitPrice)||0)*(1+(Number(a.markup)||0)/100);
     function drawSF(){
       rows.innerHTML = sf.items.length ? sf.items.map((a,idx)=>`<tr>
+        <td><input class="tbl-input sfrow" list="sfCatList" data-idx="${idx}" data-f="cat" value="${esc(a.cat||'')}" placeholder="${esc(SPECIAL_FEATURES_CAT)}"></td>
         <td><input class="tbl-input sfrow" data-idx="${idx}" data-f="name" value="${esc(a.name||'')}" placeholder="e.g. Dive compressor mount, deck winch"></td>
         <td><input class="tbl-input sfrow" data-idx="${idx}" data-f="unit" value="${esc(a.unit||'pc')}"></td>
         <td><input class="tbl-input num sfrow" type="number" data-idx="${idx}" data-f="qty" value="${Number(a.qty)||0}"></td>
@@ -3186,11 +3209,11 @@ function tabAccessories(host, q){
         <td><input class="tbl-input num sfrow" type="number" data-idx="${idx}" data-f="markup" value="${Number(a.markup)||0}"></td>
         <td class="right mono">${fmt(rowTotal(a))}</td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-delsf="${idx}" style="color:var(--danger);">✕</span></td>
-      </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No special features yet. Click "Add Special Feature".</div></td></tr>`;
+      </tr>`).join('') : `<tr><td colspan="8"><div class="empty">No special features yet. Click "Add Special Feature".</div></td></tr>`;
       rows.querySelectorAll('.sfrow').forEach(inp=>inp.addEventListener('input', ()=>{
         const a = sf.items[Number(inp.dataset.idx)], f = inp.dataset.f;
         a[f] = (f==='qty'||f==='unitPrice'||f==='markup') ? Number(inp.value) : inp.value;
-        const tr = inp.closest('tr'); if(tr) tr.children[5].textContent = fmt(rowTotal(a));   // patch the total only, so typing keeps focus
+        const tr = inp.closest('tr'); if(tr) tr.children[6].textContent = fmt(rowTotal(a));   // patch the total only, so typing keeps focus
         persistQuote(q); updateLiveSummary(q);
       }));
       rows.querySelectorAll('[data-delsf]').forEach(b=>b.onclick=()=>{
@@ -3200,11 +3223,11 @@ function tabAccessories(host, q){
     document.getElementById('sfEnable').addEventListener('change', e=>{
       sf.enabled = e.target.checked;
       body.style.display = sf.enabled ? '' : 'none';
-      if(sf.enabled && !sf.items.length) sf.items.push({id:uid('sf'), name:'', unit:'pc', qty:1, unitPrice:0, markup:15});
+      if(sf.enabled && !sf.items.length) sf.items.push({id:uid('sf'), cat:'', name:'', unit:'pc', qty:1, unitPrice:0, markup:15});
       drawSF(); persistQuote(q); updateLiveSummary(q);
     });
     document.getElementById('sfAdd').onclick = ()=>{
-      sf.items.push({id:uid('sf'), name:'', unit:'pc', qty:1, unitPrice:0, markup:15});
+      sf.items.push({id:uid('sf'), cat:'', name:'', unit:'pc', qty:1, unitPrice:0, markup:15});
       drawSF(); persistQuote(q); updateLiveSummary(q);
     };
     drawSF();
@@ -3799,7 +3822,7 @@ function tabOutput(host, q){
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
         <button class="btn btn-primary" id="btnPrint">🖨 Print / Export as PDF</button>
         <span class="hint">Uses your browser's print dialog — choose "Save as PDF" as the destination.</span>
-        <span class="hint">VAT and discount are set in the "VAT &amp; Discount" panel next to Live Total. Approval is there too. Prepared By, Approved By, and CONFORME all fill in automatically below — nothing to edit here.</span>
+        <span class="hint">VAT and discount are set in the Live Total panel. Approval is there too. Prepared By, Approved By, and CONFORME all fill in automatically below — nothing to edit here.</span>
       </div>
     </div>
 
