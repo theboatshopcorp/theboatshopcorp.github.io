@@ -1056,7 +1056,7 @@ function blankQuote(){
       notes:"All MARINA registration, licensing, permit, and certification fees are for the account of the Customer unless otherwise stated. The Company shall provide the Builder's Certificate and other builder-side documents required to support the Customer's registration application."
     },
     output: { showInternalCosts:false },
-    invoice: { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:0 },
+    invoice: { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:0, discountNote:'' },
     paymentSchedule: [
       { description:'Downpayment', terms:'Upon order confirmation & signed conform', dueUpon:'Order Confirmation', percent:20 },
       { description:'Balance', terms:'Before shipping / delivery of the boat', dueUpon:'Before Delivery', percent:80 },
@@ -1168,45 +1168,43 @@ function computeAll(q){
   const acc = computeAccessories(q);
   const testing = computeTestingDelivery(q);
   const eng = computeEngine(q);
+  // Every priced line is summed exactly once. There is no separate "equipment cost"
+  // bucket and no duration / rush charge: the price depends only on the line items.
+  // Labor lives inside the preset lines (hull / structural), so there is no separate labor charge.
   const materialCost = hull.total + paint.total + structural.total;
-  const equipmentCost = acc.total + eng.total;
-  // Labor now lives inside the preset lines (hull / structural), so there is no separate labor charge.
-  const base = materialCost + equipmentCost;
+  const base = materialCost + acc.total + eng.total;
   const overheadCost = base * (Number(q.rates.overheadPct)||0)/100;
   const contingencyCost = base * (Number(q.rates.contingencyPct)||0)/100;
   const marginCost = base * (Number(q.rates.marginPct)||0)/100;
-  const sch = q.schedule || { startDate: todayISO(), standardDays: q.rates.standardDurationDays||180, requestedDays: q.rates.standardDurationDays||180 };
-  const standardDays = Number(sch.standardDays)||0;
-  const requestedDays = Number(sch.requestedDays)||standardDays;
-  // Project duration is used for scheduling only. It is not a billable cost
-  // and must never be added to the quotation total.
-  const durationCost = 0;
-  const isRush = standardDays>0 && requestedDays < standardDays;
-  const rushFee = isRush ? base * (Number(q.rates.rushFeePct)||0)/100 : 0;
-  const deliveryDate = sch.startDate ? new Date(new Date(sch.startDate).getTime() + requestedDays*86400000) : null;
   const marinaCost = (q.marina && Array.isArray(q.marina.items)) ? q.marina.items.reduce((s,it)=>s+(Number(it.price)||0),0) : 0;
-  const unitFinalTotal = materialCost + equipmentCost + overheadCost + contingencyCost + marginCost + rushFee + marinaCost + testing.total;
+  const unitFinalTotal = base + overheadCost + contingencyCost + marginCost + marinaCost + testing.total;
   const numBoats = Math.max(1, Number(q.project.numBoats)||1);
   const multiplyPrice = !!q.project.multiplyPrice;
   const finalTotal = multiplyPrice ? unitFinalTotal * numBoats : unitFinalTotal;
-  return { hull, paint, structural, acc, testing, eng, materialCost, equipmentCost, overheadCost, contingencyCost, marginCost, marinaCost, base, standardDays, requestedDays, durationCost, isRush, rushFee, deliveryDate, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
+  return { hull, paint, structural, acc, testing, eng, materialCost, overheadCost, contingencyCost, marginCost, marinaCost, base, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
 }
+const round2 = n => Math.round((Number(n)||0)*100 + 1e-9)/100;
 function computeInvoiceTotals(q, c){
   const inv = q.invoice || { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:0 };
-  const contractAmount = c.finalTotal;
-  const discountType = inv.discountType || 'pct';
-  const discountValue = Number(inv.discountValue)||0;
-  let discountAmount = discountType==='fixed' ? discountValue : contractAmount*discountValue/100;
-  discountAmount = Math.max(0, Math.min(discountAmount, contractAmount));
-  const discountedAmount = contractAmount - discountAmount;
+  const contractAmount = round2(c.finalTotal);
+  const discountType = inv.discountType==='fixed' ? 'fixed' : 'pct';
+  const discountValue = Math.max(0, Number(inv.discountValue)||0);
+  // Discount comes off the full price (after any x-boats multiplication) and BEFORE VAT,
+  // so VAT is charged only on what the client actually pays for.
+  const requested = discountType==='fixed' ? discountValue : contractAmount*Math.min(discountValue,100)/100;
+  const discountAmount = round2(Math.min(requested, contractAmount));
+  const discountCapped = discountType==='fixed' ? discountValue > contractAmount : discountValue > 100;
+  const discountPctEff = contractAmount>0 ? discountAmount/contractAmount*100 : 0;
+  const discountNote = String(inv.discountNote||'').trim();
+  const discountedAmount = round2(contractAmount - discountAmount);
   const vatPct = inv.vatEnabled ? (Number(inv.vatPct)||0) : 0;
-  const vatAmount = discountedAmount * vatPct/100;
-  const totalContractAmount = discountedAmount + vatAmount;
+  const vatAmount = round2(discountedAmount * vatPct/100);
+  const totalContractAmount = round2(discountedAmount + vatAmount);
   const previousPayment = Number(inv.previousPayment)||0;
-  const balanceDue = totalContractAmount - previousPayment;
-  const schedule = (q.paymentSchedule||[]).map(r=>({...r, amount: totalContractAmount*(Number(r.percent)||0)/100}));
+  const balanceDue = round2(totalContractAmount - previousPayment);
+  const schedule = (q.paymentSchedule||[]).map(r=>({...r, amount: round2(totalContractAmount*(Number(r.percent)||0)/100)}));
   const scheduleTotal = schedule.reduce((s,r)=>s+r.amount,0);
-  return { vatEnabled:inv.vatEnabled, vatPct, contractAmount, discountType, discountValue, discountAmount, discountedAmount, vatAmount, totalContractAmount, previousPayment, balanceDue, schedule, scheduleTotal };
+  return { vatEnabled:inv.vatEnabled, vatPct, contractAmount, discountType, discountValue, discountAmount, discountCapped, discountPctEff, discountNote, discountedAmount, vatAmount, totalContractAmount, previousPayment, balanceDue, schedule, scheduleTotal };
 }
 
 /* ============================================================
@@ -2313,6 +2311,7 @@ function ensureQuoteDefaults(q){
   if(q.invoice.previousPayment===undefined) q.invoice.previousPayment = 0;
   if(q.invoice.discountType===undefined) q.invoice.discountType = 'pct';
   if(q.invoice.discountValue===undefined) q.invoice.discountValue = 0;
+  if(q.invoice.discountNote===undefined) q.invoice.discountNote = '';
   if(!Array.isArray(q.paymentSchedule)){
     q.paymentSchedule = [
       { description:'Downpayment', terms:'Upon order confirmation & signed conform', dueUpon:'Order Confirmation', percent:20 },
@@ -2414,10 +2413,33 @@ function renderEditor(content, actions){
   // VAT & Discount live inside the Live Total now.
   const refreshAfterEdit = ()=>{ persistQuote(q); updateLiveSummary(q); };
   document.getElementById('vatPct').addEventListener('input', (e)=>{ q.invoice.vatPct = Math.max(0, Number(e.target.value)||0); refreshAfterEdit(); });
-  document.getElementById('discountType').addEventListener('change', (e)=>{ q.invoice.discountType = e.target.value; refreshAfterEdit(); });
+  document.getElementById('discountType').addEventListener('change', (e)=>{
+    // Switching % <-> ₱ keeps the same discount (50,000 off a 500,000 price becomes 10%, and back)
+    // instead of reinterpreting the old number in the new unit.
+    const before = computeInvoiceTotals(q, computeAll(q));
+    const toType = e.target.value==='fixed' ? 'fixed' : 'pct';
+    let v = Number(q.invoice.discountValue)||0;
+    if(before.discountType !== toType){
+      v = toType==='fixed' ? before.discountAmount : +before.discountPctEff.toFixed(2);
+    }
+    q.invoice.discountType = toType;
+    q.invoice.discountValue = v;
+    document.getElementById('discountValue').value = v;
+    refreshAfterEdit();
+  });
+  // Typing is never rewritten mid-keystroke; the amount is capped in the math and the input is tidied on blur.
   document.getElementById('discountValue').addEventListener('input', (e)=>{ q.invoice.discountValue = Math.max(0, Number(e.target.value)||0); refreshAfterEdit(); });
+  document.getElementById('discountValue').addEventListener('change', (e)=>{
+    const t = computeInvoiceTotals(q, computeAll(q));
+    let v = Math.max(0, Number(e.target.value)||0);
+    if(t.discountType==='pct') v = Math.min(v, 100);
+    else v = Math.min(v, t.contractAmount);
+    q.invoice.discountValue = v; e.target.value = v;
+    refreshAfterEdit();
+  });
+  document.getElementById('discountNote').addEventListener('input', (e)=>{ q.invoice.discountNote = e.target.value; persistQuote(q); });
   // If the printed preview is showing, redraw it once the person finishes editing a Live Total field.
-  ['sbOverhead','sbContingency','sbMargin','vatPct','discountType','discountValue'].forEach(id=>{
+  ['sbOverhead','sbContingency','sbMargin','vatPct','discountType','discountValue','discountNote'].forEach(id=>{
     document.getElementById(id).addEventListener('change', ()=>{ if(CURRENT.tab==='output') renderEditor(content, actions); });
   });
   document.getElementById('btnBackList').onclick = ()=>{ CURRENT.view='quotes'; renderAll(); };
@@ -2488,7 +2510,7 @@ function renderEditor(content, actions){
     host.querySelectorAll('input, select, textarea, button').forEach(el=>{
       if(!keepEnabled.has(el.id)) el.disabled = true;
     });
-    ['vatPct','discountType','discountValue','sbOverhead','sbContingency','sbMargin'].forEach(id=>{
+    ['vatPct','discountType','discountValue','discountNote','sbOverhead','sbContingency','sbMargin'].forEach(id=>{
       const el = document.getElementById(id);
       if(el) el.disabled = true;
     });
@@ -2533,6 +2555,11 @@ function liveSummaryShell(q){
         <input type="number" min="0" step="any" id="discountValue" class="side-input sum-input" value="${Number(inv.discountValue)||0}">
       </span>
       <span class="v" id="lsDiscount"></span></div>
+    <div class="sum-sub" id="lsDiscountMeta" style="display:none;">
+      <input type="text" id="discountNote" class="side-input" maxlength="60" placeholder="Reason (optional) e.g. Early payment" value="${esc(inv.discountNote||'')}">
+      <div class="sum-hint" id="lsDiscountHint"></div>
+    </div>
+    <div class="sum-row" id="lsNetRow" style="display:none;"><span class="k">Price After Discount</span><span class="v" id="lsNet"></span></div>
     ${pctRow('VAT','vatPct',Number(inv.vatPct)||0,'lsVat')}
     <div class="sum-total sum-total-contract"><span class="k">Total Contract Amount</span><span class="v" id="lsContract"></span></div>
   `;
@@ -2555,6 +2582,18 @@ function updateLiveSummary(q){
   set('lsMargin', fmt(c.marginCost));
   set('lsFinal', fmt(c.finalTotal));
   set('lsDiscount', inv.discountAmount>0 ? '-' + fmt(inv.discountAmount) : fmt(0));
+  const hasDisc = inv.discountAmount>0 || inv.discountValue>0;
+  const meta = document.getElementById('lsDiscountMeta'); if(meta) meta.style.display = hasDisc ? '' : 'none';
+  const netRow = document.getElementById('lsNetRow'); if(netRow) netRow.style.display = inv.discountAmount>0 ? '' : 'none';
+  set('lsNet', fmt(inv.discountedAmount));
+  const hint = document.getElementById('lsDiscountHint');
+  if(hint){
+    hint.classList.toggle('warn', !!inv.discountCapped);
+    hint.textContent = inv.discountCapped
+      ? (inv.discountType==='fixed' ? 'Capped at the full price' : 'Capped at 100%')
+      : (inv.discountType==='fixed' && inv.discountAmount>0 ? '= ' + fmtNum(inv.discountPctEff,2) + '% of the price'
+        : inv.discountType==='pct' && inv.discountAmount>0 ? '= ' + fmt(inv.discountAmount) + ' off' : '');
+  }
   set('lsVat', fmt(inv.vatAmount));
   set('lsContract', fmt(inv.totalContractAmount));
 }
@@ -3917,7 +3956,8 @@ function tabOutput(host, q){
           <div class="doc-words-box">Amount in Words: ${esc(numberToWords(inv.totalContractAmount))}</div>
           <div class="doc-totalsbox">
             <div class="row"><span>Subtotal</span><span class="mono">${fmt(inv.contractAmount)}</span></div>
-            ${inv.discountAmount>0 ? `<div class="row discount"><span>Discount${inv.discountType==='pct'? ` (${inv.discountValue}%)` : ''}</span><span class="mono">-${fmt(inv.discountAmount)}</span></div>` : ``}
+            ${inv.discountAmount>0 ? `<div class="row discount"><span>Discount (${fmtNum(inv.discountPctEff,2).replace(/\.00$/,'')}%)${inv.discountNote ? ` — ${esc(inv.discountNote)}` : ''}</span><span class="mono">-${fmt(inv.discountAmount)}</span></div>
+            <div class="row net"><span>Price After Discount</span><span class="mono">${fmt(inv.discountedAmount)}</span></div>` : ``}
             <div class="row vat"><span>VAT ${inv.vatPct}%</span><span class="mono">${fmt(inv.vatAmount)}</span></div>
             <div class="row total"><span>TOTAL AMOUNT</span><span class="mono">${fmt(inv.totalContractAmount)}</span></div>
           </div>
