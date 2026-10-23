@@ -399,17 +399,17 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
   display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
   align-items:center;column-gap:12px;margin-top:0;
 }
-.doc-header-left{min-width:0;display:flex;align-items:center;}
+.doc-header-left{min-width:0;display:flex;align-items:center;justify-content:center;text-align:center;}
 .doc-header-right{min-width:0;justify-self:end;width:100%;max-width:320px;}
 .doc-titlebar{
-  font-family:'Sora',sans-serif;font-size:23px;line-height:1.18;font-weight:700;
+  font-family:'Sora',sans-serif;font-size:30px;line-height:1.18;font-weight:700;
   letter-spacing:0;color:var(--doc-ink);background:transparent;border:0;padding:0;
 }
 @media(max-width:700px){
   .doc-header-row{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:12px;}
   .doc-header-left{grid-column:1;grid-row:1;}
   .doc-header-right{grid-column:2;grid-row:1;}
-  .doc-titlebar{font-size:19px;}
+  .doc-titlebar{font-size:25px;}
 }
 
 /* Right-side info table: fixed label column so every value starts at the
