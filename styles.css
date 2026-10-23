@@ -385,7 +385,7 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 
 /* Quotation header arranged like a formal company document:
    company name/tagline upper-left, logo upper-right; below that,
-   unboxed title left, company contact details centre, and quote reference/date right. */
+   unboxed title left, one info column (address, TIN, ref, dates) at the far right. */
 .doc-header-top{
   position:relative;display:flex;align-items:center;justify-content:space-between;gap:20px;
   min-height:0;padding:2px 0 18px;margin-bottom:12px;border-bottom:0;
@@ -396,12 +396,11 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 
 /* Second header row: title / company details / reference and dates. */
 .doc-header-row{
-  display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.5fr) minmax(0,.95fr);
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
   align-items:center;column-gap:12px;margin-top:0;
 }
 .doc-header-left{min-width:0;display:flex;align-items:center;}
-.doc-header-mid{min-width:0;padding-left:10px;}
-.doc-header-right{min-width:0;}
+.doc-header-right{min-width:0;justify-self:end;width:100%;max-width:320px;}
 .doc-titlebar{
   font-family:'Sora',sans-serif;font-size:23px;line-height:1.18;font-weight:700;
   letter-spacing:0;color:var(--doc-ink);background:transparent;border:0;padding:0;
@@ -409,7 +408,6 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 @media(max-width:700px){
   .doc-header-row{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:12px;}
   .doc-header-left{grid-column:1;grid-row:1;}
-  .doc-header-mid{grid-column:1 / -1;grid-row:2;}
   .doc-header-right{grid-column:2;grid-row:1;}
   .doc-titlebar{font-size:19px;}
 }
