@@ -820,3 +820,10 @@ input, select, textarea { max-width: 100%; }
 .sum-hint{font-size:11px;color:var(--ink-faint);margin-top:4px;min-height:14px;}
 .sum-hint.warn{color:var(--danger);font-weight:600;}
 .doc-totalsbox .row.net{font-weight:600;}
+
+/* Highlighted feature boxes on the quotation output (Hull Features, preset features) */
+.doc-features{margin:12px 0 4px;padding:10px 14px 10px 16px;background:#fdf6dc;border-left:4px solid #f2c230;border-radius:0 6px 6px 0;page-break-inside:avoid;break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.doc-features-title{font-weight:700;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--doc-ink);margin-bottom:5px;}
+.doc-features-desc{font-size:11px;line-height:1.6;font-weight:600;color:var(--doc-ink);margin-bottom:6px;}
+.doc-features-list{margin:0;padding-left:16px;font-size:11px;line-height:1.7;color:var(--doc-ink);}
+.doc-features-list li::marker{color:#c99700;}
