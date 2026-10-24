@@ -1012,7 +1012,7 @@ function blankQuote(){
     approvedBy: null, // {email, name, esign, date} — set when an admin clicks Approve Quotation
     customerSnap: { name:'', companyName:'', clientName:'', clientPosition:'', companyTin:'', email:'', address:'', contact:'',
       repName:'', repPosition:'', repContact:'', repEmail:'', repNA:false },
-    project: { title:'', notes:'', numBoats:1, passengerCapacity:0, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatPresetId:null, hullDescription:'', hullFeatures:'', boatApplication:'Passenger Boat', boatApplicationOther:'' },
+    project: { title:'', notes:'', numBoats:1, passengerCapacity:0, multiplyPrice:false, buildType:'Standard Build', boatModel:'Apple Series', boatPresetId:null, boatApplication:'Passenger Boat', boatApplicationOther:'' },
     hull: { boatType:'Passenger Boat', loa:0, beam:0, depth:0, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false },
     structural: { items:[] },
     paint: { items: [
@@ -1228,10 +1228,6 @@ function isBoatPreset(t){ return !!(t && t.boatModel && !t.presetType); }
 function fmtLoaShort(loa){ const f = decToFtIn(loa); return f.inch ? `${f.ft}ft ${f.inch}in` : `${f.ft}ft`; }
 function boatPresetLabel(t){ return `${t.boatModel} — ${(Number(t.loa)||0) ? fmtLoaShort(t.loa)+' LOA' : 'LOA not set'}`; }
 function escH(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-// One feature per line; pasted bullets (·, •, -, *) and spacing are cleaned off.
-function parseFeatureLines(s){
-  return String(s||'').split(/\r?\n/).map(l=>l.replace(/^[\s\u00b7\u2022\u25aa\u25cf\-\*]+/,'').trim()).filter(Boolean);
-}
 // Options for the quotation's Boat Model picker: one per preset, labelled with its LOA.
 function boatPickerOptions(q){
   const presets = (TEMPLATES||[]).filter(isBoatPreset).sort((x,y)=> x.boatModel.localeCompare(y.boatModel) || ((Number(x.loa)||0)-(Number(y.loa)||0)));
@@ -1247,24 +1243,6 @@ function boatPickerOptions(q){
   if(!selId && q.project.boatModel && !names.has(q.project.boatModel) && !nameOnly.includes(q.project.boatModel)) nameOnly.push(q.project.boatModel);
   html += nameOnly.map(n=>`<option value="m:${escH(n)}" ${(!selId && q.project.boatModel===n)?'selected':''}>${escH(n)}</option>`).join('');
   return html;
-}
-function featureBoxHTML(title, desc, lines){
-  return `<div class="doc-features"><div class="doc-features-title">${escH(title)}</div>${desc?`<div class="doc-features-desc">${escH(desc)}</div>`:''}<ul class="doc-features-list">${lines.map(l=>`<li>${escH(l)}</li>`).join('')}</ul></div>`;
-}
-// Highlighted feature boxes for the quotation output: the hull (from the Boat Model preset) and any Transom / Console / Deck presets used.
-function featuresBlockHTML(q){
-  const blocks = [];
-  const hd = (q.project.hullDescription||'').trim(), hf = parseFeatureLines(q.project.hullFeatures);
-  if(hd || hf.length) blocks.push(featureBoxHTML('Hull Features', hd, hf));
-  const seen = new Set();
-  ((q.structural && q.structural.items) || []).forEach(it=>{
-    if(!it.presetType || !it.presetId || seen.has(it.presetId)) return;
-    seen.add(it.presetId);
-    const p = (TEMPLATES||[]).find(t=>t.id===it.presetId);
-    const lines = parseFeatureLines(it.presetFeatures || (p && p.features) || '');
-    if(lines.length) blocks.push(featureBoxHTML(`${it.presetName || (p && p.name) || 'Preset'} Features`, '', lines));
-  });
-  return blocks.join('');
 }
 const BOAT_APPLICATIONS = ['Passenger Boat','Ferry','Fishing Boat','Patrol Boat','Sea Ambulance','Fire Boat','Rescue Boat','Utility Boat','Research Vessel','Dive Boat','Pleasure/Leisure','Cargo/Utility Boat','Other'];
 const ENGINE_INCLUSIONS_CATALOG = ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"];
@@ -1748,7 +1726,7 @@ function addonPresetToQuoteItems(p){
   return comps.map(c=>{
     const it = presetComponentToQuoteItem(c);
     it.name = comps.length===1 ? p.name : `${p.name} — ${c.cat||'Component'}`;
-    it.presetType = p.presetType; it.presetId = p.id; it.presetName = p.name; it.presetFeatures = p.features || '';
+    it.presetType = p.presetType; it.presetId = p.id; it.presetName = p.name;
     return it;
   });
 }
@@ -2053,7 +2031,6 @@ function renderTemplates(content, actions){
         </div>
         <div class="card-body">
           <div class="field" style="max-width:420px;"><label>Preset name</label><input id="addonName" value="${esc(t.name)}"></div>
-          <div class="field"><label>Features to highlight (one per line)</label><textarea id="addonFeatures" rows="6" placeholder="One feature per line">${escH(t.features||'')}</textarea><div class="hint">Printed as a highlighted features box on any quotation that uses this preset.</div></div>
           ${componentEditorHTML('Components')}
         </div>
       </div>`;
@@ -2063,7 +2040,6 @@ function renderTemplates(content, actions){
       if(!nm){ e.target.value = t.name; return; }
       t.name = nm; document.getElementById('addonTitle').textContent = nm;
     };
-    document.getElementById('addonFeatures').addEventListener('input', e=>{ t.features = e.target.value; });
     document.getElementById('btnDelAddon').onclick = ()=>{
       if(!confirm(`Remove the "${t.name}" preset? It will be deleted once you click Save Presets. Quotations that already use it are not changed.`)) return;
       const i = TEMPLATES.indexOf(t); if(i>=0) TEMPLATES.splice(i,1);
@@ -2092,8 +2068,6 @@ function renderTemplates(content, actions){
               <input type="number" min="0" max="11" step="1" class="tpl-ftin" data-f="${f}" data-p="in" value="${v.inch}" placeholder="in" style="flex:1;min-width:0;"></div></div>`; }).join('')}
             <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
           </div>
-          <div class="field" style="margin-top:6px;"><label>Hull description (printed in bold above the feature list)</label><textarea class="tpl-txt" data-f="hullDescription" rows="3" placeholder="e.g. Hand laid fiberglass with urethane foam stiffeners encapsulated with fiberglass, foam filled compartments and hi density foam transom board">${escH(t.hullDescription||'')}</textarea></div>
-          <div class="field"><label>Hull features to highlight (one per line)</label><textarea class="tpl-txt" data-f="features" rows="10" placeholder="Forward compartment for anchor and rope&#10;Safety glass windshield&#10;Tempered side windows">${escH(t.features||'')}</textarea><div class="hint">Printed as a highlighted Hull Features box on the quotation. Copied into each new quotation that uses this model, where it can still be edited.</div></div>
           ${componentEditorHTML('Structural Components')}
           ${componentEditorHTML('Painting Components', 'paintComponents', 'Paint')}
         </div>
@@ -2138,7 +2112,6 @@ function renderTemplates(content, actions){
       else t[f] = i.value;
       if(f==='loa'){ const ti = document.getElementById('boatModelTitle'); if(ti) ti.textContent = titleTxt(); }
     });
-    grid.querySelectorAll('.tpl-txt').forEach(i=>i.addEventListener('input', ()=>{ t[i.dataset.f] = i.value; }));
 
     initComponentEditor(t, 'Other Structural Materials');
     initComponentEditor(t, 'Painting', 'paintComponents', 'Paint');
@@ -2263,7 +2236,7 @@ function openEditor(quoteId, templateId){
         q.structural.items = (t.components||[]).map(presetComponentToQuoteItem);
         q.project.title = t.name;
         if(t.boatModel) q.project.boatModel = t.boatModel;
-        if(isBoatPreset(t)){ q.project.boatPresetId = t.id; q.project.hullDescription = t.hullDescription||''; q.project.hullFeatures = t.features||''; }
+        if(isBoatPreset(t)) q.project.boatPresetId = t.id;
       }
     }
     QUOTES.push(q); save(DB_KEYS.quotes, QUOTES);
@@ -2326,8 +2299,6 @@ function ensureQuoteDefaults(q){
   if(q.project.buildType===undefined) q.project.buildType = 'Standard Build';
   if(q.project.boatModel===undefined) q.project.boatModel = 'Apple Series';
   if(q.project.boatPresetId===undefined) q.project.boatPresetId = null;
-  if(q.project.hullDescription===undefined) q.project.hullDescription = '';
-  if(q.project.hullFeatures===undefined) q.project.hullFeatures = '';
   if(q.project.boatApplication===undefined) q.project.boatApplication = 'Passenger Boat';
   if(q.project.boatApplicationOther===undefined) q.project.boatApplicationOther = '';
   if(!q.engine) q.engine = { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', description:'', inclusions:[], steeringItems:[] };
@@ -2817,14 +2788,6 @@ function tabHull(host, q){
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Hull Features (printed in the quotation)</h3></div>
-      <div class="card-body">
-        <div class="section-lead" style="margin-top:0;">Filled in from the Boat Model preset when you pick a model. You can edit it for this quotation only — one feature per line.</div>
-        <div class="field"><label>Hull description</label><textarea id="hHullDesc" rows="3">${escH(q.project.hullDescription||'')}</textarea></div>
-        <div class="field"><label>Features to highlight</label><textarea id="hHullFeat" rows="10">${escH(q.project.hullFeatures||'')}</textarea></div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Core Material</h3></div>
       <div class="card-body">
         <div class="section-lead" style="margin-top:0;">Laminate layers and glass weight are set by the boat model's preset in Presets, not edited per-quotation.</div>
@@ -3003,8 +2966,6 @@ function tabHull(host, q){
     q.project.boatModel = preset ? preset.boatModel : v.replace(/^m:/,'');
     q.project.boatPresetId = preset ? preset.id : null;
     if(preset){
-      q.project.hullDescription = preset.hullDescription || '';
-      q.project.hullFeatures = preset.features || '';
       q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false, work:null, noLaminate:true };
       q.paint.items = (preset.paintComponents||[]).map(presetPaintToQuoteItem);
       if(!q.structural) q.structural = { items:[] };
@@ -3015,11 +2976,6 @@ function tabHull(host, q){
       persistQuote(q); updateLiveSummary(q);
     }
   });
-  ['hHullDesc','hHullFeat'].forEach(id=>document.getElementById(id).addEventListener('input', ()=>{
-    q.project.hullDescription = document.getElementById('hHullDesc').value;
-    q.project.hullFeatures = document.getElementById('hHullFeat').value;
-    persistQuote(q);
-  }));
   function syncFtIn(ftId, inId, apply){
     const ft = Number(document.getElementById(ftId).value)||0;
     const inch = Number(document.getElementById(inId).value)||0;
@@ -4072,7 +4028,6 @@ function tabOutput(host, q){
             ${c.numBoats>1?`<tr><td>Number of Boats Quoted</td><td class="right mono" colspan="3">${c.numBoats} unit(s)</td></tr>`:``}
           </tbody>
         </table>
-        ${featuresBlockHTML(q)}
 
         <div class="doc-section-title">II. Structural Components &amp; Core Materials</div>
         ${(()=>{
