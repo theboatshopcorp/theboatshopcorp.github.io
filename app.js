@@ -270,7 +270,9 @@ function generateProjectTitle(q){
   if(app) parts.push(app);
   if(model) parts.push(model);
   let title = parts.join(' ');
-  const enginePart = [brand, hp? `${hp}HP` : '', type].filter(Boolean).join(' ');
+  const nEng = Number(q.engine.qty)||1;
+  const multi = nEng===2 ? 'Dual' : nEng===3 ? 'Triple' : nEng===4 ? 'Quad' : nEng>4 ? `${nEng}x` : '';
+  const enginePart = [multi, brand, hp? `${hp}HP` : '', type].filter(Boolean).join(' ');
   if(enginePart) title += ` with ${enginePart}`;
   return title.trim();
 }
@@ -1725,7 +1727,7 @@ function addonPresetToQuoteItems(p){
   const comps = p.components||[];
   return comps.map(c=>{
     const it = presetComponentToQuoteItem(c);
-    it.name = comps.length===1 ? p.name : `${p.name} — ${c.cat||'Component'}`;
+    it.name = c.name ? c.name : (comps.length===1 ? p.name : `${p.name} — ${c.cat||'Component'}`);
     it.presetType = p.presetType; it.presetId = p.id; it.presetName = p.name;
     return it;
   });
@@ -1870,7 +1872,7 @@ function renderTemplates(content, actions){
               <button class="btn btn-ghost btn-sm" id="btnAddComp${sfx}">${icon('plus')} Add Component</button>
             </div>
           </div>
-          <table><thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>
+          <table><thead><tr><th>${key==='paintComponents' ? 'Category' : 'Category, item name &amp; description'}</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows${sfx}"></tbody></table>
           <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = for each labor category (Rate × Laborers × its own Days) + the cost of every material used (quantity × price per unit)</em>. ${key==='paintComponents' ? `Each painting component (for example Surface Preparation, Primer, Topcoat) becomes one line on the quotation's Paint &amp; Finish tab, named after its category.` : `Each component becomes one line on the quotation's structural list, named after its category.`}</div>`;
   }
@@ -1904,6 +1906,10 @@ function renderTemplates(content, actions){
             </select>
             ${collapsed ? `<span class="hint" style="margin:0;">${workSummaryHTML(c)}</span>` : ''}
             </div>
+            ${key==='paintComponents' ? '' : `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+              <input class="tbl-input comp-name" data-idx="${idx}" value="${esc(c.name||'')}" placeholder="Item name" style="flex:1;min-width:160px;max-width:280px;">
+              <input class="tbl-input comp-desc" data-idx="${idx}" value="${esc(c.description||'')}" placeholder="Item description" style="flex:2;min-width:220px;">
+            </div>`}
           </td>
           <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
         </tr>
@@ -1935,6 +1941,8 @@ function renderTemplates(content, actions){
         c.cat = v;
         drawComponents();
       });
+      body.querySelectorAll('.comp-name').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].name = inp.value; }));
+      body.querySelectorAll('.comp-desc').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].description = inp.value; }));
       // Patch totals in place (no redraw) so typing never loses focus.
       function patchFormulaTotals(idx){
         const c = t[key][idx];
@@ -2846,7 +2854,8 @@ function tabHull(host, q){
           </select>
           <input type="text" class="tbl-input srow-cat-new" data-idx="${idx}" placeholder="Type new category" style="display:none;margin-top:4px;">
         </td>
-        <td><input class="tbl-input srow" data-idx="${idx}" data-f="name" value="${esc(a.name)}"></td>
+        <td><input class="tbl-input srow" data-idx="${idx}" data-f="name" value="${esc(a.name)}">
+          <input class="tbl-input srow" data-idx="${idx}" data-f="description" value="${esc(a.description||'')}" placeholder="Item description" style="margin-top:4px;"></td>
         <td><input class="tbl-input srow" data-idx="${idx}" data-f="unit" value="${esc(a.unit)}"></td>
         <td><input class="tbl-input num srow" type="number" data-idx="${idx}" data-f="qty" value="${a.qty}"></td>
         <td><input class="tbl-input num srow" type="number" data-idx="${idx}" data-f="unitPrice" value="${a.unitPrice}"></td>
@@ -4036,8 +4045,7 @@ function tabOutput(host, q){
           return Array.from(groups.entries()).map(([cat, rows])=>`
             <div class="doc-subcat-title">${esc(cat)}</div>
             <table class="doc-item-table">
-              <thead><tr><th>Item</th><th class="right">Amount</th></tr></thead>
-              <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
+              <tbody>${rows.map(r=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
             </table>`).join('');
         })()}
 
