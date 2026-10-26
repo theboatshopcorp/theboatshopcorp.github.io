@@ -33,13 +33,16 @@ function localSave(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)
 load = localLoad;
 
 let _pushTimers = {};
+let _lastPushAt = {};   // when we last sent each key, so our own realtime echo can be ignored
 function pushRemote(key, val){
   if(!SYNCED_KEYS.includes(key)) return;
   clearTimeout(_pushTimers[key]);
   _pushTimers[key] = setTimeout(async ()=>{
+    _lastPushAt[key] = Date.now();
     try{
       const { error } = await supabaseClient.from(REMOTE_TABLE)
         .upsert({ key, value: val, updated_at: new Date().toISOString() }, { onConflict:'key' });
+      _lastPushAt[key] = Date.now();
       if(error){ console.error('Supabase save failed for', key, error); if(typeof toast==='function') toast('Not saved to shared database: '+(error.message||'permission denied')); }
     }catch(e){ console.error('Supabase save failed for', key, e); }
   }, 400); // small debounce so rapid keystrokes don't spam the network
@@ -140,6 +143,7 @@ function subscribeRemote(){
     .on('postgres_changes', { event:'*', schema:'public', table: REMOTE_TABLE }, payload=>{
       const row = payload.new && Object.keys(payload.new).length ? payload.new : payload.old;
       if(!row || !row.key || !SYNCED_KEYS.includes(row.key)) return;
+      if(_lastPushAt[row.key] && Date.now() - _lastPushAt[row.key] < 3000) return;   // our own save coming back
       applyRemoteValue(row.key, row.value);
       // Don't yank an in-progress edit out from under someone typing in the
       // editor — just refresh quietly everywhere else.
@@ -1075,7 +1079,8 @@ function blankQuote(){
     engine: { model:'', brand:'', type:'IBM', hp:0, qty:2, unitPrice:0, installation:0, transmission:'', propeller:'', speed:'', fuelCapacity:'',
       description:"Dual Installation of Yamaha 250HP, Model: F250HETX, Model: FL250HETX\nFuel Injection, 4 Stroke, 24 Valve, Double Overhead Camshaft, V6, Standard Rotation and Counter Rotation, Shaft length 25 inches, Built-in Power trim & Tilt assy., Brand New complete with the following;",
       inclusions: ['Remote Control box with wiring harness (Dual Top mount)','Dual Panel switch','Gauge Kit - Multifunction Digital Tachometer/Speedometer','Battery Cable','Yamaha Primer Bulb','Stainless Propeller','Complete Dometic Hydraulic Steering & Control System',"Engine Owner's Manual"],
-      steeringItems: []
+      steeringItems: [],
+      steeringEnabled: false
     },
     // Labor hours & rates now live only in the global Pricing Database
     // (see computeLabor) — no per-quote labor field needed anymore.
@@ -2420,6 +2425,8 @@ function ensureQuoteDefaults(q){
   if(q.engine.description===undefined) q.engine.description = '';
   if(!Array.isArray(q.engine.inclusions)) q.engine.inclusions = [];
   if(!Array.isArray(q.engine.steeringItems)) q.engine.steeringItems = [];
+  q.engine.steeringItems = q.engine.steeringItems.map(it=> (typeof it === 'string') ? { name:it, qty:1, unit:'pc/s' } : it);
+  if(q.engine.steeringEnabled === undefined) q.engine.steeringEnabled = false;
   if(!q.schedule) q.schedule = { startDate: q.date||todayISO(), standardDays: PRICING.standardDurationDays, requestedDays: PRICING.standardDurationDays };
   if(q.rates.dailyRate===undefined) q.rates.dailyRate = PRICING.dailyRate;
   if(q.rates.standardDurationDays===undefined) q.rates.standardDurationDays = PRICING.standardDurationDays;
@@ -3479,6 +3486,15 @@ function propulsionShowsDrive(type){
   return t ? t.showDrive : type==='IBM';
 }
 
+const STEERING_CATALOG = [
+  { name:'Hydraulic Steering Helm Pump', qty:1, unit:'set' },
+  { name:'Hydraulic Steering Cylinder', qty:1, unit:'pc/s' },
+  { name:'Hydraulic Hoses & Fittings', qty:1, unit:'lot' },
+  { name:'Stainless Steel Steering Wheel', qty:1, unit:'pc/s' },
+  { name:'Single Lever Remote Control', qty:2, unit:'pc/s' },
+  { name:'Throttle & Shift Control Cables', qty:2, unit:'set' },
+  { name:'Autopilot System', qty:1, unit:'set' },
+];
 function tabEngine(host, q){
   const e = q.engine;
   if(!PROPULSION_TYPES.some(p=>p.value===e.type)) e.type = 'IBM';
@@ -3522,6 +3538,23 @@ function tabEngine(host, q){
       </div>
       <div class="card-body section-lead">Items bundled with the propulsion package — printed as a bullet list under Marine Propulsion System.</div>
       <div class="card-body" style="padding:0;" id="inclRows"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h3>Steering &amp; Control System <span style="font-weight:400;font-size:12px;">(optional subcategory)</span></h3>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="steerEnable" style="width:auto;" ${e.steeringEnabled?'checked':''}> Include in quotation</label>
+      </div>
+      <div id="steerBody" style="${e.steeringEnabled?'':'display:none;'}">
+        <div class="card-body section-lead">Printed as its own subcategory under Marine Propulsion System, with quantity and unit. These items are part of the propulsion amount above, so they have no price of their own.
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+            <select id="steerCatalogPick" style="padding:6px 8px;border:1px solid var(--paper-line);border-radius:7px;">
+              <option value="">+ Add from catalog…</option>
+              ${STEERING_CATALOG.map((a,i)=>`<option value="${i}">${esc(a.name)}</option>`).join('')}
+            </select>
+            <button class="btn btn-sm" id="addSteerItem">${icon('plus')} Custom Item</button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0;" id="steerRows"></div>
+      </div>
     </div>
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h3>Propulsion Cost Summary</h3></div>
@@ -3575,7 +3608,9 @@ function tabEngine(host, q){
       </tr>`).join('')}</tbody></table>` : `<div class="empty" style="padding:14px 20px;">No items added yet.</div>`;
     body.querySelectorAll('.ilist').forEach(inp=>{
       inp.addEventListener('input', ()=>{
-        list[Number(inp.dataset.idx)] = inp.value;
+        // Always write into the quote's CURRENT inclusions array. After a background sync the array can be a new
+        // object, and writing into an old captured one made the typed text vanish when the next item was added.
+        e.inclusions[Number(inp.dataset.idx)] = inp.value;
         persistQuote(q); updateLiveSummary(q);
       });
     });
@@ -3597,6 +3632,45 @@ function tabEngine(host, q){
     persistQuote(q); drawItemList('inclRows', e.inclusions); updateLiveSummary(q);
   };
   drawItemList('inclRows', e.inclusions);
+
+  // ---- Steering & Control System (optional) ----
+  function drawSteer(){
+    const body = document.getElementById('steerRows');
+    const list = e.steeringItems;
+    body.innerHTML = list.length ? `<table><thead><tr><th style="text-align:left;">Item Description</th><th style="width:80px;">QTY</th><th style="width:110px;text-align:left;">Unit</th><th style="width:44px;"></th></tr></thead><tbody>${list.map((it,idx)=>`
+      <tr>
+        <td><input class="tbl-input steer-f" data-idx="${idx}" data-f="name" value="${esc(it.name)}"></td>
+        <td><input type="number" min="0" step="any" class="tbl-input steer-f" data-idx="${idx}" data-f="qty" value="${Number(it.qty)||0}"></td>
+        <td><input class="tbl-input steer-f" data-idx="${idx}" data-f="unit" value="${esc(it.unit)}"></td>
+        <td class="right"><span class="btn btn-ghost btn-sm" data-steerdel="${idx}" style="color:var(--danger);">✕</span></td>
+      </tr>`).join('')}</tbody></table>` : `<div class="empty" style="padding:14px 20px;">No items added yet.</div>`;
+    body.querySelectorAll('.steer-f').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const it = e.steeringItems[Number(inp.dataset.idx)]; if(!it) return;
+        it[inp.dataset.f] = inp.dataset.f==='qty' ? (Number(inp.value)||0) : inp.value;
+        persistQuote(q);
+      });
+    });
+    body.querySelectorAll('[data-steerdel]').forEach(b=>{
+      b.onclick = ()=>{ e.steeringItems.splice(Number(b.dataset.steerdel),1); persistQuote(q); drawSteer(); };
+    });
+  }
+  document.getElementById('steerEnable').addEventListener('change', (ev)=>{
+    e.steeringEnabled = ev.target.checked;
+    document.getElementById('steerBody').style.display = e.steeringEnabled ? '' : 'none';
+    persistQuote(q);
+  });
+  document.getElementById('steerCatalogPick').onchange = (ev)=>{
+    if(ev.target.value==='') return;
+    const it = STEERING_CATALOG[Number(ev.target.value)];
+    e.steeringItems.push({ name:it.name, qty:it.qty, unit:it.unit });
+    ev.target.value=''; persistQuote(q); drawSteer();
+  };
+  document.getElementById('addSteerItem').onclick = ()=>{
+    e.steeringItems.push({ name:'New Item', qty:1, unit:'pc/s' });
+    persistQuote(q); drawSteer();
+  };
+  drawSteer();
 
   function drawEng(){
     const c = computeEngine(q);
@@ -4146,6 +4220,10 @@ function tabOutput(host, q){
         <div style="margin-top:10px;">
           <ul style="margin:0;padding-left:18px;line-height:1.6;">${q.engine.inclusions.map(it=>`<li>${esc(it)}</li>`).join('')}</ul>
         </div>` : ``}
+        ${q.engine.steeringEnabled ? `
+        <div style="margin-top:10px;">${docQtyTable(docQtyCat('Steering &amp; Control System', '') + ((q.engine.steeringItems||[]).length
+          ? q.engine.steeringItems.map(it=>docQtyRow(esc(it.name), it.qty, esc(it.unit)||'pc/s')).join('')
+          : docQtyNote('No Item Listed')))}</div>` : ``}
 
         <div class="doc-section-title">VI. Testing &amp; Delivery</div>
         ${(()=>{
@@ -4319,7 +4397,7 @@ function buildDemoQuote(){
     ],
     engine:{ brand:'Isuzu', model:'UM6SD1TCX', type:'IBM', hp:340, qty:2, unitPrice:6097712, installation:0, transmission:'Dong-I DMT140H', propeller:'4-blade bronze', speed:'22 knots', fuelCapacity:'1,200 liters',
       description:'Dual Installation of Isuzu 340HP, Model: UM6SD1TCX, 6-cylinder, Turbocharged and Intercooled Marine Diesel, Inboard Marine (IBM), Brand New complete with the following;',
-      inclusions:['Dong-I DMT140H marine transmission (dual)','Instrument panel with engine gauges and alarms','Remote throttle and shift control (dual)','Stainless steel propeller shaft with bronze 4-blade propellers','Exhaust system with water-lift muffler','Complete hydraulic steering system',"Engine Owner's Manual"] },
+      inclusions:['Dong-I DMT140H marine transmission (dual)','Instrument panel with engine gauges and alarms','Remote throttle and shift control (dual)','Stainless steel propeller shaft with bronze 4-blade propellers','Exhaust system with water-lift muffler',"Engine Owner's Manual"], steeringEnabled:true, steeringItems:[{name:'Hydraulic Steering Helm Pump',qty:1,unit:'set'},{name:'Hydraulic Steering Cylinder',qty:1,unit:'pc/s'},{name:'Hydraulic Hoses & Fittings',qty:1,unit:'lot'},{name:'Stainless Steel Steering Wheel',qty:1,unit:'pc/s'},{name:'Single Lever Remote Control',qty:2,unit:'pc/s'}] },
     days:240, marina:DEMO_MARINA_1, discount:3
   });
 }
@@ -4362,7 +4440,7 @@ function buildDemoQuote2(){
     ],
     engine:{ brand:'Yanmar', model:'6LPA-STP2', type:'IBM', hp:150, qty:2, unitPrice:2450000, installation:0, transmission:'ZF 63A', propeller:'4-blade bronze', speed:'25 knots', fuelCapacity:'600 liters',
       description:'Dual Installation of Yanmar 150HP, Model: 6LPA-STP2, 6-cylinder, Turbocharged Marine Diesel, Inboard Marine (IBM), Brand New complete with the following;',
-      inclusions:['ZF 63A marine transmission (dual)','Instrument panel with engine gauges and alarms','Remote throttle and shift control (dual)','Stainless steel propeller shaft with bronze 4-blade propellers','Exhaust system with water-lift muffler','Complete hydraulic steering system',"Engine Owner's Manual"] },
+      inclusions:['ZF 63A marine transmission (dual)','Instrument panel with engine gauges and alarms','Remote throttle and shift control (dual)','Stainless steel propeller shaft with bronze 4-blade propellers','Exhaust system with water-lift muffler',"Engine Owner's Manual"], steeringEnabled:true, steeringItems:[{name:'Hydraulic Steering Helm Pump',qty:1,unit:'set'},{name:'Hydraulic Steering Cylinder',qty:1,unit:'pc/s'},{name:'Hydraulic Hoses & Fittings',qty:1,unit:'lot'},{name:'Stainless Steel Steering Wheel',qty:1,unit:'pc/s'},{name:'Single Lever Remote Control',qty:2,unit:'pc/s'}] },
     days:150, marina:DEMO_MARINA_2, discount:2
   });
 }
