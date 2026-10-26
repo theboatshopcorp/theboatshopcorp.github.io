@@ -816,7 +816,7 @@ function boatComponentsToQuoteItems(p){
 // priced by the same formula as the structural components (labor + materials).
 function presetPaintToQuoteItem(c){
   migratePresetComponent(c);
-  return { id:uid('pi'), coatLabel: c.cat || 'Painting', type:'', color:'', area:null, pricePerSqm:0,
+  return { id:uid('pi'), coatLabel: c.cat || 'Painting', type: c.details || '', color:'', area:null, pricePerSqm:0,
     presetPaint:true, lumpCost: computeFormulaWorkCost(c),
     materials: JSON.parse(JSON.stringify(c.materials||[])), laborTeams: JSON.parse(JSON.stringify(c.laborTeams||[])) };
 }
@@ -1123,7 +1123,7 @@ function computeHull(q){
   const resinWeight = glassWeight * r.resinRatio;
   const resinLiters = resinWeight / r.resinDensity;
   const gelcoatWeight = area * r.gelcoatCoverage;
-  const coreCost = h.coreEnabled ? (Number(h.coreArea)||0) * r.corePerSqm : 0;
+  const coreCost = 0;   // the separate Core Material line was removed
   const glassCost = glassWeight * r.fiberglassPerKg;
   const resinCost = resinLiters * r.resinPerLiter;
   const gelcoatCost = gelcoatWeight * r.gelcoatPerKg;
@@ -1937,6 +1937,7 @@ function renderTemplates(content, actions){
         ${collapsed ? '' : `<tr class="comp-formula-row" data-formula-idx="${idx}">
           <td colspan="2" style="background:var(--paper);padding:12px;">
             ${teamsPanelHTML(c, idx, matRowFn)}
+            ${key==='paintComponents' ? `<div class="field" style="margin:10px 0 0;"><label>Painting details (printed in the quotation)</label><input class="tbl-input comp-details" data-idx="${idx}" value="${esc(c.details||'')}" placeholder="e.g. 2-pack polyurethane topcoat, white"></div>` : ''}
             <div class="hint" style="margin-top:10px;font-weight:600;color:var(--ink);">Labor <span class="mono" id="formulaLabor_${idx}">${fmt(computeLaborCost(c))}</span> + Materials <span class="mono" id="formulaMat_${idx}">${fmt(materialLinesCost(c))}</span> = Total Work Cost <span class="mono" id="formulaTotal_${idx}">${fmt(computeFormulaWorkCost(c))}</span></div>
           </td>
         </tr>`}`;
@@ -1962,6 +1963,7 @@ function renderTemplates(content, actions){
         c.cat = v;
         drawComponents();
       });
+      body.querySelectorAll('.comp-details').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].details = inp.value; }));
       body.querySelectorAll('.comp-desc').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].description = inp.value; }));
       // Patch totals in place (no redraw) so typing never loses focus.
       function patchFormulaTotals(idx){
@@ -2093,12 +2095,11 @@ function renderTemplates(content, actions){
         </div>
         <div class="card-body">
           <div class="field" style="max-width:420px;"><label>Boat Model name</label><input id="boatModelName" value="${esc(m)}"><div class="hint">Renaming updates this preset. Existing quotations keep the name they were saved with. The same name can be used for more than one model as long as the LOA is different.</div></div>
-          <div class="grid g4">
+          <div class="grid g3">
             <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
             ${['beam','depth'].map(f=>{ const v = decToFtIn(t[f]); return `<div class="field"><label>${f==='beam'?'Beam':'Depth'} (ft / in)</label><div style="display:flex;gap:6px;">
               <input type="number" step="any" class="tpl-ftin" data-f="${f}" data-p="ft" value="${v.ft}" placeholder="ft" style="flex:1;min-width:0;">
               <input type="number" min="0" max="11" step="1" class="tpl-ftin" data-f="${f}" data-p="in" value="${v.inch}" placeholder="in" style="flex:1;min-width:0;"></div></div>`; }).join('')}
-            <div class="field"><label>Number of Hulls</label><input type="number" class="tpl-f" data-f="numHulls" value="${t.numHulls||1}"></div>
           </div>
           ${componentEditorHTML('Structural Components')}
           ${componentEditorHTML('Painting Components', 'paintComponents', 'Paint')}
@@ -2812,22 +2813,6 @@ function tabHull(host, q){
             </div>
           </div>
         </div>
-        <div class="grid g3">
-          <div class="field"><label>Number of Hulls</label><input type="number" id="hHulls" value="${h.numHulls}"></div>
-          <div class="field"><label>Hull Area Override (sq ft)</label><input type="number" step="any" id="hAreaOv" value="${(h.hullAreaOverride==null||h.hullAreaOverride==='')?'':r4(h.hullAreaOverride*SQFT_PER_SQM)}" placeholder="auto"><div class="hint">Leave blank to auto-estimate from LOA and Beam</div></div>
-          <div></div>
-        </div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Core Material</h3></div>
-      <div class="card-body">
-        <div class="section-lead" style="margin-top:0;">Laminate layers and glass weight are set by the boat model's preset in Presets, not edited per-quotation.</div>
-        <div class="grid g3">
-          <div class="field"><label class="field-inline"><input type="checkbox" id="hCoreOn" ${h.coreEnabled?'checked':''} style="width:auto;"> Core Material</label>
-            <input type="number" step="any" id="hCoreArea" value="${r4((Number(h.coreArea)||0)*SQFT_PER_SQM)}" placeholder="Core area (sq ft)" ${h.coreEnabled?'':'disabled'}>
-          </div>
-        </div>
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
@@ -2991,19 +2976,6 @@ function tabHull(host, q){
   ['hDepthFt','hDepthIn'].forEach(id=>{
     document.getElementById(id).addEventListener('input', ()=> syncFtIn('hDepthFt','hDepthIn', v=>{ h.depth=v; }));
   });
-  ['hHulls','hAreaOv','hCoreArea'].forEach(id=>{
-    document.getElementById(id).addEventListener('input', ()=>{
-      // areas are stored in sqm; the fields show sq ft. Only convert the field being edited.
-      if(id==='hHulls') h.numHulls = Number(document.getElementById('hHulls').value)||1;
-      if(id==='hAreaOv'){ const ov = document.getElementById('hAreaOv').value; h.hullAreaOverride = ov===''? null : Number(ov)/SQFT_PER_SQM; }
-      if(id==='hCoreArea') h.coreArea = (Number(document.getElementById('hCoreArea').value)||0)/SQFT_PER_SQM;
-      persistQuote(q); drawHullCalc(); updateLiveSummary(q);
-    });
-  });
-  document.getElementById('hCoreOn').addEventListener('change', (e)=>{
-    h.coreEnabled = e.target.checked; document.getElementById('hCoreArea').disabled = !h.coreEnabled;
-    persistQuote(q); drawHullCalc(); updateLiveSummary(q);
-  });
   function drawHullCalc(){
     const c = computeHull(q);
     const s = computeStructural(q);
@@ -3016,7 +2988,6 @@ function tabHull(host, q){
           <tr><td>Fiberglass Cost</td><td class="right mono">${fmt(c.glassCost)}</td></tr>
           <tr><td>Resin Cost</td><td class="right mono">${fmt(c.resinCost)}</td></tr>
           <tr><td>Gelcoat Cost</td><td class="right mono">${fmt(c.gelcoatCost)}</td></tr>`}
-          <tr><td>Core Material Cost</td><td class="right mono">${fmt(c.coreCost)}</td></tr>
           <tr><td style="font-weight:700;">Laminate Cost Subtotal</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>
           <tr><td>Structural Components (stiffeners, bulkheads, foam, etc.)</td><td class="right mono">${fmt(s.total)}</td></tr>
           <tr><td style="font-weight:700;">Hull &amp; Structural Material Cost Total</td><td class="right mono" style="font-weight:700;">${fmt(c.total + s.total)}</td></tr>
