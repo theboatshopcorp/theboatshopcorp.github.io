@@ -3990,37 +3990,8 @@ function tabOutput(host, q){
             </div>`).join('')}
         </div>
 
-        <!-- ===== PAGE 2: Terms, Signatories ===== -->
+        <!-- ===== PAGE 2+: Quotation Details / Item Details ===== -->
         <div class="doc-pagebreak"><span class="lbl">Page 2</span></div>
-
-        <div class="doc-section-title">Terms &amp; Conditions</div>
-        <div class="doc-terms">
-          <ol>
-            ${q.terms.map(t=>`<li>${t.title?`<strong>${esc(t.title)}:</strong> `:''}${esc(t.body)}</li>`).join('')}
-            <li><strong>Validity:</strong> This quotation is valid for ${q.validityDays} calendar days from date of issuance.</li>
-          </ol>
-        </div>
-
-        <div class="doc-sign">
-          <div data-sigprev="prepared">
-            <div class="role">Prepared By</div>
-            <div class="imgslot">${(()=>{ const pr = profileByEmail(q.createdByEmail); return pr && pr.esign ? `<img src="${esc(pr.esign)}" alt="">` : ''; })()}</div>
-            <div class="ln"><div class="nm">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.full_name || '')||'&nbsp;'; })()}</div><span class="ttl">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.position || ''); })()}</span></div>
-          </div>
-          <div data-sigprev="approved">
-            <div class="role">Approved By</div>
-            <div class="imgslot">${q.approvedBy && q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="">` : ''}</div>
-            <div class="ln"><div class="nm">${esc(q.approvedBy && q.approvedBy.name || '')||'&nbsp;'}</div><span class="ttl">${esc(q.approvedBy && q.approvedBy.position || '')}</span></div>
-          </div>
-          <div data-sigprev="received">
-            <div class="role">CONFORME</div>
-            <div class="imgslot"></div>
-            <div class="ln"><div class="nm">${esc(q.customerSnap.clientName)||'&nbsp;'}</div><span class="ttl">${esc(q.customerSnap.clientPosition)||''}</span></div>
-          </div>
-        </div>
-
-        <!-- ===== PAGE 3+: Quotation Details / Item Details ===== -->
-        <div class="doc-pagebreak"><span class="lbl">Page 3</span></div>
 
         <div class="doc-section-title">I. Boat Specifications</div>
         <table>
@@ -4118,6 +4089,35 @@ function tabOutput(host, q){
           return docQtyTable(body);
         })()}
         <div class="doc-terms" style="margin-top:6px;">${esc(q.marina.notes)}</div>
+
+        <!-- ===== LAST PART: Terms & Conditions, Signatories ===== -->
+        <div style="break-inside:avoid;page-break-inside:avoid;">
+        <div class="doc-section-title">Terms &amp; Conditions</div>
+        <div class="doc-terms">
+          <ol>
+            ${q.terms.map(t=>`<li>${t.title?`<strong>${esc(t.title)}:</strong> `:''}${esc(t.body)}</li>`).join('')}
+            <li><strong>Validity:</strong> This quotation is valid for ${q.validityDays} calendar days from date of issuance.</li>
+          </ol>
+        </div>
+
+        <div class="doc-sign">
+          <div data-sigprev="prepared">
+            <div class="role">Prepared By</div>
+            <div class="imgslot">${(()=>{ const pr = profileByEmail(q.createdByEmail); return pr && pr.esign ? `<img src="${esc(pr.esign)}" alt="">` : ''; })()}</div>
+            <div class="ln"><div class="nm">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.full_name || '')||'&nbsp;'; })()}</div><span class="ttl">${(()=>{ const pr = profileByEmail(q.createdByEmail); return esc(pr && pr.position || ''); })()}</span></div>
+          </div>
+          <div data-sigprev="approved">
+            <div class="role">Approved By</div>
+            <div class="imgslot">${q.approvedBy && q.approvedBy.esign ? `<img src="${esc(q.approvedBy.esign)}" alt="">` : ''}</div>
+            <div class="ln"><div class="nm">${esc(q.approvedBy && q.approvedBy.name || '')||'&nbsp;'}</div><span class="ttl">${esc(q.approvedBy && q.approvedBy.position || '')}</span></div>
+          </div>
+          <div data-sigprev="received">
+            <div class="role">CONFORME</div>
+            <div class="imgslot"></div>
+            <div class="ln"><div class="nm">${esc(q.customerSnap.clientName)||'&nbsp;'}</div><span class="ttl">${esc(q.customerSnap.clientPosition)||''}</span></div>
+          </div>
+        </div>
+        </div>
       </div>
     </div>
   `;
