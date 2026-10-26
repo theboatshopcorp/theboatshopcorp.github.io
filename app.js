@@ -2448,7 +2448,7 @@ function ensureQuoteDefaults(q){
   if(q.invoice.previousPayment===undefined) q.invoice.previousPayment = 0;
   if(q.invoice.discountType===undefined) q.invoice.discountType = 'pct';
   if(q.invoice.discountValue===undefined) q.invoice.discountValue = 0;
-  if(q.invoice.discountNote===undefined) q.invoice.discountNote = '';
+  q.invoice.discountNote = '';   // the discount reason is not used or shown anywhere
   if(!Array.isArray(q.paymentSchedule)){
     q.paymentSchedule = [
       { description:'Downpayment', terms:'Upon order confirmation & signed conform', dueUpon:'Order Confirmation', percent:20 },
@@ -2578,9 +2578,8 @@ function renderEditor(content, actions){
     q.invoice.discountValue = v; e.target.value = v;
     refreshAfterEdit();
   });
-  document.getElementById('discountNote').addEventListener('input', (e)=>{ q.invoice.discountNote = e.target.value; persistQuote(q); });
   // If the printed preview is showing, redraw it once the person finishes editing a Live Total field.
-  ['sbOverhead','sbContingency','sbMargin','vatPct','discountType','discountValue','discountNote'].forEach(id=>{
+  ['sbOverhead','sbContingency','sbMargin','vatPct','discountType','discountValue'].forEach(id=>{
     document.getElementById(id).addEventListener('change', ()=>{ if(CURRENT.tab==='output') renderEditor(content, actions); });
   });
   document.getElementById('btnBackList').onclick = ()=>{ CURRENT.view='quotes'; renderAll(); };
@@ -2643,7 +2642,7 @@ function renderEditor(content, actions){
     host.querySelectorAll('input, select, textarea, button').forEach(el=>{
       if(!keepEnabled.has(el.id)) el.disabled = true;
     });
-    ['vatPct','discountType','discountValue','discountNote','sbOverhead','sbContingency','sbMargin'].forEach(id=>{
+    ['vatPct','discountType','discountValue','sbOverhead','sbContingency','sbMargin'].forEach(id=>{
       const el = document.getElementById(id);
       if(el) el.disabled = true;
     });
@@ -2690,13 +2689,10 @@ function liveSummaryShell(q){
       <span class="sum-ctl">
         <select id="discountType" class="side-input sum-select"><option value="pct" ${inv.discountType!=='fixed'?'selected':''}>%</option><option value="fixed" ${inv.discountType==='fixed'?'selected':''}>₱ Fixed</option></select>
         <input type="number" min="0" step="any" id="discountValue" class="side-input sum-input" value="${Number(inv.discountValue)||0}">
-      </span>
-      <span class="v" id="lsDiscount"></span></div>
-    <div class="sum-sub" id="lsDiscountMeta" style="display:none;">
-      <input type="text" id="discountNote" class="side-input" maxlength="60" placeholder="Reason (optional) e.g. Early payment" value="${esc(inv.discountNote||'')}">
-      <div class="sum-hint" id="lsDiscountHint"></div>
-    </div>
-    <div class="sum-row" id="lsNetRow" style="display:none;"><span class="k">Price After Discount</span><span class="v" id="lsNet"></span></div>
+      </span></div>
+    <div class="sum-row"><span class="k">Amount</span><span class="v" id="lsDiscount"></span></div>
+    <div class="sum-sub"><div class="sum-hint" id="lsDiscountHint"></div></div>
+    <div class="sum-row"><span class="k">Price After Discount</span><span class="v" id="lsNet"></span></div>
     ${pctRow('VAT','vatPct',Number(inv.vatPct)||0,'lsVat')}
     <div class="sum-total sum-total-contract"><span class="k">Total Contract Amount</span><span class="v" id="lsContract"></span></div>
   `;
@@ -2720,9 +2716,6 @@ function updateLiveSummary(q){
   set('lsMargin', fmt(c.marginCost));
   set('lsFinal', fmt(c.finalTotal));
   set('lsDiscount', inv.discountAmount>0 ? '-' + fmt(inv.discountAmount) : fmt(0));
-  const hasDisc = inv.discountAmount>0 || inv.discountValue>0;
-  const meta = document.getElementById('lsDiscountMeta'); if(meta) meta.style.display = hasDisc ? '' : 'none';
-  const netRow = document.getElementById('lsNetRow'); if(netRow) netRow.style.display = inv.discountAmount>0 ? '' : 'none';
   set('lsNet', fmt(inv.discountedAmount));
   const hint = document.getElementById('lsDiscountHint');
   if(hint){
