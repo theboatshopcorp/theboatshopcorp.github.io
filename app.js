@@ -3634,7 +3634,7 @@ function tabTerms(host, q){
     <div class="card">
       <div class="card-head"><h3>Terms &amp; Conditions</h3></div>
       <div class="card-body section-lead">
-        Add, remove, or rewrite any clause. Each clause can have bullet points (one per line). Drag the ⠿ handle to rearrange clauses. These print in order on the quotation, followed by an auto-generated Validity clause based on the Validity (days) field set on the Client &amp; Project tab.
+        Add, remove, or rewrite any clause. Each clause can have extra detail lines (one per line). Drag the ⠿ handle to rearrange clauses. These print in order on the quotation, followed by an auto-generated Validity clause based on the Validity (days) field set on the Client &amp; Project tab.
       </div>
       <div class="card-body" style="padding-top:0;">
         <div id="termRows"></div>
@@ -3671,7 +3671,7 @@ function tabTerms(host, q){
             </div>
           </div>
           <div class="field" style="margin-bottom:8px;"><label>Clause Text</label><textarea class="term-f" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
-          <div class="field" style="margin-bottom:0;"><label>Bullet Points <span style="font-weight:400;">(one per line, optional)</span></label><textarea class="term-b" data-idx="${idx}" rows="3" placeholder="First point&#10;Second point">${esc((t.bullets||[]).join('\n'))}</textarea></div>
+          <div class="field" style="margin-bottom:0;"><label>Detail Lines <span style="font-weight:400;">(one per line, optional)</span></label><textarea class="term-b" data-idx="${idx}" rows="3" placeholder="First point&#10;Second point">${esc((t.bullets||[]).join('\n'))}</textarea></div>
         </div>
       </div>
     `).join('') : `<div class="empty">No clauses yet. Add one to start building your terms &amp; conditions.</div>`;
@@ -4154,7 +4154,7 @@ function tabOutput(host, q){
             <div style="margin-bottom:10px;">
               ${t.title ? `<div style="font-weight:700;color:var(--doc-ink);text-transform:uppercase;">${esc(t.title)}</div>` : ''}
               ${t.body ? `<div>${escNl(t.body)}</div>` : ''}
-              ${(t.bullets||[]).length ? `<ul style="margin:4px 0 0;padding-left:18px;list-style:disc;">${t.bullets.map(b=>`<li style="margin-bottom:2px;">${esc(b)}</li>`).join('')}</ul>` : ''}
+              ${(t.bullets||[]).length ? `<ul style="margin:4px 0 0;padding-left:0;list-style:none;">${t.bullets.map(b=>`<li style="margin-bottom:2px;">${esc(b)}</li>`).join('')}</ul>` : ''}
             </div>`).join('')}
         </div>
 
