@@ -4061,18 +4061,8 @@ function tabOutput(host, q){
         <div class="doc-section-title">IV. Accessories &amp; Components</div>
         ${(()=>{
           const groups = groupByCat(c.acc.rows);
-          const renderBox = rows => {
-            const total = rows.reduce((s,r)=>s+r.total,0);
-            return `
-            <div class="marina-box">
-              <div class="marina-row">
-                <ul class="marina-list">
-                  ${rows.map(r=>`<li>${r.qty} ${esc(r.unit)||'pc'} — ${esc(r.name)}</li>`).join('')}
-                </ul>
-                <div class="marina-price">${fmt(total)}</div>
-              </div>
-            </div>`;
-          };
+          const catRows = (cat, rows)=> docQtyCat(esc(cat), rows && rows.length ? fmt(rows.reduce((s,r)=>s+r.total,0)) : '')
+            + rows.map(r=>docQtyRow(esc(r.name), r.qty, esc(r.unit)||'pc/s')).join('');
           // Fixed named sections always appear, in this order, each
           // supporting "Not Applicable"; any other category found in the
           // data prints afterward, grouped the same way.
@@ -4080,23 +4070,22 @@ function tabOutput(host, q){
             const rows = groups.get(cat);
             groups.delete(cat);
             const isNA = !!q.accessoryCategoryNA[cat];
-            return `
-              <div class="doc-subcat-title">${esc(cat)}</div>
-              ${isNA ? `<div class="doc-na-block">Not Applicable</div>`
-                : (rows && rows.length ? renderBox(rows) : `<div class="doc-na-block" style="font-style:normal;">No items listed.</div>`)}`;
+            if(isNA) return docQtyCat(esc(cat), '') + docQtyNote('Not Applicable');
+            if(rows && rows.length) return catRows(cat, rows);
+            return docQtyCat(esc(cat), '') + docQtyNote('No Item Listed');
           }).join('');
-          const restHtml = Array.from(groups.entries()).map(([cat, rows])=>`
-            <div class="doc-subcat-title">${esc(cat)}</div>
-            ${renderBox(rows)}`).join('');
-          return fixedHtml + restHtml;
+          const restHtml = Array.from(groups.entries()).map(([cat, rows])=>catRows(cat, rows)).join('');
+          return docQtyTable(fixedHtml + restHtml);
         })()}
 
         <div class="doc-section-title">V. Marine Propulsion System</div>
-        <table><tbody>
-          <tr><td>${esc(q.engine.model)||'—'} ${q.engine.type?`(${esc(q.engine.type)})`:''}</td><td class="right mono">${q.engine.hp} HP × ${q.engine.qty} unit(s)</td></tr>
-          ${propulsionShowsDrive(q.engine.type) ? `<tr><td>Transmission: ${esc(q.engine.transmission)||'—'} &nbsp; Propeller: ${esc(q.engine.propeller)||'—'}</td><td class="right mono">${fmt(c.eng.total)}</td></tr>`
-            : `<tr><td></td><td class="right mono">${fmt(c.eng.total)}</td></tr>`}
-        </tbody></table>
+        ${(()=>{
+          const e = q.engine, n = e.qty || 1;
+          let body = docQtyRow(`${esc(e.model)||'—'} ${e.type?`(${esc(e.type)})`:''} — ${e.hp} HP`, n, 'unit/s');
+          if(propulsionShowsDrive(e.type)) body += docQtyRow(`Transmission: ${esc(e.transmission)||'—'} &nbsp; Propeller: ${esc(e.propeller)||'—'}`, n, 'set/s');
+          // Price for the whole propulsion system sits on a heading row, same as the other sections.
+          return docQtyTable(docQtyCat('Propulsion System', fmt(c.eng.total)) + body);
+        })()}
         ${q.engine.description ? `<div class="doc-band-body" style="margin-top:8px;line-height:1.6;">${escNl(q.engine.description)}</div>` : ``}
         ${q.engine.inclusions && q.engine.inclusions.length ? `
         <div style="margin-top:10px;">
@@ -4106,40 +4095,28 @@ function tabOutput(host, q){
         <div class="doc-section-title">VI. Testing &amp; Delivery</div>
         ${(()=>{
           const groups = groupByCat(c.testing.rows);
-          const rowsHtml = (items)=>`
-            <table class="doc-item-table">
-              <thead><tr><th style="width:50px;">Qty</th><th style="width:70px;">Unit</th><th>Item</th><th class="right">Amount</th></tr></thead>
-              <tbody>
-                ${items.map(r=>`<tr><td>${r.qty}</td><td>${esc(r.unit)}</td><td>${esc(r.name)}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}
-              </tbody>
-            </table>`;
+          const catRows = (cat, items)=> docQtyCat(esc(cat), items && items.length ? fmt(items.reduce((s,r)=>s+r.total,0)) : '')
+            + items.map(r=>docQtyRow(esc(r.name), r.qty, esc(r.unit)||'pc/s')).join('');
           const namedHtml = PRINTED_TESTING_DELIVERY_SECTIONS.map(cat=>{
             const items = groups.get(cat);
             groups.delete(cat);
             const isNA = !!q.testingDeliveryNA[cat];
-            return `
-              <div class="doc-subcat-title">${esc(cat)}:</div>
-              ${isNA ? `<div class="doc-na-block">Not Applicable</div>`
-                : (items && items.length ? rowsHtml(items) : `<div class="hint">No items listed.</div>`)}
-            `;
+            if(isNA) return docQtyCat(esc(cat), '') + docQtyNote('Not Applicable');
+            if(items && items.length) return catRows(cat, items);
+            return docQtyCat(esc(cat), '') + docQtyNote('No Item Listed');
           }).join('');
-          const otherHtml = Array.from(groups.entries()).map(([cat, items])=>`
-            <div class="doc-subcat-title">${esc(cat)}:</div>
-            ${rowsHtml(items)}
-          `).join('');
-          return namedHtml + otherHtml;
+          const otherHtml = Array.from(groups.entries()).map(([cat, items])=>catRows(cat, items)).join('');
+          return docQtyTable(namedHtml + otherHtml);
         })()}
 
         <div class="doc-section-title">VII. MARINA Documentation &amp; Regulatory Requirements</div>
-        <div class="marina-box">
-          <div class="marina-title">MARINA DOCUMENTS:</div>
-          <div class="marina-row">
-            <ul class="marina-list">
-              ${q.marina.items.length ? q.marina.items.map(it=>`<li>${esc(it.name)}</li>`).join('') : `<li>No MARINA requirements listed.</li>`}
-            </ul>
-            <div class="marina-price">${fmt(q.marina.items.reduce((s,it)=>s+(Number(it.price)||0),0))}</div>
-          </div>
-        </div>
+        ${(()=>{
+          const items = q.marina.items;
+          const total = items.reduce((s,it)=>s+(Number(it.price)||0),0);
+          const body = docQtyCat('MARINA DOCUMENTS', items.length ? fmt(total) : '')
+            + (items.length ? items.map(it=>docQtyRow(esc(it.name), 1, 'pc/s')).join('') : docQtyNote('No Item Listed'));
+          return docQtyTable(body);
+        })()}
         <div class="doc-terms" style="margin-top:6px;">${esc(q.marina.notes)}</div>
       </div>
     </div>
@@ -4150,6 +4127,22 @@ function tabOutput(host, q){
 /* ============================================================
    SAMPLE QUOTATIONS (seeded once, on first run only)
    ============================================================ */
+/* Quotation output: shared Item Description | QTY | Unit | Price layout used from section IV to the last section. */
+function docQtyTable(bodyRows){
+  return `<table class="doc-item-table doc-qty-table" style="width:100%;table-layout:fixed;">
+    <colgroup><col><col style="width:64px"><col style="width:84px"><col style="width:140px"></colgroup>
+    <thead><tr><th style="text-align:left;">Item Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>
+    <tbody>${bodyRows}</tbody></table>`;
+}
+function docQtyCat(title, priceText){
+  return `<tr><td colspan="3" style="font-weight:700;padding-top:12px;">${title}</td><td class="right mono" style="font-weight:700;padding-top:12px;">${priceText||''}</td></tr>`;
+}
+function docQtyRow(desc, qty, unit){
+  return `<tr><td>${desc}</td><td style="text-align:center;">${qty}</td><td>${unit}</td><td></td></tr>`;
+}
+function docQtyNote(text){
+  return `<tr><td colspan="4" style="font-style:italic;">${text}</td></tr>`;
+}
 function sampleAccessory(cat, name, qty, unitPrice, markup){
   return { id:uid('ai'), cat, name, qty, unitPrice, markup };
 }
