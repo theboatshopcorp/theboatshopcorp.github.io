@@ -820,6 +820,23 @@ function presetPaintToQuoteItem(c){
     presetPaint:true, lumpCost: computeFormulaWorkCost(c),
     materials: JSON.parse(JSON.stringify(c.materials||[])), laborTeams: JSON.parse(JSON.stringify(c.laborTeams||[])) };
 }
+// Painting details typed in the Boat Model preset fill the quotation's paint lines automatically
+// (unless that line's Type was edited by hand in the quotation).
+function syncPaintDetailsFromPreset(q){
+  const presets = (TEMPLATES||[]).filter(isBoatPreset);
+  const loa = Number(q.hull && q.hull.loa) || 0;
+  const p = presets.find(t=>t.id===q.project.boatPresetId)
+         || presets.find(t=>t.boatModel===q.project.boatModel && Math.abs((Number(t.loa)||0)-loa)<0.01)
+         || presets.find(t=>t.boatModel===q.project.boatModel);
+  if(!p) return false;
+  let changed = false;
+  (q.paint.items||[]).forEach(it=>{
+    if(!it.presetPaint || it.typeEdited) return;
+    const c = (p.paintComponents||[]).find(x=>(x.cat||'Painting')===it.coatLabel && x.details);
+    if(c && it.type!==c.details){ it.type = c.details; changed = true; }
+  });
+  return changed;
+}
 // Whenever a new custom item is typed anywhere — the Quotation Editor's Hull
 // tab, its Accessories tab, or Boat Presets' Structural Components — it gets
 // pushed into the shared Pricing Database catalog too (if not already there),
@@ -827,8 +844,8 @@ function presetPaintToQuoteItem(c){
 // Items typed directly in the Pricing Database are already the source of
 // truth for everyone, so no extra sync is needed for that direction.
 function syncStructuralCatalog(cat, name, unit, unitPrice){
-  cat = (cat||'').trim(); name = (name||'').trim();
-  if(!cat || !name || name==='New Item') return false;
+  name = (name||'').trim();
+  if(!name || name==='New Item') return false;
   const exists = (PRICING.structuralCatalog||[]).some(a=>(a.name||'').trim().toLowerCase()===name.toLowerCase());
   if(exists) return false;
   PRICING.structuralCatalog.push({ name, unit: unit||'pc', unitPrice: Number(unitPrice)||0 });
@@ -838,7 +855,7 @@ function syncStructuralCatalog(cat, name, unit, unitPrice){
 // A material typed into a preset line (Choose materials -> Custom material) registers itself in
 // Pricing Database -> Materials. Lines picked from the catalog are left alone. A line that this
 // function registered keeps its catalog entry's unit and price in step while you finish typing.
-function syncMaterialLine(m){
+function syncMaterialLine(m, quiet){
   const name = (m.name||'').trim();
   if(!name) return false;
   const cat = PRICING.structuralCatalog = PRICING.structuralCatalog || [];
@@ -846,8 +863,8 @@ function syncMaterialLine(m){
   const hit = cat.find(a=>(a.name||'').trim().toLowerCase()===key);
   if(!hit){
     cat.push({ name, unit:(m.unit||'').trim()||'pc', unitPrice:Number(m.price)||0 });
-    m.catName = name; save(DB_KEYS.pricing, PRICING);
-    toast(`"${name}" added to Pricing Database → Materials`);
+    m.catName = name; if(!m.cat) m.cat = 'Materials'; save(DB_KEYS.pricing, PRICING);
+    if(!quiet) toast(`"${name}" added to Pricing Database → Materials`);
     return true;
   }
   if((m.catName||'').trim().toLowerCase()===key){
@@ -855,6 +872,15 @@ function syncMaterialLine(m){
     if(hit.unit!==u || hit.unitPrice!==p){ hit.unit = u; hit.unitPrice = p; save(DB_KEYS.pricing, PRICING); }
   }
   return false;
+}
+// Catch-all used when presets are saved: any custom material typed into a preset that is not yet in
+// the Pricing Database gets registered there.
+function registerPresetMaterials(){
+  let n = 0;
+  (TEMPLATES||[]).forEach(t=>['components','paintComponents'].forEach(k=>(t[k]||[]).forEach(c=>(c.materials||[]).forEach(m=>{
+    if(!m.cat && (m.name||'').trim() && syncMaterialLine(m, true)) n++;
+  }))));
+  return n;
 }
 function syncAccessoryCatalog(cat, name, unitPrice){
   cat = (cat||'').trim(); name = (name||'').trim();
@@ -1773,7 +1799,9 @@ function renderTemplates(content, actions){
   const grid = document.getElementById('presetGrid');
 
   document.getElementById('btnSaveTemplates').onclick = ()=>{
-    save(DB_KEYS.templates, TEMPLATES); toast('Presets saved');
+    const added = registerPresetMaterials();
+    save(DB_KEYS.templates, TEMPLATES);
+    toast(added ? `Presets saved — ${added} new item${added===1?'':'s'} added to the Pricing Database` : 'Presets saved');
   };
   document.getElementById('btnAddModel').onclick = ()=>{
     if(kind!=='boat'){
@@ -2191,10 +2219,11 @@ function renderPricing(content, actions){
       </tr>`).join('');
     document.querySelectorAll('.acc-f').forEach(i=>i.onchange=()=>{
       r.accessoryCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Number(i.value) : i.value;
+      save(DB_KEYS.pricing, PRICING);
     });
-    document.querySelectorAll('[data-del-acc]').forEach(b=>b.onclick=()=>{ r.accessoryCatalog.splice(Number(b.dataset.delAcc),1); drawAcc(); });
+    document.querySelectorAll('[data-del-acc]').forEach(b=>b.onclick=()=>{ r.accessoryCatalog.splice(Number(b.dataset.delAcc),1); save(DB_KEYS.pricing, PRICING); drawAcc(); });
   }
-  document.getElementById('addAccItem').onclick=()=>{ r.accessoryCatalog.push({cat:'Custom',name:'New Item',unitPrice:0}); drawAcc(); };
+  document.getElementById('addAccItem').onclick=()=>{ r.accessoryCatalog.push({cat:'Custom',name:'New Item',unitPrice:0}); save(DB_KEYS.pricing, PRICING); drawAcc(); };
 
   function drawMaterials(){
     document.getElementById('matCatRows').innerHTML = r.structuralCatalog.map((a,idx)=>`
@@ -2206,10 +2235,11 @@ function renderPricing(content, actions){
       </tr>`).join('') || `<tr><td colspan="4" class="empty" style="padding:12px;">No materials yet.</td></tr>`;
     document.querySelectorAll('.matcat-f').forEach(i=>i.onchange=()=>{
       r.structuralCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
+      save(DB_KEYS.pricing, PRICING);
     });
-    document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); drawMaterials(); });
+    document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); save(DB_KEYS.pricing, PRICING); drawMaterials(); });
   }
-  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); drawMaterials(); };
+  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); save(DB_KEYS.pricing, PRICING); drawMaterials(); };
 
   function drawLaborRates(){
     const names = Object.keys(r.laborDailyRates);
@@ -3000,6 +3030,7 @@ function tabHull(host, q){
 /* ---- Tab: Paint ---- */
 function tabPaint(host, q){
   if(!q.paint.items) q.paint.items = [];
+  if(syncPaintDetailsFromPreset(q)) persistQuote(q);
   host.innerHTML = `
     <div class="card">
       <div class="card-head"><h3>Surface Finishing &amp; Painting</h3>
@@ -3036,6 +3067,7 @@ function tabPaint(host, q){
         if(f==='area') item.area = inp.value===''? null : Number(inp.value)/SQFT_PER_SQM;     // stored in sqm
         else if(f==='pricePerSqm') item[f] = Number(inp.value)*SQFT_PER_SQM;                  // stored per sqm
         else item[f] = inp.value;
+        if(f==='type') item.typeEdited = true;
         persistQuote(q); updateLiveSummary(q);
         // Patch just this row's Cost cell instead of a full redraw, so
         // typing in Coat/Type/Color doesn't lose focus after every keystroke.
