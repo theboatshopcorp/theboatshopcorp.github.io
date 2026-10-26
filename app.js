@@ -1471,7 +1471,7 @@ function renderDashboard(content, actions){
    QUOTATIONS LIST
    ============================================================ */
 function renderQuotesList(content, actions){
-  actions.innerHTML = `<button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
+  actions.innerHTML = `<button class="btn" id="btnDemoSample">Load Demo Sample</button> <button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
   const pendingApproval = CURRENT_IS_ADMIN ? QUOTES.filter(q=>q.status==='for_approval').sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'', undefined, {numeric:true})) : [];
   content.innerHTML = `
     <div class="pill-row" style="align-items:center;">
@@ -1492,6 +1492,7 @@ function renderQuotesList(content, actions){
     <div class="card"><div class="card-body" style="padding:0;" id="qTableWrap"></div></div>
   `;
   document.getElementById('btnNewQ2').onclick = ()=>openEditor(null);
+  document.getElementById('btnDemoSample').onclick = addDemoSample;
   content.querySelectorAll('.pill-row [data-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.open));
   const wrap = document.getElementById('qTableWrap');
   function draw(){
@@ -4154,18 +4155,28 @@ function sampleAccessory(cat, name, qty, unitPrice, markup){
 function sampleStruct(cat, name, unit, qty, unitPrice){
   return { id:uid('si'), cat, name, unit, qty, unitPrice };
 }
-function buildSampleQuotes(){
-  const built = [];
-
-  // 1) 64' Passenger Boat — 80 Pax, dual inboard diesel (monohull)
-  let s1 = blankQuote();
-  s1.status = 'approved';
-  s1.date = '2026-05-16';
-  s1.customerSnap = { name:'Isla Ferries Corp.', email:'operations@islaferries.example', contact:'0917-201-4488', address:'Iloilo City, Philippines' };
-  s1.project = { title:"64' Passenger Boat — 80 Pax (Dual Inboard)", notes:'SOLAS-compliant interisland passenger ferry, dual inboard diesel with enclosed head.', buildType:'Custom Build', boatModel:'Embassy Series', boatApplication:'Passenger Boat', boatApplicationOther:'' };
-  s1.hull = { boatType:'Passenger Boat', loa:64, beam:14, depth:6, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false };
-  s1.paint = { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' };
-  s1.accessories = [
+// One demo quotation that shows the current features: Boat Model categories with descriptions,
+// preset painting details, dual propulsion entered as one amount, and accessories.
+function buildDemoQuote(){
+  const q = blankQuote();
+  q.status = 'draft';
+  q.date = todayISO();
+  Object.assign(q.customerSnap, { name:'Isla Ferries Corp.', companyName:'Isla Ferries Corp.', clientName:'Demo Client', email:'operations@islaferries.example', contact:'0917-201-4488', address:'Iloilo City, Philippines' });
+  Object.assign(q.project, { title:"64' Passenger Boat — 80 Pax with Dual Isuzu 340HP IBM", notes:'Demo sample quotation.', buildType:'Custom Build', boatModel:'Embassy Series', boatPresetId:null, boatApplication:'Passenger Boat', boatApplicationOther:'', passengerCapacity:80 });
+  q.hull = { boatType:'Passenger Boat', loa:64, beam:14, depth:6, numHulls:1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
+  const st = (name, description, price)=>({ id:uid('si'), cat:'', name, description, unit:'lot', qty:1, unitPrice:price });
+  q.structural = { items: [
+    st('Hull','Hand laid fiberglass with urethane foam stiffeners encapsulated with fiberglass, foam filled compartments and hi density foam transom board', 1850000),
+    st('Bulkheads','Watertight collision bulkhead and marine plywood bulkheads, glassed both sides', 420000),
+    st('Deck & Cabin','FRP non-skid finish deck floor; cabin with pilot console and provision for head', 650000),
+    st('Seating','Port and starboard seating in cabin with cushion and back rest', 380000),
+  ] };
+  const pt = (coatLabel, type, cost)=>({ id:uid('pi'), coatLabel, type, color:'', area:null, pricePerSqm:0, presetPaint:true, lumpCost:cost, materials:[], laborTeams:[] });
+  q.paint = { items: [
+    pt('Surface Preparation','Sanding, fairing and epoxy primer on hull and deck', 120000),
+    pt('Topcoat','2-pack marine polyurethane, white hull and light grey deck', 260000),
+  ] };
+  q.accessories = [
     sampleAccessory('Hull & Deck Accessories','Stainless Bollard',2,8500,15),
     sampleAccessory('Hull & Deck Accessories','Stainless Cleat',6,1800,15),
     sampleAccessory('Hull & Deck Accessories','Towing Bitt',2,6200,15),
@@ -4173,134 +4184,23 @@ function buildSampleQuotes(){
     sampleAccessory('Electrical System','Bilge Pump w/ Auto Float',2,4200,15),
     sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,22000,15),
   ];
-  s1.engine = { model:'Isuzu 340HP UM6SD1TCX + Dong-I DMT140H', hp:340, qty:2, unitPrice:3048856, installation:180000, transmission:'Dong-I DMT140H', propeller:'4-blade bronze' };
-  s1.structural = { items: [
-    sampleStruct('Stiffeners & Framing','Longitudinal Stiffener (glassed-in)','linear m',36,1450),
-    sampleStruct('Stiffeners & Framing','Transverse Frame / Stringer','linear m',24,1650),
-    sampleStruct('Bulkheads','Collision / Watertight Bulkhead','sqm',6,5200),
-    sampleStruct('Bulkheads','Plywood Bulkhead (marine ply, glassed both sides)','sqm',10,3800),
-    sampleStruct('Foam & Core Materials','Urethane Pour Foam (flotation/buoyancy)','cu.ft',40,850),
-  ] };
-  s1.labor = { fabrication:900, fiberglass:600, painting:260, electrical:320, assembly:400, testing:120 };
-  s1.schedule = { startDate:'2026-05-16', standardDays:240, requestedDays:240 };
-  built.push(s1); QUOTES.push(s1);
-
-  // 2) 38' Catamaran Tourist / Dive Boat — twin hull
-  let s2 = blankQuote();
-  s2.status = 'sent';
-  s2.date = '2026-06-02';
-  s2.customerSnap = { name:'Coral Bay Dive Charters', email:'bookings@coralbaydive.example', contact:'0918-330-5521', address:'Puerto Galera, Oriental Mindoro' };
-  s2.project = { title:"38' Catamaran Tourist / Dive Boat", notes:'Twin-hull catamaran, shaded deck, dive gear racks, twin outboard-ready transom (quoted with inboard option).', buildType:'Custom Build', boatModel:'Catamaran', boatApplication:'Dive Boat', boatApplicationOther:'' };
-  s2.hull = { boatType:'Catamaran', loa:38, beam:16, depth:5, numHulls:2, hullAreaOverride:null, layers:3, glassPerLayer:0.5, coreArea:22, coreEnabled:true };
-  s2.paint = { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat, high-gloss white with dive-charter livery' };
-  s2.accessories = [
-    sampleAccessory('Hull & Deck Accessories','Stainless Bollard',2,8500,15),
-    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',4,1800,15),
-    sampleAccessory('Hull & Deck Accessories','Rub Rail (per ft)',76,420,15),
-    sampleAccessory('Electrical System','12V Panel Switch Board',1,14500,15),
-    sampleAccessory('Electrical System','Dome Light',10,950,15),
-    sampleAccessory('Electrical System','Battery (Marine Deep Cycle)',2,9800,15),
-    sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,18000,15),
-    sampleAccessory('Anchor & Docking','Fender',6,1600,15),
-    sampleAccessory('Custom','Dive Tank Rack (Stainless, 12-tank)',2,15500,15),
-  ];
-  s2.engine = { model:'Yanmar 6LY440 (twin, per-hull)', hp:440, qty:2, unitPrice:3650000, installation:150000, transmission:'ZF Marine transmission', propeller:'4-blade bronze, per hull' };
-  s2.structural = { items: [
-    sampleStruct('Stiffeners & Framing','Hat-Section Stringer (foam-cored)','linear m',30,1950),
-    sampleStruct('Bulkheads','FRP Sandwich Bulkhead (foam core)','sqm',8,4600),
-    sampleStruct('Foam & Core Materials','PVC Foam Core Board (Divinycell-type)','sqm',22,2600),
-    sampleStruct('Other Structural Materials','Deck Beam / Carlin (FRP)','linear m',14,1800),
-  ] };
-  s2.labor = { fabrication:620, fiberglass:520, painting:190, electrical:180, assembly:260, testing:90 };
-  s2.schedule = { startDate:'2026-06-02', standardDays:150, requestedDays:120 };
-  built.push(s2); QUOTES.push(s2);
-
-  // 3) 42' Fishing Boat — commercial monohull
-  let s3 = blankQuote();
-  s3.status = 'sent';
-  s3.date = '2026-06-10';
-  s3.customerSnap = { name:'Bantayan Fishing Cooperative', email:'coop@bantayanfish.example', contact:'0920-115-7742', address:'Bantayan Island, Cebu' };
-  s3.project = { title:"42' Commercial Fishing Boat", notes:'Fish hold with insulated ice box, outrigger-ready, deck winch mounting points.', buildType:'Standard Build', boatModel:'Reef Runner Series', boatApplication:'Fishing Boat', boatApplicationOther:'' };
-  s3.hull = { boatType:'Fishing Boat', loa:42, beam:11, depth:5.5, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false };
-  s3.paint = { areaOverride:null, coats:2, paintType:'Marine Antifouling Bottom Paint + Topside Enamel' };
-  s3.accessories = [
-    sampleAccessory('Hull & Deck Accessories','Stainless Bollard',2,8500,15),
-    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',4,1800,15),
-    sampleAccessory('Hull & Deck Accessories','Towing Bitt',1,6200,15),
-    sampleAccessory('Electrical System','Dome Light',6,950,15),
-    sampleAccessory('Electrical System','Bilge Pump w/ Auto Float',1,4200,15),
-    sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,20000,15),
-    sampleAccessory('Anchor & Docking','Fender',4,1600,15),
-    sampleAccessory('Custom','Insulated Fish Hold w/ Hatch (600L)',1,48000,15),
-    sampleAccessory('Custom','Deck Winch Mounting Plate (SS)',2,7200,15),
-  ];
-  s3.engine = { model:'Isuzu 4JB1T (120HP)', hp:120, qty:1, unitPrice:980000, installation:60000, transmission:'Marine reduction gear 2.5:1', propeller:'3-blade bronze' };
-  s3.structural = { items: [
-    sampleStruct('Stiffeners & Framing','Transverse Frame / Stringer','linear m',18,1650),
-    sampleStruct('Bulkheads','Plywood Bulkhead (marine ply, glassed both sides)','sqm',5,3800),
-    sampleStruct('Foam & Core Materials','Urethane Pour Foam (flotation/buoyancy)','cu.ft',20,850),
-  ] };
-  s3.labor = { fabrication:480, fiberglass:340, painting:140, electrical:90, assembly:180, testing:60 };
-  s3.schedule = { startDate:'2026-06-10', standardDays:150, requestedDays:150 };
-  built.push(s3); QUOTES.push(s3);
-
-  // 4) 30' Patrol / Rescue Boat — monohull, high speed
-  let s4 = blankQuote();
-  s4.status = 'approved';
-  s4.date = '2026-06-18';
-  s4.customerSnap = { name:'Municipal Disaster Risk Reduction Office', email:'mdrrmo@lgu.example.gov.ph', contact:'0919-442-0093', address:'Roxas City, Capiz' };
-  s4.project = { title:"30' Patrol / Rescue Boat", notes:'High-speed monohull for coastal patrol and swift water rescue operations.', buildType:'Standard Build', boatModel:'Navigator Series', boatApplication:'Patrol Boat', boatApplicationOther:'' };
-  s4.hull = { boatType:'Patrol Boat', loa:30, beam:9, depth:4.5, numHulls:1, hullAreaOverride:null, layers:4, glassPerLayer:0.55, coreArea:0, coreEnabled:false };
-  s4.paint = { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat, high-visibility orange/white livery' };
-  s4.accessories = [
-    sampleAccessory('Hull & Deck Accessories','Stainless Bollard',2,8500,15),
-    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',4,1800,15),
-    sampleAccessory('Hull & Deck Accessories','SS#316 Grab Handle',6,2600,15),
-    sampleAccessory('Electrical System','12V Panel Switch Board',1,14500,15),
-    sampleAccessory('Electrical System','Dome Light',8,950,15),
-    sampleAccessory('Electrical System','Battery (Marine Deep Cycle)',2,9800,15),
-    sampleAccessory('Custom','Rescue Boarding Ladder (Stainless)',1,22000,15),
-    sampleAccessory('Custom','Emergency Siren & Beacon Light Bar',1,38000,15),
-  ];
-  s4.engine = { model:'Twin Yamaha 200HP Outboard (quoted as inboard-equivalent package)', hp:200, qty:2, unitPrice:1150000, installation:95000, transmission:'Direct drive', propeller:'Stainless 3-blade' };
-  s4.structural = { items: [
-    sampleStruct('Stiffeners & Framing','Longitudinal Stiffener (glassed-in)','linear m',16,1450),
-    sampleStruct('Foam & Core Materials','PVC Foam Core Board (Divinycell-type)','sqm',12,2600),
-    sampleStruct('Foam & Core Materials','Urethane Pour Foam (flotation/buoyancy)','cu.ft',15,850),
-  ] };
-  s4.labor = { fabrication:360, fiberglass:280, painting:130, electrical:150, assembly:190, testing:70 };
-  s4.schedule = { startDate:'2026-06-18', standardDays:100, requestedDays:100 };
-  built.push(s4); QUOTES.push(s4);
-
-  // 5) 50' Passenger Ferry — monohull
-  let s5 = blankQuote();
-  s5.status = 'sent';
-  s5.date = '2026-06-25';
-  s5.customerSnap = { name:'Tri-Island Shipping Lines', email:'fleet@triisland.example', contact:'0917-660-2214', address:'Cagayan de Oro City' };
-  s5.project = { title:"50' Passenger Ferry — 50 Pax (Single Inboard)", notes:'Short-route interisland ferry with covered passenger cabin and open aft deck.', buildType:'Standard Build', boatModel:'Embassy Series', boatApplication:'Ferry', boatApplicationOther:'' };
-  s5.hull = { boatType:'Passenger Boat', loa:50, beam:12, depth:5.5, numHulls:1, hullAreaOverride:null, layers:3, glassPerLayer:0.6, coreArea:0, coreEnabled:false };
-  s5.paint = { areaOverride:null, coats:3, paintType:'Marine Polyurethane Topcoat' };
-  s5.accessories = [
-    sampleAccessory('Hull & Deck Accessories','Stainless Bollard',2,8500,15),
-    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',6,1800,15),
-    sampleAccessory('Hull & Deck Accessories','Towing Bitt',2,6200,15),
-    sampleAccessory('Electrical System','Dome Light',12,950,15),
-    sampleAccessory('Electrical System','Bilge Pump w/ Auto Float',1,4200,15),
-    sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,20000,15),
-    sampleAccessory('Anchor & Docking','Fender',4,1600,15),
-  ];
-  s5.engine = { model:'Cummins QSB6.7 (450HP)', hp:450, qty:1, unitPrice:3820000, installation:140000, transmission:'ZF marine gearbox', propeller:'4-blade bronze' };
-  s5.structural = { items: [
-    sampleStruct('Stiffeners & Framing','Longitudinal Stiffener (glassed-in)','linear m',28,1450),
-    sampleStruct('Bulkheads','Plywood Bulkhead (marine ply, glassed both sides)','sqm',8,3800),
-    sampleStruct('Foam & Core Materials','Urethane Pour Foam (flotation/buoyancy)','cu.ft',30,850),
-  ] };
-  s5.labor = { fabrication:700, fiberglass:480, painting:210, electrical:230, assembly:300, testing:100 };
-  s5.schedule = { startDate:'2026-06-25', standardDays:200, requestedDays:200 };
-  built.push(s5); QUOTES.push(s5);
-
-  built.forEach(ensureQuoteDefaults);
+  // Propulsion is one amount for all engines (not multiplied by the number of units).
+  Object.assign(q.engine, { brand:'Isuzu', model:'UM6SD1TCX', type:'IBM', hp:340, qty:2, unitPrice:6097712, installation:0, transmission:'Dong-I DMT140H', propeller:'4-blade bronze', speed:'22 knots', fuelCapacity:'1,200 liters' });
+  q.schedule = { startDate: todayISO(), standardDays:240, requestedDays:240 };
+  ensureQuoteDefaults(q);
+  return q;
+}
+function buildSampleQuotes(){
+  const d = buildDemoQuote();
+  QUOTES.push(d);
   localSave(DB_KEYS.quotes, QUOTES);
+}
+function addDemoSample(){
+  const d = buildDemoQuote();
+  QUOTES.push(d);
+  persistQuote(d);
+  toast('Demo sample added to Quotations');
+  renderAll();
 }
 
 /* ============================================================
