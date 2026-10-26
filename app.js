@@ -4257,9 +4257,6 @@ function tabOutput(host, q){
             + (items.length ? items.map(it=>docQtyRow(esc(it.name), 1, 'pc/s')).join('') : docQtyNote('No Item Listed'));
           return docQtyTable(body);
         })()}
-        ${q.marina.notes && String(q.marina.notes).trim() ? `
-        <div class="doc-section-title">VIII. Notes</div>
-        <div class="doc-terms">${escNl(q.marina.notes)}</div>` : ``}
 
         <!-- ===== LAST PART: Terms & Conditions, Signatories ===== -->
         <div style="break-inside:avoid;page-break-inside:avoid;">
@@ -4317,7 +4314,7 @@ function docQtyRow(desc, qty, unit){
 /* Testing & Delivery output: Item | Description | QTY | Unit | Price */
 function docTestTable(bodyRows){
   return `<table class="doc-item-table doc-qty-table" style="width:100%;table-layout:fixed;">
-    <colgroup><col style="width:92px"><col><col style="width:56px"><col style="width:70px"><col style="width:130px"></colgroup>
+    <colgroup><col style="width:92px"><col><col style="width:64px"><col style="width:84px"><col style="width:140px"></colgroup>
     <thead><tr><th style="text-align:left;">Item</th><th style="text-align:left;">Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>`;
 }
