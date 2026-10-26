@@ -579,8 +579,8 @@ function getKnownAccessoryCategories(){
 }
 
 /* ---------- Testing & Delivery: same category/sorting approach as Accessories ---------- */
-const TESTING_DELIVERY_ORDER = ['Trailer','Delivery','Sea Trial'];
-const PRINTED_TESTING_DELIVERY_SECTIONS = ['Trailer','Delivery','Sea Trial'];
+const TESTING_DELIVERY_ORDER = ['Trailer','Sea Trial','Delivery'];
+const PRINTED_TESTING_DELIVERY_SECTIONS = ['Trailer','Sea Trial','Delivery'];
 function testingCategoryRank(cat){
   if(!cat) return TESTING_DELIVERY_ORDER.length;
   if(cat === 'Custom') return Infinity;
@@ -4151,18 +4151,24 @@ function tabOutput(host, q){
         ${(()=>{
           const groups = groupByCat(c.testing.rows);
           const adjByCat = adjustedByGroup(groups, c.categories[4].adjusted);
-          const catRows = (cat, items)=> docQtyCat(esc(cat), items && items.length ? fmt(adjByCat.get(cat)||0) : '')
-            + items.map(r=>docQtyRow(esc(r.name), r.qty, esc(r.unit)||'pc/s')).join('');
+          // One row per item: the category name sits in the Item column on its first row. An item with no price
+          // (for example "Subject to actual cost") prints its description only, without qty, unit or price.
+          const itemRows = (cat, items)=>{
+            const adj = distributeAmount(adjByCat.get(cat)||0, items.map(r=>r.total));
+            return items.map((r,i)=>{
+              const priced = (Number(r.total)||0) > 0;
+              return docTestRow(i===0 ? esc(cat) : '', esc(r.name), priced ? r.qty : '', priced ? (esc(r.unit)||'pc/s') : '', priced ? fmt(adj[i]) : '');
+            }).join('');
+          };
           const namedHtml = PRINTED_TESTING_DELIVERY_SECTIONS.map(cat=>{
             const items = groups.get(cat);
             groups.delete(cat);
-            const isNA = !!q.testingDeliveryNA[cat];
-            if(isNA) return docQtyCat(esc(cat), '') + docQtyNote('Not Applicable');
-            if(items && items.length) return catRows(cat, items);
-            return docQtyCat(esc(cat), '') + docQtyNote('No Item Listed');
+            if(q.testingDeliveryNA[cat]) return docTestRow(esc(cat), 'Not Applicable', '', '', '', true);
+            if(items && items.length) return itemRows(cat, items);
+            return docTestRow(esc(cat), 'No Item Listed', '', '', '', true);
           }).join('');
-          const otherHtml = Array.from(groups.entries()).map(([cat, items])=>catRows(cat, items)).join('');
-          return docQtyTable(namedHtml + otherHtml);
+          const otherHtml = Array.from(groups.entries()).map(([cat, items])=>itemRows(cat, items)).join('');
+          return docTestTable(namedHtml + otherHtml);
         })()}
 
         <div class="doc-section-title">VII. MARINA Documentation &amp; Regulatory Requirements</div>
@@ -4173,7 +4179,9 @@ function tabOutput(host, q){
             + (items.length ? items.map(it=>docQtyRow(esc(it.name), 1, 'pc/s')).join('') : docQtyNote('No Item Listed'));
           return docQtyTable(body);
         })()}
-        <div class="doc-terms" style="margin-top:6px;">${esc(q.marina.notes)}</div>
+        ${q.marina.notes && String(q.marina.notes).trim() ? `
+        <div class="doc-section-title">VIII. Notes</div>
+        <div class="doc-terms">${escNl(q.marina.notes)}</div>` : ``}
 
         <!-- ===== LAST PART: Terms & Conditions, Signatories ===== -->
         <div style="break-inside:avoid;page-break-inside:avoid;">
@@ -4227,6 +4235,16 @@ function docQtyCat(title, priceText){
 }
 function docQtyRow(desc, qty, unit){
   return `<tr><td>${desc}</td><td style="text-align:center;">${qty}</td><td>${unit}</td><td></td></tr>`;
+}
+/* Testing & Delivery output: Item | Description | QTY | Unit | Price */
+function docTestTable(bodyRows){
+  return `<table class="doc-item-table doc-qty-table" style="width:100%;table-layout:fixed;">
+    <colgroup><col style="width:92px"><col><col style="width:56px"><col style="width:70px"><col style="width:130px"></colgroup>
+    <thead><tr><th style="text-align:left;">Item</th><th style="text-align:left;">Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>
+    <tbody>${bodyRows}</tbody></table>`;
+}
+function docTestRow(item, desc, qty, unit, price, italic){
+  return `<tr><td style="font-weight:700;vertical-align:top;">${item}</td><td${italic?' style="font-style:italic;"':''}>${desc}</td><td style="text-align:center;vertical-align:top;">${qty}</td><td style="vertical-align:top;">${unit}</td><td class="right mono" style="vertical-align:top;">${price}</td></tr>`;
 }
 function docQtyNote(text){
   return `<tr><td colspan="4" style="font-style:italic;">${text}</td></tr>`;
@@ -4295,9 +4313,9 @@ function buildDemoQuote(){
       ['LED passenger information display','set',1,38000,15],
     ],
     testing:[
-      ['Trailer','Heavy-duty boat trailer (custom)','unit',1,320000,10],
-      ['Delivery','Land transport & crane lifting to Iloilo City','lot',1,145000,10],
-      ['Sea Trial','Sea trial with fuel, crew and inspection','lot',1,65000,10],
+      ['Trailer','Galvanized Trailer Dual Axle, Keel Rollers, Manual Winch, Tongue Jack and Lights','unit',1,320000,10],
+      ['Sea Trial','1hr sea trial and final inspection','lot',1,65000,10],
+      ['Delivery','Subject to actual cost','lot',1,0,0],
     ],
     engine:{ brand:'Isuzu', model:'UM6SD1TCX', type:'IBM', hp:340, qty:2, unitPrice:6097712, installation:0, transmission:'Dong-I DMT140H', propeller:'4-blade bronze', speed:'22 knots', fuelCapacity:'1,200 liters',
       description:'Dual Installation of Isuzu 340HP, Model: UM6SD1TCX, 6-cylinder, Turbocharged and Intercooled Marine Diesel, Inboard Marine (IBM), Brand New complete with the following;',
@@ -4338,9 +4356,9 @@ function buildDemoQuote2(){
       ['GPS chartplotter with fish finder','set',1,68000,15],
     ],
     testing:[
-      ['Trailer','Heavy-duty boat trailer (custom)','unit',1,210000,10],
-      ['Delivery','Land transport & crane lifting to Naic, Cavite','lot',1,95000,10],
-      ['Sea Trial','Sea trial with fuel, crew and inspection','lot',1,45000,10],
+      ['Trailer','Galvanized Trailer Dual Axle, Keel Rollers, Manual Winch, Tongue Jack and Lights','unit',1,210000,10],
+      ['Sea Trial','1hr sea trial and final inspection','lot',1,45000,10],
+      ['Delivery','Subject to actual cost','lot',1,0,0],
     ],
     engine:{ brand:'Yanmar', model:'6LPA-STP2', type:'IBM', hp:150, qty:2, unitPrice:2450000, installation:0, transmission:'ZF 63A', propeller:'4-blade bronze', speed:'25 knots', fuelCapacity:'600 liters',
       description:'Dual Installation of Yanmar 150HP, Model: 6LPA-STP2, 6-cylinder, Turbocharged Marine Diesel, Inboard Marine (IBM), Brand New complete with the following;',
