@@ -803,6 +803,15 @@ function presetToQuoteItems(p, name){
   return [{ id:uid('si'), cat:'', name: name || p.name || 'Structural', description: p.description || '', unit:'lot', qty:1, unitPrice: total,
     useFormula:true, materials: comps.flatMap(c=>clone(c.materials||[])), laborTeams: comps.flatMap(c=>clone(c.laborTeams||[])) }];
 }
+// A Boat Model's structural components become one quotation line each: the category is the item name
+// and the component's description follows it.
+function boatComponentsToQuoteItems(p){
+  return (p.components||[]).map(c=>{
+    const it = presetComponentToQuoteItem(c);
+    it.cat = ''; it.name = c.cat || c.name || 'Structural component'; it.description = c.description || '';
+    return it;
+  });
+}
 // A Boat Model's Painting Component becomes one lump-sum line on the quotation's Paint & Finish tab,
 // priced by the same formula as the structural components (labor + materials).
 function presetPaintToQuoteItem(c){
@@ -1886,7 +1895,7 @@ function renderTemplates(content, actions){
               <button class="btn btn-ghost btn-sm" id="btnAddComp${sfx}">${icon('plus')} Add Component</button>
             </div>`}
           </div>
-          <table>${single ? '' : `<thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>`}
+          <table>${single ? '' : `<thead><tr><th>${key==='paintComponents' ? 'Category' : 'Category &nbsp;/&nbsp; Description'}</th><th style="width:90px;"></th></tr></thead>`}
           <tbody id="compRows${sfx}"></tbody></table>
           <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = for each labor category (Rate × Laborers × its own Days) + the cost of every material used (quantity × price per unit)</em>. ${key==='paintComponents' ? `Each painting component (for example Surface Preparation, Primer, Topcoat) becomes one line on the quotation's Paint &amp; Finish tab, named after its category.` : `Each component becomes one line on the quotation's structural list, named after its category.`}</div>`;
   }
@@ -1919,6 +1928,7 @@ function renderTemplates(content, actions){
               ${cats.map(k=>`<option value="${esc(k)}" ${k===c.cat?'selected':''}>${esc(k)}</option>`).join('')}
               <option value="__new">+ New category…</option>
             </select>
+            ${key==='paintComponents' ? '' : `<input class="tbl-input comp-desc" data-idx="${idx}" value="${esc(c.description||'')}" placeholder="Description" style="flex:2;min-width:220px;">`}
             ${collapsed ? `<span class="hint" style="margin:0;">${workSummaryHTML(c)}</span>` : ''}
             </div>
           </td>
@@ -1952,6 +1962,7 @@ function renderTemplates(content, actions){
         c.cat = v;
         drawComponents();
       });
+      body.querySelectorAll('.comp-desc').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].description = inp.value; }));
       // Patch totals in place (no redraw) so typing never loses focus.
       function patchFormulaTotals(idx){
         const c = t[key][idx];
@@ -2082,7 +2093,6 @@ function renderTemplates(content, actions){
         </div>
         <div class="card-body">
           <div class="field" style="max-width:420px;"><label>Boat Model name</label><input id="boatModelName" value="${esc(m)}"><div class="hint">Renaming updates this preset. Existing quotations keep the name they were saved with. The same name can be used for more than one model as long as the LOA is different.</div></div>
-          <div class="field"><label>Description</label><textarea id="boatModelDesc" rows="2" placeholder="Printed after the Boat Model name in the quotation">${escH(t.description||'')}</textarea></div>
           <div class="grid g4">
             <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
             ${['beam','depth'].map(f=>{ const v = decToFtIn(t[f]); return `<div class="field"><label>${f==='beam'?'Beam':'Depth'} (ft / in)</label><div style="display:flex;gap:6px;">
@@ -2104,7 +2114,6 @@ function renderTemplates(content, actions){
       }
       _presetOpenModel = null; draw();
     };
-    document.getElementById('boatModelDesc').addEventListener('input', e=>{ t.description = e.target.value; });
     document.getElementById('boatModelName').onchange = e=>{
       const nm = e.target.value.trim();
       if(!nm){ e.target.value = m; return; }
@@ -2256,7 +2265,7 @@ function openEditor(quoteId, templateId){
         q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
         q.paint = { items: (t.paintComponents||[]).map(presetPaintToQuoteItem) };
         if(!q.structural) q.structural = { items:[] };
-        q.structural.items = presetToQuoteItems(t, t.boatModel || t.name);
+        q.structural.items = boatComponentsToQuoteItems(t);
         q.project.title = t.name;
         if(t.boatModel) q.project.boatModel = t.boatModel;
         if(isBoatPreset(t)) q.project.boatPresetId = t.id;
@@ -2960,7 +2969,7 @@ function tabHull(host, q){
       q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false, work:null, noLaminate:true };
       q.paint.items = (preset.paintComponents||[]).map(presetPaintToQuoteItem);
       if(!q.structural) q.structural = { items:[] };
-      { const addons = (q.structural.items||[]).filter(i=>i.presetType); q.structural.items = [...presetToQuoteItems(preset, preset.boatModel || preset.name), ...addons]; }
+      { const addons = (q.structural.items||[]).filter(i=>i.presetType); q.structural.items = [...boatComponentsToQuoteItems(preset), ...addons]; }
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
       toast(`Preset applied: ${preset.name}`);
     } else {
