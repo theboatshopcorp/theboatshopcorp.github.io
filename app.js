@@ -793,6 +793,16 @@ function presetComponentToQuoteItem(c){
   return {...c, name: c.name || c.cat || 'Structural component', unit: c.unit || 'lot', qty,
     materials: JSON.parse(JSON.stringify(c.materials||[])), laborTeams: JSON.parse(JSON.stringify(c.laborTeams||[])), id:uid('si'), unitPrice: computeFormulaWorkCost(c)/qty};
 }
+// A whole preset (Boat Model, Transom, Console or Deck) becomes ONE line on the quotation's structural
+// list: the preset name, its description, and the combined cost of all its components.
+function presetToQuoteItems(p, name){
+  const comps = p.components || [];
+  if(!comps.length) return [];
+  const clone = x=>JSON.parse(JSON.stringify(x));
+  const total = comps.reduce((s,c)=>{ migratePresetComponent(c); return s + computeFormulaWorkCost(c); }, 0);
+  return [{ id:uid('si'), cat:'', name: name || p.name || 'Structural', description: p.description || '', unit:'lot', qty:1, unitPrice: total,
+    useFormula:true, materials: comps.flatMap(c=>clone(c.materials||[])), laborTeams: comps.flatMap(c=>clone(c.laborTeams||[])) }];
+}
 // A Boat Model's Painting Component becomes one lump-sum line on the quotation's Paint & Finish tab,
 // priced by the same formula as the structural components (labor + materials).
 function presetPaintToQuoteItem(c){
@@ -1158,8 +1168,8 @@ function computeTestingDelivery(q){
 }
 function computeEngine(q){
   const e = q.engine;
-  const unitsCost = (Number(e.qty)||0) * (Number(e.unitPrice)||0);
-  // Installation cost was removed from the editor; unit price is the sole engine line cost.
+  // The amount typed in is the whole propulsion cost; it is not multiplied by the number of engines.
+  const unitsCost = Number(e.unitPrice)||0;
   const total = unitsCost;
   return { unitsCost, total };
 }
@@ -1724,10 +1734,7 @@ function presetTotalCost(p){
 }
 // Transom / Console / Deck presets become tagged lines on the quotation's structural list.
 function addonPresetToQuoteItems(p){
-  const comps = p.components||[];
-  return comps.map(c=>{
-    const it = presetComponentToQuoteItem(c);
-    it.name = c.name ? c.name : (comps.length===1 ? p.name : `${p.name} — ${c.cat||'Component'}`);
+  return presetToQuoteItems(p, p.name).map(it=>{
     it.presetType = p.presetType; it.presetId = p.id; it.presetName = p.name;
     return it;
   });
@@ -1872,7 +1879,7 @@ function renderTemplates(content, actions){
               <button class="btn btn-ghost btn-sm" id="btnAddComp${sfx}">${icon('plus')} Add Component</button>
             </div>
           </div>
-          <table><thead><tr><th>${key==='paintComponents' ? 'Category' : 'Category, item name &amp; description'}</th><th style="width:90px;"></th></tr></thead>
+          <table><thead><tr><th>${key==='paintComponents' ? 'Category' : 'Component'}</th><th style="width:90px;"></th></tr></thead>
           <tbody id="compRows${sfx}"></tbody></table>
           <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = for each labor category (Rate × Laborers × its own Days) + the cost of every material used (quantity × price per unit)</em>. ${key==='paintComponents' ? `Each painting component (for example Surface Preparation, Primer, Topcoat) becomes one line on the quotation's Paint &amp; Finish tab, named after its category.` : `Each component becomes one line on the quotation's structural list, named after its category.`}</div>`;
   }
@@ -1899,17 +1906,13 @@ function renderTemplates(content, actions){
           <td>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn btn-ghost btn-sm comp-toggle" data-idx="${idx}" aria-expanded="${!collapsed}" title="${collapsed?'Show':'Hide'} labor and materials" style="padding:6px 8px;">${chevronIcon(collapsed)}</button>
-            <select class="tbl-input comp-cat" data-idx="${idx}" style="flex:1;min-width:180px;max-width:340px;">
+${key==='paintComponents' ? `<select class="tbl-input comp-cat" data-idx="${idx}" style="flex:1;min-width:180px;max-width:340px;">
               ${c.cat ? '' : '<option value="">— choose category —</option>'}
               ${cats.map(k=>`<option value="${esc(k)}" ${k===c.cat?'selected':''}>${esc(k)}</option>`).join('')}
               <option value="__new">+ New category…</option>
-            </select>
+            </select>` : `<span style="font-weight:600;font-size:12.5px;">Component ${idx+1}</span>`}
             ${collapsed ? `<span class="hint" style="margin:0;">${workSummaryHTML(c)}</span>` : ''}
             </div>
-            ${key==='paintComponents' ? '' : `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-              <input class="tbl-input comp-name" data-idx="${idx}" value="${esc(c.name||'')}" placeholder="Item name" style="flex:1;min-width:160px;max-width:280px;">
-              <input class="tbl-input comp-desc" data-idx="${idx}" value="${esc(c.description||'')}" placeholder="Item description" style="flex:2;min-width:220px;">
-            </div>`}
           </td>
           <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
         </tr>
@@ -1941,8 +1944,6 @@ function renderTemplates(content, actions){
         c.cat = v;
         drawComponents();
       });
-      body.querySelectorAll('.comp-name').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].name = inp.value; }));
-      body.querySelectorAll('.comp-desc').forEach(inp=>inp.addEventListener('input', ()=>{ t[key][Number(inp.dataset.idx)].description = inp.value; }));
       // Patch totals in place (no redraw) so typing never loses focus.
       function patchFormulaTotals(idx){
         const c = t[key][idx];
@@ -2039,6 +2040,7 @@ function renderTemplates(content, actions){
         </div>
         <div class="card-body">
           <div class="field" style="max-width:420px;"><label>Preset name</label><input id="addonName" value="${esc(t.name)}"></div>
+          <div class="field"><label>Description</label><textarea id="addonDesc" rows="2" placeholder="Printed after the preset name in the quotation">${escH(t.description||'')}</textarea></div>
           ${componentEditorHTML('Components')}
         </div>
       </div>`;
@@ -2048,6 +2050,7 @@ function renderTemplates(content, actions){
       if(!nm){ e.target.value = t.name; return; }
       t.name = nm; document.getElementById('addonTitle').textContent = nm;
     };
+    document.getElementById('addonDesc').addEventListener('input', e=>{ t.description = e.target.value; });
     document.getElementById('btnDelAddon').onclick = ()=>{
       if(!confirm(`Remove the "${t.name}" preset? It will be deleted once you click Save Presets. Quotations that already use it are not changed.`)) return;
       const i = TEMPLATES.indexOf(t); if(i>=0) TEMPLATES.splice(i,1);
@@ -2069,6 +2072,7 @@ function renderTemplates(content, actions){
         </div>
         <div class="card-body">
           <div class="field" style="max-width:420px;"><label>Boat Model name</label><input id="boatModelName" value="${esc(m)}"><div class="hint">Renaming updates this preset. Existing quotations keep the name they were saved with. The same name can be used for more than one model as long as the LOA is different.</div></div>
+          <div class="field"><label>Description</label><textarea id="boatModelDesc" rows="2" placeholder="Printed after the Boat Model name in the quotation">${escH(t.description||'')}</textarea></div>
           <div class="grid g4">
             <div class="field"><label>LOA (ft)</label><input type="number" step="any" class="tpl-f" data-f="loa" value="${t.loa||0}"></div>
             ${['beam','depth'].map(f=>{ const v = decToFtIn(t[f]); return `<div class="field"><label>${f==='beam'?'Beam':'Depth'} (ft / in)</label><div style="display:flex;gap:6px;">
@@ -2090,6 +2094,7 @@ function renderTemplates(content, actions){
       }
       _presetOpenModel = null; draw();
     };
+    document.getElementById('boatModelDesc').addEventListener('input', e=>{ t.description = e.target.value; });
     document.getElementById('boatModelName').onchange = e=>{
       const nm = e.target.value.trim();
       if(!nm){ e.target.value = m; return; }
@@ -2241,7 +2246,7 @@ function openEditor(quoteId, templateId){
         q.hull = { boatType:t.boatType, loa:t.loa, beam:t.beam, depth:t.depth, numHulls:t.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
         q.paint = { items: (t.paintComponents||[]).map(presetPaintToQuoteItem) };
         if(!q.structural) q.structural = { items:[] };
-        q.structural.items = (t.components||[]).map(presetComponentToQuoteItem);
+        q.structural.items = presetToQuoteItems(t, t.boatModel || t.name);
         q.project.title = t.name;
         if(t.boatModel) q.project.boatModel = t.boatModel;
         if(isBoatPreset(t)) q.project.boatPresetId = t.id;
@@ -2822,7 +2827,7 @@ function tabHull(host, q){
       </div>
       <div class="card-body section-lead">Stiffeners, bulkheads, urethane foam, coring, and other structural materials — costed here and folded into Material Cost.</div>
       <div class="card-body" style="padding:0;">
-        <table><thead><tr><th style="width:16%;">Category</th><th>Item / Description</th><th style="width:90px;">Unit</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
+        <table><thead><tr><th>Item / Description</th><th style="width:90px;">Unit</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
           <tbody id="structRows"></tbody>
         </table>
       </div>
@@ -2845,15 +2850,6 @@ function tabHull(host, q){
       const catIsKnown = a.cat && knownCats.includes(a.cat);
       const catOptions = knownCats.map(c=>`<option value="${esc(c)}" ${a.cat===c?'selected':''}>${esc(c)}</option>`).join('');
       return `<tr>
-        <td>
-          <select class="tbl-input srow-cat" data-idx="${idx}">
-            <option value="" ${a.cat?'':'selected'}>— choose category —</option>
-            ${catOptions}
-            ${a.cat && !catIsKnown ? `<option value="${esc(a.cat)}" selected>${esc(a.cat)}</option>` : ''}
-            <option value="__new__">+ New category…</option>
-          </select>
-          <input type="text" class="tbl-input srow-cat-new" data-idx="${idx}" placeholder="Type new category" style="display:none;margin-top:4px;">
-        </td>
         <td><input class="tbl-input srow" data-idx="${idx}" data-f="name" value="${esc(a.name)}">
           <input class="tbl-input srow" data-idx="${idx}" data-f="description" value="${esc(a.description||'')}" placeholder="Item description" style="margin-top:4px;"></td>
         <td><input class="tbl-input srow" data-idx="${idx}" data-f="unit" value="${esc(a.unit)}"></td>
@@ -2862,32 +2858,8 @@ function tabHull(host, q){
         <td class="right mono">${fmt(total)}</td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-delstruct="${idx}" style="color:var(--danger);">✕</span></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="7"><div class="empty">No structural items yet. Add stiffeners, bulkheads, foam core, etc. from the catalog or as a custom line item.</div></td></tr>`;
+    }).join('') : `<tr><td colspan="6"><div class="empty">No structural items yet. Add stiffeners, bulkheads, foam core, etc. from the catalog or as a custom line item.</div></td></tr>`;
 
-    structBody.querySelectorAll('.srow-cat').forEach(sel=>{
-      sel.addEventListener('change', ()=>{
-        const idx = Number(sel.dataset.idx);
-        const newInput = structBody.querySelector(`.srow-cat-new[data-idx="${idx}"]`);
-        if(sel.value === '__new__'){
-          sel.style.display = 'none';
-          newInput.style.display = 'block';
-          newInput.focus();
-          return;
-        }
-        q.structural.items[idx].cat = sel.value;
-        persistQuote(q); drawStruct(); drawHullCalc(); updateLiveSummary(q);
-      });
-    });
-    structBody.querySelectorAll('.srow-cat-new').forEach(inp=>{
-      const commit = ()=>{
-        const idx = Number(inp.dataset.idx);
-        const v = inp.value.trim();
-        if(v){ q.structural.items[idx].cat = v; }
-        persistQuote(q); drawStruct(); drawHullCalc(); updateLiveSummary(q);
-      };
-      inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); commit(); } });
-      inp.addEventListener('blur', commit);
-    });
     structBody.querySelectorAll('.srow').forEach(inp=>{
       inp.addEventListener('input', ()=>{
         const idx = Number(inp.dataset.idx);
@@ -2924,7 +2896,7 @@ function tabHull(host, q){
   document.getElementById('structCatalogPick').onchange = (e)=>{
     if(e.target.value==='') return;
     const item = PRICING.structuralCatalog[Number(e.target.value)];
-    q.structural.items.push({id:uid('si'), cat:'Other Structural Materials', name:item.name, unit:item.unit, qty:1, unitPrice:item.unitPrice});
+    q.structural.items.push({id:uid('si'), cat:'', name:item.name, unit:item.unit, qty:1, unitPrice:item.unitPrice});
     e.target.value=''; persistQuote(q); drawStruct(); drawHullCalc(); updateLiveSummary(q);
   };
   document.getElementById('addBlankStruct').onclick = ()=>{
@@ -2978,7 +2950,7 @@ function tabHull(host, q){
       q.hull = { boatType:preset.boatType, loa:preset.loa, beam:preset.beam, depth:preset.depth, numHulls:preset.numHulls||1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:q.hull.coreArea||0, coreEnabled:q.hull.coreEnabled||false, work:null, noLaminate:true };
       q.paint.items = (preset.paintComponents||[]).map(presetPaintToQuoteItem);
       if(!q.structural) q.structural = { items:[] };
-      { const addons = (q.structural.items||[]).filter(i=>i.presetType); q.structural.items = [...(preset.components||[]).map(presetComponentToQuoteItem), ...addons]; }
+      { const addons = (q.structural.items||[]).filter(i=>i.presetType); q.structural.items = [...presetToQuoteItems(preset, preset.boatModel || preset.name), ...addons]; }
       persistQuote(q); tabHull(host, q); updateLiveSummary(q);
       toast(`Preset applied: ${preset.name}`);
     } else {
@@ -3462,7 +3434,7 @@ function tabEngine(host, q){
         <div class="field"><label>Intro / Spec Paragraph</label><textarea id="eDesc" rows="4" placeholder="e.g. Dual Installation of Yamaha 250HP, Model: F250HETX...">${esc(e.description||'')}</textarea>
           <div class="hint">Prints as an intro paragraph above the inclusion lists under Marine Propulsion System.</div>
         </div>
-        <div class="field" style="max-width:280px;"><label>Unit Price (₱)</label><input type="number" id="ePrice" value="${e.unitPrice}"><div class="hint">Price per unit × number of units = propulsion cost.</div></div>
+        <div class="field" style="max-width:280px;"><label>Amount (₱)</label><input type="number" id="ePrice" value="${e.unitPrice}"><div class="hint">Total propulsion cost for all units — it is not multiplied by the number of units.</div></div>
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
@@ -3557,7 +3529,7 @@ function tabEngine(host, q){
     const c = computeEngine(q);
     document.getElementById('engineCalcOut').innerHTML = `
       <table><tbody>
-        <tr><td>Units (${e.qty} × ${fmt(e.unitPrice)})</td><td class="right mono">${fmt(c.unitsCost)}</td></tr>
+        <tr><td>Propulsion amount (${e.qty} unit${Number(e.qty)===1?'':'s'})</td><td class="right mono">${fmt(c.unitsCost)}</td></tr>
         <tr><td style="font-weight:700;">Marine Propulsion System Total</td><td class="right mono" style="font-weight:700;">${fmt(c.total)}</td></tr>
       </tbody></table>`;
   }
@@ -4040,13 +4012,11 @@ function tabOutput(host, q){
 
         <div class="doc-section-title">II. Structural Components &amp; Core Materials</div>
         ${(()=>{
-          const groups = groupByCat(c.structural.rows);
-          if(!groups.size) return `<div class="doc-na-block" style="font-style:normal;">No structural items listed.</div>`;
-          return Array.from(groups.entries()).map(([cat, rows])=>`
-            <div class="doc-subcat-title">${esc(cat)}</div>
-            <table class="doc-item-table">
+          const rows = c.structural.rows;
+          if(!rows.length) return `<div class="doc-na-block" style="font-style:normal;">No structural items listed.</div>`;
+          return `<table class="doc-item-table">
               <tbody>${rows.map(r=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
-            </table>`).join('');
+            </table>`;
         })()}
 
         <div class="doc-section-title">III. Paint &amp; Finish</div>
