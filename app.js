@@ -1083,13 +1083,7 @@ function blankQuote(){
     schedule: { startDate: todayISO(), standardDays: PRICING.standardDurationDays, requestedDays: PRICING.standardDurationDays },
     terms: [
       {title:'Completion Time', body:'12 months from date of receipt of downpayment and Purchase Order'},
-      {title:'Payment Terms', body:'Payment shall be made according to the following schedule:', bullets:[
-        'Thirty percent (30%) down payment upon confirmation of order.',
-        'Twenty percent (20%) after thirty (30) days from order confirmation.',
-        'Twenty percent (20%) after sixty (60) days from order confirmation.',
-        'Twenty percent (20%) after one hundred (100) days from order confirmation.',
-        'Ten percent (10%) final balance upon completion of the boat and before delivery.'
-      ]},
+      {title:'Payment Terms', body:'Payment shall be made according to the following schedule:\nThirty percent (30%) down payment upon confirmation of order.\nTwenty percent (20%) after thirty (30) days from order confirmation.\nTwenty percent (20%) after sixty (60) days from order confirmation.\nTwenty percent (20%) after one hundred (100) days from order confirmation.\nTen percent (10%) final balance upon completion of the boat and before delivery.'},
       {title:'Hull Warranty', body:'Two (2) years on hull structure for pleasure use, one (1) year for commercial use, covering manufacturing defects under normal use conditions.'},
       {title:'Warranty Exclusions', body:'Warranty excludes normal wear and tear, misuse or negligence, unauthorized modification, force majeure, and third-party accessories which follow manufacturer warranty.'},
       {title:'Delivery', body:'Delivery outside factory premises subject to separate agreement and additional logistics charges.'},
@@ -2427,7 +2421,7 @@ function ensureQuoteDefaults(q){
       {title:'Regulatory Compliance', body:t.compliance||'Boat registration, MARINA licenses, permits and certificates shall be borne by the customer.'},
     ];
   }
-  q.terms.forEach(t=>{ if(!Array.isArray(t.bullets)) t.bullets = []; });
+  q.terms.forEach(t=>{ if(Array.isArray(t.bullets) && t.bullets.length) t.body = (t.body ? t.body+'\n' : '') + t.bullets.join('\n'); delete t.bullets; });
   if(q.closingMessage===undefined) q.closingMessage = defaultClosingMessage();
 }
 function defaultClosingMessage(){
@@ -3634,7 +3628,7 @@ function tabTerms(host, q){
     <div class="card">
       <div class="card-head"><h3>Terms &amp; Conditions</h3></div>
       <div class="card-body section-lead">
-        Add, remove, or rewrite any clause. Each clause can have extra detail lines (one per line). Drag the ⠿ handle to rearrange clauses. These print in order on the quotation, followed by an auto-generated Validity clause based on the Validity (days) field set on the Client &amp; Project tab.
+        Add, remove, or rewrite any clause. Drag the ⠿ handle to rearrange clauses. These print in order on the quotation, followed by an auto-generated Validity clause based on the Validity (days) field set on the Client &amp; Project tab.
       </div>
       <div class="card-body" style="padding-top:0;">
         <div id="termRows"></div>
@@ -3670,19 +3664,13 @@ function tabTerms(host, q){
               <button class="btn btn-ghost btn-sm" data-del="${idx}" style="color:var(--danger);" title="Remove">✕</button>
             </div>
           </div>
-          <div class="field" style="margin-bottom:8px;"><label>Clause Text</label><textarea class="term-f" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
-          <div class="field" style="margin-bottom:0;"><label>Detail Lines <span style="font-weight:400;">(one per line, optional)</span></label><textarea class="term-b" data-idx="${idx}" rows="3" placeholder="First point&#10;Second point">${esc((t.bullets||[]).join('\n'))}</textarea></div>
+          <div class="field" style="margin-bottom:0;"><label>Clause Text</label><textarea class="term-f" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
         </div>
       </div>
     `).join('') : `<div class="empty">No clauses yet. Add one to start building your terms &amp; conditions.</div>`;
     wrap.querySelectorAll('.term-f').forEach(el=>{
       el.addEventListener('input', ()=>{
         q.terms[el.dataset.idx][el.dataset.f] = el.value; persistQuote(q);
-      });
-    });
-    wrap.querySelectorAll('.term-b').forEach(el=>{
-      el.addEventListener('input', ()=>{
-        q.terms[el.dataset.idx].bullets = el.value.split('\n').map(x=>x.trim()).filter(Boolean); persistQuote(q);
       });
     });
     wrap.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
@@ -3718,7 +3706,7 @@ function tabTerms(host, q){
     });
   }
   document.getElementById('addTerm').onclick = ()=>{
-    q.terms.push({title:'New Clause', body:'', bullets:[]}); persistQuote(q); draw();
+    q.terms.push({title:'New Clause', body:''}); persistQuote(q); draw();
   };
   draw();
 }
@@ -4150,11 +4138,10 @@ function tabOutput(host, q){
         <div style="break-inside:avoid;page-break-inside:avoid;">
         <div class="doc-section-title">Terms &amp; Conditions</div>
         <div class="doc-terms">
-          ${[...q.terms, {title:'Validity', body:`This quotation is valid for ${q.validityDays} calendar days from date of issuance.`, bullets:[]}].map(t=>`
+          ${[...q.terms, {title:'Validity', body:`This quotation is valid for ${q.validityDays} calendar days from date of issuance.`}].map(t=>`
             <div style="margin-bottom:10px;">
               ${t.title ? `<div style="font-weight:700;color:var(--doc-ink);text-transform:uppercase;">${esc(t.title)}</div>` : ''}
               ${t.body ? `<div>${escNl(t.body)}</div>` : ''}
-              ${(t.bullets||[]).length ? `<ul style="margin:4px 0 0;padding-left:0;list-style:none;">${t.bullets.map(b=>`<li style="margin-bottom:2px;">${esc(b)}</li>`).join('')}</ul>` : ''}
             </div>`).join('')}
         </div>
 
