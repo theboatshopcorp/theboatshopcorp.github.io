@@ -1083,12 +1083,19 @@ function blankQuote(){
     schedule: { startDate: todayISO(), standardDays: PRICING.standardDurationDays, requestedDays: PRICING.standardDurationDays },
     terms: [
       {title:'Completion Time', body:'12 months from date of receipt of downpayment and Purchase Order'},
-      {title:'Payment Terms', body:'20% downpayment upon confirmation of order; progress billing per agreed schedule; 10% upon completion and sea trial before delivery'},
+      {title:'Payment Terms', body:'Payment shall be made according to the following schedule:', bullets:[
+        'Thirty percent (30%) down payment upon confirmation of order.',
+        'Twenty percent (20%) after thirty (30) days from order confirmation.',
+        'Twenty percent (20%) after sixty (60) days from order confirmation.',
+        'Twenty percent (20%) after one hundred (100) days from order confirmation.',
+        'Ten percent (10%) final balance upon completion of the boat and before delivery.'
+      ]},
       {title:'Hull Warranty', body:'Two (2) years on hull structure for pleasure use, one (1) year for commercial use, covering manufacturing defects under normal use conditions.'},
       {title:'Warranty Exclusions', body:'Warranty excludes normal wear and tear, misuse or negligence, unauthorized modification, force majeure, and third-party accessories which follow manufacturer warranty.'},
       {title:'Delivery', body:'Delivery outside factory premises subject to separate agreement and additional logistics charges.'},
       {title:'Regulatory Compliance', body:'Boat registration, MARINA licenses, permits and certificates shall be borne by the customer.'},
     ],
+    closingMessage: defaultClosingMessage(),
     marina: {
       items: [
         {name:"MARINA Construction Permit (Certificate of Construction)", responsibility:'Company', remarks:'Filed prior to keel-laying', price:0},
@@ -2420,6 +2427,11 @@ function ensureQuoteDefaults(q){
       {title:'Regulatory Compliance', body:t.compliance||'Boat registration, MARINA licenses, permits and certificates shall be borne by the customer.'},
     ];
   }
+  q.terms.forEach(t=>{ if(!Array.isArray(t.bullets)) t.bullets = []; });
+  if(q.closingMessage===undefined) q.closingMessage = defaultClosingMessage();
+}
+function defaultClosingMessage(){
+  return 'Thank you for considering TBSC for your boat requirement. We look forward to working with you.';
 }
 function persistQuote(q){ q.updatedAt = Date.now(); save(DB_KEYS.quotes, QUOTES); }
 
@@ -3620,29 +3632,46 @@ function tabMarina(host, q){
 function tabTerms(host, q){
   host.innerHTML = `
     <div class="card">
-      <div class="card-head"><h3>Terms &amp; Conditions</h3>
-        <button class="btn btn-sm" id="addTerm">${icon('plus')} Add Clause</button>
-      </div>
+      <div class="card-head"><h3>Terms &amp; Conditions</h3></div>
       <div class="card-body section-lead">
-        Add, remove, reorder, or rewrite any clause. These print in order on the quotation, numbered automatically, followed by an auto-generated Validity clause based on the Validity (days) field set on the Client &amp; Project tab.
+        Add, remove, or rewrite any clause. Each clause can have bullet points (one per line). Drag the ⠿ handle to rearrange clauses. These print in order on the quotation, followed by an auto-generated Validity clause based on the Validity (days) field set on the Client &amp; Project tab.
       </div>
-      <div class="card-body" style="padding-top:0;" id="termRows"></div>
+      <div class="card-body" style="padding-top:0;">
+        <div id="termRows"></div>
+        <button class="btn btn-sm" id="addTerm" style="margin-top:4px;">${icon('plus')} Add Clause</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div class="card-head"><h3>Message</h3></div>
+      <div class="card-body section-lead">
+        Printed between the Terms &amp; Conditions and the signatories. Leave empty to print nothing.
+      </div>
+      <div class="card-body" style="padding-top:0;">
+        <div class="field" style="margin-bottom:0;"><label>Message</label><textarea id="closingMsg" rows="3">${esc(q.closingMessage||'')}</textarea></div>
+      </div>
     </div>
   `;
+  document.getElementById('closingMsg').addEventListener('input', e=>{ q.closingMessage = e.target.value; persistQuote(q); });
   const wrap = document.getElementById('termRows');
+  function autoScroll(y){
+    const edge = 70, dy = y < edge ? -16 : (y > window.innerHeight - edge ? 16 : 0);
+    if(!dy) return;
+    window.scrollBy(0, dy);
+    const c = document.getElementById('content'); if(c) c.scrollTop += dy;
+  }
   function draw(){
     wrap.innerHTML = q.terms.length ? q.terms.map((t,idx)=>`
-      <div class="card" style="margin-bottom:10px;box-shadow:none;border:1px solid var(--paper-line);">
+      <div class="card term-card" data-idx="${idx}" style="margin-bottom:10px;box-shadow:none;border:1px solid var(--paper-line);">
         <div class="card-body" style="padding:12px 14px;">
-          <div class="grid" style="grid-template-columns:1fr auto;gap:10px;align-items:start;">
+          <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;">
+            <div class="term-grip" title="Drag to rearrange" style="cursor:grab;touch-action:none;user-select:none;font-size:20px;line-height:1;padding:22px 4px 0;color:var(--ink-soft,#888);">⠿</div>
             <div class="field" style="margin-bottom:8px;"><label>Clause ${idx+1} Title</label><input class="term-f" data-idx="${idx}" data-f="title" value="${esc(t.title)}"></div>
-            <div style="display:flex;gap:4px;padding-top:20px;">
-              <button class="btn btn-ghost btn-sm" data-up="${idx}" ${idx===0?'disabled':''} title="Move up">↑</button>
-              <button class="btn btn-ghost btn-sm" data-down="${idx}" ${idx===q.terms.length-1?'disabled':''} title="Move down">↓</button>
+            <div style="padding-top:20px;">
               <button class="btn btn-ghost btn-sm" data-del="${idx}" style="color:var(--danger);" title="Remove">✕</button>
             </div>
           </div>
-          <div class="field" style="margin-bottom:0;"><label>Clause Text</label><textarea class="term-f" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
+          <div class="field" style="margin-bottom:8px;"><label>Clause Text</label><textarea class="term-f" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
+          <div class="field" style="margin-bottom:0;"><label>Bullet Points <span style="font-weight:400;">(one per line, optional)</span></label><textarea class="term-b" data-idx="${idx}" rows="3" placeholder="First point&#10;Second point">${esc((t.bullets||[]).join('\n'))}</textarea></div>
         </div>
       </div>
     `).join('') : `<div class="empty">No clauses yet. Add one to start building your terms &amp; conditions.</div>`;
@@ -3651,18 +3680,45 @@ function tabTerms(host, q){
         q.terms[el.dataset.idx][el.dataset.f] = el.value; persistQuote(q);
       });
     });
-    wrap.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{
-      const i = Number(b.dataset.up); [q.terms[i-1], q.terms[i]] = [q.terms[i], q.terms[i-1]]; persistQuote(q); draw();
-    });
-    wrap.querySelectorAll('[data-down]').forEach(b=>b.onclick=()=>{
-      const i = Number(b.dataset.down); [q.terms[i+1], q.terms[i]] = [q.terms[i], q.terms[i+1]]; persistQuote(q); draw();
+    wrap.querySelectorAll('.term-b').forEach(el=>{
+      el.addEventListener('input', ()=>{
+        q.terms[el.dataset.idx].bullets = el.value.split('\n').map(x=>x.trim()).filter(Boolean); persistQuote(q);
+      });
     });
     wrap.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
       q.terms.splice(Number(b.dataset.del),1); persistQuote(q); draw();
     });
+    // Drag to rearrange (mouse and touch) using the ⠿ handle.
+    wrap.querySelectorAll('.term-grip').forEach(h=>{
+      h.addEventListener('pointerdown', ev=>{
+        ev.preventDefault();
+        const card = h.closest('.term-card');
+        try{ h.setPointerCapture(ev.pointerId); }catch(e){}
+        card.style.opacity = '.65'; card.style.borderColor = 'var(--primary, #1f4f8a)'; h.style.cursor = 'grabbing';
+        const move = e=>{
+          autoScroll(e.clientY);
+          const others = [...wrap.querySelectorAll('.term-card')].filter(c=>c!==card);
+          const before = others.find(c=>{ const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
+          if(before){ if(card.nextElementSibling !== before) wrap.insertBefore(card, before); }
+          else if(wrap.lastElementChild !== card) wrap.appendChild(card);
+        };
+        const done = ()=>{
+          h.removeEventListener('pointermove', move);
+          h.removeEventListener('pointerup', done);
+          h.removeEventListener('pointercancel', done);
+          const old = q.terms.slice();
+          const order = [...wrap.querySelectorAll('.term-card')].map(c=>Number(c.dataset.idx));
+          q.terms.splice(0, q.terms.length, ...order.map(i=>old[i]));
+          persistQuote(q); draw();
+        };
+        h.addEventListener('pointermove', move);
+        h.addEventListener('pointerup', done);
+        h.addEventListener('pointercancel', done);
+      });
+    });
   }
   document.getElementById('addTerm').onclick = ()=>{
-    q.terms.push({title:'New Clause', body:''}); persistQuote(q); draw();
+    q.terms.push({title:'New Clause', body:'', bullets:[]}); persistQuote(q); draw();
   };
   draw();
 }
@@ -4094,11 +4150,15 @@ function tabOutput(host, q){
         <div style="break-inside:avoid;page-break-inside:avoid;">
         <div class="doc-section-title">Terms &amp; Conditions</div>
         <div class="doc-terms">
-          <ol>
-            ${q.terms.map(t=>`<li>${t.title?`<strong>${esc(t.title)}:</strong> `:''}${esc(t.body)}</li>`).join('')}
-            <li><strong>Validity:</strong> This quotation is valid for ${q.validityDays} calendar days from date of issuance.</li>
-          </ol>
+          ${[...q.terms, {title:'Validity', body:`This quotation is valid for ${q.validityDays} calendar days from date of issuance.`, bullets:[]}].map(t=>`
+            <div style="margin-bottom:10px;">
+              ${t.title ? `<div style="font-weight:700;color:var(--doc-ink);text-transform:uppercase;">${esc(t.title)}</div>` : ''}
+              ${t.body ? `<div>${escNl(t.body)}</div>` : ''}
+              ${(t.bullets||[]).length ? `<ul style="margin:4px 0 0;padding-left:18px;list-style:disc;">${t.bullets.map(b=>`<li style="margin-bottom:2px;">${esc(b)}</li>`).join('')}</ul>` : ''}
+            </div>`).join('')}
         </div>
+
+        ${q.closingMessage && q.closingMessage.trim() ? `<div class="doc-terms" style="margin-top:12px;color:var(--doc-ink);">${escNl(q.closingMessage)}</div>` : ``}
 
         <div class="doc-sign">
           <div data-sigprev="prepared">
