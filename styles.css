@@ -360,8 +360,8 @@ select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
 /* ---------- Quotation document / print — clean, minimal, modern ---------- */
 :root{
   --doc-ink:#14181f;
-  --doc-ink-soft:#6b7280;
-  --doc-ink-faint:#a3aab5;
+  --doc-ink-soft:#374151;
+  --doc-ink-faint:#4b5563;
   --doc-line:#e6e8ec;
   --doc-accent:#0d9488;
   --doc-accent-dark:#0f766e;
