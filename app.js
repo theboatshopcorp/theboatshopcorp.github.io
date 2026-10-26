@@ -2844,9 +2844,9 @@ function tabHull(host, q){
           <button class="btn btn-sm" id="addBlankStruct">${icon('plus')} Custom Item</button>
         </div>
       </div>
-      <div class="card-body section-lead">Stiffeners, bulkheads, urethane foam, coring, and other structural materials — costed here and folded into Material Cost.</div>
+      <div class="card-body section-lead">Stiffeners, bulkheads, urethane foam, coring, and other structural materials — costed here and folded into Material Cost. Untick Show to leave a line off the printed quotation; it is still costed.</div>
       <div class="card-body" style="padding:0;">
-        <table><thead><tr><th>Item / Description</th><th style="width:90px;">Unit</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
+        <table><thead><tr><th style="width:54px;" title="Show this line in the printed quotation">Show</th><th>Item / Description</th><th style="width:90px;">Unit</th><th style="width:70px;">Qty</th><th style="width:110px;">Unit Price</th><th class="right" style="width:110px;">Total</th><th></th></tr></thead>
           <tbody id="structRows"></tbody>
         </table>
       </div>
@@ -2869,6 +2869,7 @@ function tabHull(host, q){
       const catIsKnown = a.cat && knownCats.includes(a.cat);
       const catOptions = knownCats.map(c=>`<option value="${esc(c)}" ${a.cat===c?'selected':''}>${esc(c)}</option>`).join('');
       return `<tr>
+        <td style="text-align:center;"><input type="checkbox" class="srow-show" data-idx="${idx}" ${a.hide?'':'checked'} title="Show this line in the printed quotation"></td>
         <td><input class="tbl-input srow" data-idx="${idx}" data-f="name" value="${esc(a.name)}">
           <input class="tbl-input srow" data-idx="${idx}" data-f="description" value="${esc(a.description||'')}" placeholder="Item description" style="margin-top:4px;"></td>
         <td><input class="tbl-input srow" data-idx="${idx}" data-f="unit" value="${esc(a.unit)}"></td>
@@ -2877,8 +2878,14 @@ function tabHull(host, q){
         <td class="right mono">${fmt(total)}</td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-delstruct="${idx}" style="color:var(--danger);">✕</span></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="6"><div class="empty">No structural items yet. Add stiffeners, bulkheads, foam core, etc. from the catalog or as a custom line item.</div></td></tr>`;
+    }).join('') : `<tr><td colspan="7"><div class="empty">No structural items yet. Add stiffeners, bulkheads, foam core, etc. from the catalog or as a custom line item.</div></td></tr>`;
 
+    structBody.querySelectorAll('.srow-show').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        q.structural.items[Number(cb.dataset.idx)].hide = !cb.checked;
+        persistQuote(q);
+      });
+    });
     structBody.querySelectorAll('.srow').forEach(inp=>{
       inp.addEventListener('input', ()=>{
         const idx = Number(inp.dataset.idx);
@@ -4031,7 +4038,7 @@ function tabOutput(host, q){
 
         <div class="doc-section-title">II. Structural Components &amp; Core Materials</div>
         ${(()=>{
-          const rows = c.structural.rows;
+          const rows = c.structural.rows.filter(r=>!r.hide);
           if(!rows.length) return `<div class="doc-na-block" style="font-style:normal;">No structural items listed.</div>`;
           return `<table class="doc-item-table">
               <tbody>${rows.map(r=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
