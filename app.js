@@ -4223,7 +4223,7 @@ function tabOutput(host, q){
         ${q.engine.steeringEnabled ? `
         <div style="margin-top:10px;">${docQtyTable(docQtyCat('Steering &amp; Control System', '') + ((q.engine.steeringItems||[]).length
           ? q.engine.steeringItems.map(it=>docQtyRow(esc(it.name), it.qty, esc(it.unit)||'pc/s')).join('')
-          : docQtyNote('No Item Listed')))}</div>` : ``}
+          : docQtyNote('No Item Listed')), true)}</div>` : ``}
 
         <div class="doc-section-title">VI. Testing &amp; Delivery</div>
         ${(()=>{
@@ -4302,10 +4302,10 @@ function tabOutput(host, q){
    SAMPLE QUOTATIONS (seeded once, on first run only)
    ============================================================ */
 /* Quotation output: shared Item Description | QTY | Unit | Price layout used from section IV to the last section. */
-function docQtyTable(bodyRows){
+function docQtyTable(bodyRows, noHead){
   return `<table class="doc-item-table doc-qty-table" style="width:100%;table-layout:fixed;">
     <colgroup><col><col style="width:64px"><col style="width:84px"><col style="width:140px"></colgroup>
-    <thead><tr><th style="text-align:left;">Item Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>
+    ${noHead ? '' : '<thead><tr><th style="text-align:left;">Item Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>'}
     <tbody>${bodyRows}</tbody></table>`;
 }
 function docQtyCat(title, priceText){
