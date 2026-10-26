@@ -40,7 +40,7 @@ function pushRemote(key, val){
     try{
       const { error } = await supabaseClient.from(REMOTE_TABLE)
         .upsert({ key, value: val, updated_at: new Date().toISOString() }, { onConflict:'key' });
-      if(error) console.error('Supabase save failed for', key, error);
+      if(error){ console.error('Supabase save failed for', key, error); if(typeof toast==='function') toast('Not saved to shared database: '+(error.message||'permission denied')); }
     }catch(e){ console.error('Supabase save failed for', key, e); }
   }, 400); // small debounce so rapid keystrokes don't spam the network
 }
@@ -1471,7 +1471,7 @@ function renderDashboard(content, actions){
    QUOTATIONS LIST
    ============================================================ */
 function renderQuotesList(content, actions){
-  actions.innerHTML = `<button class="btn" id="btnDemoSample">Load Demo Sample</button> <button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
+  actions.innerHTML = `<button class="btn" id="btnDemoSample">Load Demo Sample</button> <button class="btn" id="btnDemoSample2">Load Demo Sample 2</button> <button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
   const pendingApproval = CURRENT_IS_ADMIN ? QUOTES.filter(q=>q.status==='for_approval').sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'', undefined, {numeric:true})) : [];
   content.innerHTML = `
     <div class="pill-row" style="align-items:center;">
@@ -1493,6 +1493,7 @@ function renderQuotesList(content, actions){
   `;
   document.getElementById('btnNewQ2').onclick = ()=>openEditor(null);
   document.getElementById('btnDemoSample').onclick = addDemoSample;
+  document.getElementById('btnDemoSample2').onclick = addDemoSample2;
   content.querySelectorAll('.pill-row [data-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.open));
   const wrap = document.getElementById('qTableWrap');
   function draw(){
@@ -4189,6 +4190,46 @@ function buildDemoQuote(){
   q.schedule = { startDate: todayISO(), standardDays:240, requestedDays:240 };
   ensureQuoteDefaults(q);
   return q;
+}
+
+// Second demo quotation: a smaller fishing / patrol style boat with a single outboard-type engine setup.
+function buildDemoQuote2(){
+  const q = blankQuote();
+  q.status = 'draft';
+  q.date = todayISO();
+  Object.assign(q.customerSnap, { name:'Bantay Dagat Cooperative', companyName:'Bantay Dagat Cooperative', clientName:'Demo Client 2', email:'info@bantaydagat.example', contact:'0918-555-0123', address:'Cavite, Philippines' });
+  Object.assign(q.project, { title:"45' Patrol Boat — Twin Yanmar 150HP IBM", notes:'Demo sample quotation 2.', buildType:'Custom Build', boatModel:'Embassy Series', boatPresetId:null, boatApplication:'Patrol Boat', boatApplicationOther:'', passengerCapacity:12 });
+  q.hull = { boatType:'Patrol Boat', loa:45, beam:11, depth:5, numHulls:1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
+  const st = (name, description, price)=>({ id:uid('si'), cat:'', name, description, unit:'lot', qty:1, unitPrice:price });
+  q.structural = { items: [
+    st('Hull','Hand laid fiberglass hull with foam stiffeners, foam-filled compartments and reinforced transom', 980000),
+    st('Bulkheads','Watertight collision bulkhead and marine plywood bulkheads, glassed both sides', 210000),
+    st('Deck & Cabin','FRP non-skid deck; enclosed wheelhouse with console and provision for crew rest area', 360000),
+    st('Seating','Crew seating with cushions and grab rails', 120000),
+  ] };
+  const pt = (coatLabel, type, cost)=>({ id:uid('pi'), coatLabel, type, color:'', area:null, pricePerSqm:0, presetPaint:true, lumpCost:cost, materials:[], laborTeams:[] });
+  q.paint = { items: [
+    pt('Surface Preparation','Sanding, fairing and epoxy primer on hull and deck', 70000),
+    pt('Topcoat','2-pack marine polyurethane, white hull with blue stripe', 140000),
+  ] };
+  q.accessories = [
+    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',6,1800,15),
+    sampleAccessory('Hull & Deck Accessories','Towing Bitt',2,6200,15),
+    sampleAccessory('Electrical System','Dome Light',8,950,15),
+    sampleAccessory('Electrical System','Bilge Pump w/ Auto Float',2,4200,15),
+    sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,16000,15),
+  ];
+  Object.assign(q.engine, { brand:'Yanmar', model:'6LPA-STP2', type:'IBM', hp:150, qty:2, unitPrice:2450000, installation:0, transmission:'ZF 63A', propeller:'4-blade bronze', speed:'25 knots', fuelCapacity:'600 liters' });
+  q.schedule = { startDate: todayISO(), standardDays:150, requestedDays:150 };
+  ensureQuoteDefaults(q);
+  return q;
+}
+function addDemoSample2(){
+  const d = buildDemoQuote2();
+  QUOTES.push(d);
+  persistQuote(d);
+  toast('Demo sample 2 added to Quotations');
+  renderAll();
 }
 function buildSampleQuotes(){
   const d = buildDemoQuote();
