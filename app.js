@@ -4158,71 +4158,114 @@ function sampleStruct(cat, name, unit, qty, unitPrice){
 }
 // One demo quotation that shows the current features: Boat Model categories with descriptions,
 // preset painting details, dual propulsion entered as one amount, and accessories.
-function buildDemoQuote(){
-  const q = blankQuote();
+function fillDemoQuote(q, d){
   q.status = 'draft';
   q.date = todayISO();
-  Object.assign(q.customerSnap, { name:'Isla Ferries Corp.', companyName:'Isla Ferries Corp.', clientName:'Demo Client', email:'operations@islaferries.example', contact:'0917-201-4488', address:'Iloilo City, Philippines' });
-  Object.assign(q.project, { title:"64' Passenger Boat — 80 Pax with Dual Isuzu 340HP IBM", notes:'Demo sample quotation.', buildType:'Custom Build', boatModel:'Embassy Series', boatPresetId:null, boatApplication:'Passenger Boat', boatApplicationOther:'', passengerCapacity:80 });
-  q.hull = { boatType:'Passenger Boat', loa:64, beam:14, depth:6, numHulls:1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
-  const st = (name, description, price)=>({ id:uid('si'), cat:'', name, description, unit:'lot', qty:1, unitPrice:price });
-  q.structural = { items: [
-    st('Hull','Hand laid fiberglass with urethane foam stiffeners encapsulated with fiberglass, foam filled compartments and hi density foam transom board', 1850000),
-    st('Bulkheads','Watertight collision bulkhead and marine plywood bulkheads, glassed both sides', 420000),
-    st('Deck & Cabin','FRP non-skid finish deck floor; cabin with pilot console and provision for head', 650000),
-    st('Seating','Port and starboard seating in cabin with cushion and back rest', 380000),
-  ] };
-  const pt = (coatLabel, type, cost)=>({ id:uid('pi'), coatLabel, type, color:'', area:null, pricePerSqm:0, presetPaint:true, lumpCost:cost, materials:[], laborTeams:[] });
-  q.paint = { items: [
-    pt('Surface Preparation','Sanding, fairing and epoxy primer on hull and deck', 120000),
-    pt('Topcoat','2-pack marine polyurethane, white hull and light grey deck', 260000),
-  ] };
-  q.accessories = [
-    sampleAccessory('Hull & Deck Accessories','Stainless Bollard',2,8500,15),
-    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',6,1800,15),
-    sampleAccessory('Hull & Deck Accessories','Towing Bitt',2,6200,15),
-    sampleAccessory('Electrical System','Dome Light',16,950,15),
-    sampleAccessory('Electrical System','Bilge Pump w/ Auto Float',2,4200,15),
-    sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,22000,15),
-  ];
-  // Propulsion is one amount for all engines (not multiplied by the number of units).
-  Object.assign(q.engine, { brand:'Isuzu', model:'UM6SD1TCX', type:'IBM', hp:340, qty:2, unitPrice:6097712, installation:0, transmission:'Dong-I DMT140H', propeller:'4-blade bronze', speed:'22 knots', fuelCapacity:'1,200 liters' });
-  q.schedule = { startDate: todayISO(), standardDays:240, requestedDays:240 };
+  q.validityDays = 30;
+  Object.assign(q.customerSnap, d.customer);
+  Object.assign(q.project, d.project);
+  q.hull = Object.assign({ numHulls:1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true }, d.hull);
+  q.structural = { items: d.structural.map(([name, description, price])=>({ id:uid('si'), cat:'', name, description, unit:'lot', qty:1, unitPrice:price })) };
+  q.paint = { items: d.paint.map(([coatLabel, type, color, cost])=>({ id:uid('pi'), coatLabel, type, color, area:null, pricePerSqm:0, presetPaint:true, lumpCost:cost, materials:[], laborTeams:[] })) };
+  q.accessories = d.accessories.map(a=>sampleAccessory(a[0],a[1],a[2],a[3],a[4]));
+  q.specialFeatures = { enabled:true, items: d.special.map(a=>({ id:uid('sf'), cat:'', name:a[0], unit:a[1], qty:a[2], unitPrice:a[3], markup:a[4] })) };
+  q.testingDelivery = d.testing.map(a=>({ id:uid('ti'), cat:a[0], name:a[1], unit:a[2], qty:a[3], unitPrice:a[4], markup:a[5] }));
+  q.testingDeliveryNA = {};
+  Object.assign(q.engine, d.engine);
+  q.schedule = { startDate: todayISO(), standardDays:d.days, requestedDays:d.days };
+  q.marina.items.forEach(it=>{ if(it.name in d.marina) it.price = d.marina[it.name]; });
+  q.invoice = { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:d.discount, discountNote:'Early order confirmation discount' };
   ensureQuoteDefaults(q);
   return q;
 }
 
-// Second demo quotation: a smaller fishing / patrol style boat with a single outboard-type engine setup.
+const DEMO_MARINA_1 = { "MARINA Construction Permit (Certificate of Construction)":25000, "Certificate of Vessel Registry (COR)":18000, "Coastwise License / Certificate of Public Convenience":30000, "Load Line Certificate":22000, "Cargo Ship Safety Equipment Certificate":15000, "Certificate of Inspection (COI)":12000, "Tonnage Certificate":10000, "Builder's Certificate":8000 };
+const DEMO_MARINA_2 = { "MARINA Construction Permit (Certificate of Construction)":15000, "Certificate of Vessel Registry (COR)":12000, "Coastwise License / Certificate of Public Convenience":20000, "Load Line Certificate":14000, "Cargo Ship Safety Equipment Certificate":9000, "Certificate of Inspection (COI)":8000, "Tonnage Certificate":7000, "Builder's Certificate":5000 };
+
+// Demo quotation 1: 64' passenger boat, every section filled in.
+function buildDemoQuote(){
+  return fillDemoQuote(blankQuote(), {
+    customer:{ name:'Isla Ferries Corp.', companyName:'Isla Ferries Corp.', clientName:'Ramon A. Villanueva', clientPosition:'General Manager', companyTin:'123-456-789-000', email:'operations@islaferries.example', address:'Muelle Loney St., Iloilo City, Iloilo, Philippines', contact:'0917-201-4488', repName:'Maria Teresa Delos Santos', repPosition:'Operations Supervisor', repContact:'0917-330-5521', repEmail:'mt.delossantos@islaferries.example', repNA:false },
+    project:{ title:"64' Passenger Boat — 80 Pax with Dual Isuzu 340HP IBM", notes:'Demo sample quotation. Passenger ferry for the Iloilo–Guimaras route, with enclosed air-lounge cabin, open upper deck and life-saving equipment per MARINA requirements.', numBoats:1, passengerCapacity:80, multiplyPrice:false, buildType:'Custom Build', boatModel:'Embassy Series', boatPresetId:null, boatApplication:'Passenger Boat', boatApplicationOther:'' },
+    hull:{ boatType:'Passenger Boat', loa:64, beam:14, depth:6 },
+    structural:[
+      ['Hull','Hand laid fiberglass with urethane foam stiffeners encapsulated with fiberglass, foam filled compartments and hi density foam transom board',1850000],
+      ['Bulkheads','Watertight collision bulkhead and marine plywood bulkheads, glassed both sides',420000],
+      ['Deck & Cabin','FRP non-skid finish deck floor; cabin with pilot console and provision for head',650000],
+      ['Seating','Port and starboard seating in cabin with cushion and back rest',380000],
+    ],
+    paint:[
+      ['Surface Preparation','Sanding, fairing and epoxy primer on hull and deck','Grey',120000],
+      ['Topcoat','2-pack marine polyurethane, white hull and light grey deck','White / Light Grey',260000],
+    ],
+    accessories:[
+      ['Hull & Deck Accessories','Stainless Bollard',2,8500,15],
+      ['Hull & Deck Accessories','Stainless Cleat',6,1800,15],
+      ['Hull & Deck Accessories','Towing Bitt',2,6200,15],
+      ['Electrical System','Dome Light',16,950,15],
+      ['Electrical System','Bilge Pump w/ Auto Float',2,4200,15],
+      ['Electrical System','Navigation Light Set',1,12500,15],
+      ['Anchor & Docking','Anchor Set w/ Chain & Rope',1,22000,15],
+      ['Anchor & Docking','Rubber Fender',8,1500,15],
+    ],
+    special:[
+      ['Air-conditioning unit for passenger cabin','set',2,185000,15],
+      ['Life jackets (adult, SOLAS-approved)','pc',90,850,15],
+      ['LED passenger information display','set',1,38000,15],
+    ],
+    testing:[
+      ['Trailer','Heavy-duty boat trailer (custom)','unit',1,320000,10],
+      ['Delivery','Land transport & crane lifting to Iloilo City','lot',1,145000,10],
+      ['Sea Trial','Sea trial with fuel, crew and inspection','lot',1,65000,10],
+    ],
+    engine:{ brand:'Isuzu', model:'UM6SD1TCX', type:'IBM', hp:340, qty:2, unitPrice:6097712, installation:0, transmission:'Dong-I DMT140H', propeller:'4-blade bronze', speed:'22 knots', fuelCapacity:'1,200 liters',
+      description:'Dual Installation of Isuzu 340HP, Model: UM6SD1TCX, 6-cylinder, Turbocharged and Intercooled Marine Diesel, Inboard Marine (IBM), Brand New complete with the following;',
+      inclusions:['Dong-I DMT140H marine transmission (dual)','Instrument panel with engine gauges and alarms','Remote throttle and shift control (dual)','Stainless steel propeller shaft with bronze 4-blade propellers','Exhaust system with water-lift muffler','Complete hydraulic steering system',"Engine Owner's Manual"] },
+    days:240, marina:DEMO_MARINA_1, discount:3
+  });
+}
+
+// Demo quotation 2: 45' patrol boat, every section filled in.
 function buildDemoQuote2(){
-  const q = blankQuote();
-  q.status = 'draft';
-  q.date = todayISO();
-  Object.assign(q.customerSnap, { name:'Bantay Dagat Cooperative', companyName:'Bantay Dagat Cooperative', clientName:'Demo Client 2', email:'info@bantaydagat.example', contact:'0918-555-0123', address:'Cavite, Philippines' });
-  Object.assign(q.project, { title:"45' Patrol Boat — Twin Yanmar 150HP IBM", notes:'Demo sample quotation 2.', buildType:'Custom Build', boatModel:'Embassy Series', boatPresetId:null, boatApplication:'Patrol Boat', boatApplicationOther:'', passengerCapacity:12 });
-  q.hull = { boatType:'Patrol Boat', loa:45, beam:11, depth:5, numHulls:1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
-  const st = (name, description, price)=>({ id:uid('si'), cat:'', name, description, unit:'lot', qty:1, unitPrice:price });
-  q.structural = { items: [
-    st('Hull','Hand laid fiberglass hull with foam stiffeners, foam-filled compartments and reinforced transom', 980000),
-    st('Bulkheads','Watertight collision bulkhead and marine plywood bulkheads, glassed both sides', 210000),
-    st('Deck & Cabin','FRP non-skid deck; enclosed wheelhouse with console and provision for crew rest area', 360000),
-    st('Seating','Crew seating with cushions and grab rails', 120000),
-  ] };
-  const pt = (coatLabel, type, cost)=>({ id:uid('pi'), coatLabel, type, color:'', area:null, pricePerSqm:0, presetPaint:true, lumpCost:cost, materials:[], laborTeams:[] });
-  q.paint = { items: [
-    pt('Surface Preparation','Sanding, fairing and epoxy primer on hull and deck', 70000),
-    pt('Topcoat','2-pack marine polyurethane, white hull with blue stripe', 140000),
-  ] };
-  q.accessories = [
-    sampleAccessory('Hull & Deck Accessories','Stainless Cleat',6,1800,15),
-    sampleAccessory('Hull & Deck Accessories','Towing Bitt',2,6200,15),
-    sampleAccessory('Electrical System','Dome Light',8,950,15),
-    sampleAccessory('Electrical System','Bilge Pump w/ Auto Float',2,4200,15),
-    sampleAccessory('Anchor & Docking','Anchor Set w/ Chain & Rope',1,16000,15),
-  ];
-  Object.assign(q.engine, { brand:'Yanmar', model:'6LPA-STP2', type:'IBM', hp:150, qty:2, unitPrice:2450000, installation:0, transmission:'ZF 63A', propeller:'4-blade bronze', speed:'25 knots', fuelCapacity:'600 liters' });
-  q.schedule = { startDate: todayISO(), standardDays:150, requestedDays:150 };
-  ensureQuoteDefaults(q);
-  return q;
+  return fillDemoQuote(blankQuote(), {
+    customer:{ name:'Bantay Dagat Cooperative', companyName:'Bantay Dagat Cooperative', clientName:'Engr. Eduardo M. Santos', clientPosition:'Chairman', companyTin:'987-654-321-000', email:'info@bantaydagat.example', address:'Naic Fish Port, Naic, Cavite, Philippines', contact:'0918-555-0123', repName:'Jose R. Mercado', repPosition:'Patrol Operations Head', repContact:'0919-445-7788', repEmail:'jr.mercado@bantaydagat.example', repNA:false },
+    project:{ title:"45' Patrol Boat — Twin Yanmar 150HP IBM", notes:'Demo sample quotation 2. Coastal patrol boat for fisheries law enforcement, with enclosed wheelhouse, searchlight and crew rest area.', numBoats:1, passengerCapacity:12, multiplyPrice:false, buildType:'Custom Build', boatModel:'Embassy Series', boatPresetId:null, boatApplication:'Patrol Boat', boatApplicationOther:'' },
+    hull:{ boatType:'Patrol Boat', loa:45, beam:11, depth:5 },
+    structural:[
+      ['Hull','Hand laid fiberglass hull with foam stiffeners, foam-filled compartments and reinforced transom',980000],
+      ['Bulkheads','Watertight collision bulkhead and marine plywood bulkheads, glassed both sides',210000],
+      ['Deck & Cabin','FRP non-skid deck; enclosed wheelhouse with console and provision for crew rest area',360000],
+      ['Seating','Crew seating with cushions and grab rails',120000],
+    ],
+    paint:[
+      ['Surface Preparation','Sanding, fairing and epoxy primer on hull and deck','Grey',70000],
+      ['Topcoat','2-pack marine polyurethane, white hull with blue stripe','White / Blue',140000],
+    ],
+    accessories:[
+      ['Hull & Deck Accessories','Stainless Cleat',6,1800,15],
+      ['Hull & Deck Accessories','Towing Bitt',2,6200,15],
+      ['Hull & Deck Accessories','Stainless Grab Rail',1,28000,15],
+      ['Electrical System','Dome Light',8,950,15],
+      ['Electrical System','Bilge Pump w/ Auto Float',2,4200,15],
+      ['Electrical System','Navigation Light Set',1,12500,15],
+      ['Anchor & Docking','Anchor Set w/ Chain & Rope',1,16000,15],
+      ['Anchor & Docking','Rubber Fender',6,1500,15],
+    ],
+    special:[
+      ['LED searchlight (remote controlled)','set',1,42000,15],
+      ['Marine VHF radio with antenna','set',1,26000,15],
+      ['GPS chartplotter with fish finder','set',1,68000,15],
+    ],
+    testing:[
+      ['Trailer','Heavy-duty boat trailer (custom)','unit',1,210000,10],
+      ['Delivery','Land transport & crane lifting to Naic, Cavite','lot',1,95000,10],
+      ['Sea Trial','Sea trial with fuel, crew and inspection','lot',1,45000,10],
+    ],
+    engine:{ brand:'Yanmar', model:'6LPA-STP2', type:'IBM', hp:150, qty:2, unitPrice:2450000, installation:0, transmission:'ZF 63A', propeller:'4-blade bronze', speed:'25 knots', fuelCapacity:'600 liters',
+      description:'Dual Installation of Yanmar 150HP, Model: 6LPA-STP2, 6-cylinder, Turbocharged Marine Diesel, Inboard Marine (IBM), Brand New complete with the following;',
+      inclusions:['ZF 63A marine transmission (dual)','Instrument panel with engine gauges and alarms','Remote throttle and shift control (dual)','Stainless steel propeller shaft with bronze 4-blade propellers','Exhaust system with water-lift muffler','Complete hydraulic steering system',"Engine Owner's Manual"] },
+    days:150, marina:DEMO_MARINA_2, discount:2
+  });
 }
 function addDemoSample2(){
   const d = buildDemoQuote2();
