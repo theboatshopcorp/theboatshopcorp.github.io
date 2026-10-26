@@ -4174,7 +4174,7 @@ function fillDemoQuote(q, d){
   Object.assign(q.engine, d.engine);
   q.schedule = { startDate: todayISO(), standardDays:d.days, requestedDays:d.days };
   q.marina.items.forEach(it=>{ if(it.name in d.marina) it.price = d.marina[it.name]; });
-  q.invoice = { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:d.discount, discountNote:'Early order confirmation discount' };
+  q.invoice = { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:d.discount, discountNote:'' };
   ensureQuoteDefaults(q);
   return q;
 }
