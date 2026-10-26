@@ -305,9 +305,9 @@ const DEFAULT_PRICING = {
   laborDailyRates: { fabrication:1440, fiberglass:1520, painting:1280, electrical:1600, assembly:1360, testing:1680 },
   materialsFlatV1: true,
   materialsKgV1: true,
-  overheadPct: 12,
-  contingencyPct: 5,
-  marginPct: 18,
+  overheadPct: 10,
+  contingencyPct: 10,
+  marginPct: 10,
   standardDurationDays: 180,
   rushFeePct: 15,
   accessoryCatalog: [
@@ -1079,7 +1079,7 @@ function blankQuote(){
     },
     // Labor hours & rates now live only in the global Pricing Database
     // (see computeLabor) — no per-quote labor field needed anymore.
-    rates: JSON.parse(JSON.stringify(PRICING)), // snapshot, editable per-quote (overhead/contingency/margin/duration/rush)
+    rates: Object.assign(JSON.parse(JSON.stringify(PRICING)), { overheadPct:10, contingencyPct:10, marginPct:10 }), // snapshot, editable per-quote; overall Overhead / Contingency / Profit default to 10% each
     schedule: { startDate: todayISO(), standardDays: PRICING.standardDurationDays, requestedDays: PRICING.standardDurationDays },
     terms: [
       {title:'Completion Time', body:'12 months from date of receipt of downpayment and Purchase Order'},
@@ -1209,6 +1209,47 @@ function computeEngine(q){
   const total = unitsCost;
   return { unitsCost, total };
 }
+/* ---- Overall Overhead / Contingency / Profit, allocated proportionally across the six cost categories ----
+   All maths is done in whole centavos so the adjusted category totals always add up exactly to the final price. */
+const PRICING_CATEGORIES = ['Structural Components & Core Materials','Paint & Finish','Accessories & Components','Marine Propulsion System','Testing & Delivery','MARINA Documentation & Regulatory Requirements'];
+function allocatePricing(bases, overheadPct, contingencyPct, profitPct){
+  const toC = x=>Math.round((Number(x)||0)*100 + 1e-9);
+  const baseC = bases.map(toC);
+  const totalC = baseC.reduce((a,b)=>a+b,0);
+  const pctAmt = pct=>Math.round(totalC*(Number(pct)||0)/100 + 1e-9);
+  const overheadC = pctAmt(overheadPct), contingencyC = pctAmt(contingencyPct), profitC = pctAmt(profitPct);
+  const additionalC = overheadC + contingencyC + profitC;
+  const allocC = baseC.map(b=> totalC > 0 ? Math.round(additionalC*b/totalC) : 0);
+  // Rounding correction: any leftover centavos go to the category with the largest base cost.
+  const diff = additionalC - allocC.reduce((a,b)=>a+b,0);
+  if(diff !== 0 && totalC > 0){
+    let k = 0; baseC.forEach((b,i)=>{ if(b > baseC[k]) k = i; });
+    allocC[k] += diff;
+  }
+  return {
+    base: baseC.map(x=>x/100), allocated: allocC.map(x=>x/100), adjusted: baseC.map((b,i)=>(b+allocC[i])/100),
+    totalBase: totalC/100, overhead: overheadC/100, contingency: contingencyC/100, profit: profitC/100,
+    totalAdditional: additionalC/100, finalPrice: (totalC+additionalC)/100,
+  };
+}
+// Splits an amount over weights in whole centavos (largest remainder) so the parts add up exactly to the amount.
+function distributeAmount(total, weights){
+  const totalC = Math.round((Number(total)||0)*100 + 1e-9);
+  const w = weights.map(x=>Math.max(0, Number(x)||0));
+  const wsum = w.reduce((a,b)=>a+b,0);
+  if(!w.length) return [];
+  if(wsum <= 0) return w.map((_,i)=> i===0 ? totalC/100 : 0);
+  const raw = w.map(x=>totalC*x/wsum);
+  const out = raw.map(Math.floor);
+  let left = totalC - out.reduce((a,b)=>a+b,0);
+  raw.map((x,i)=>[x-Math.floor(x), i]).sort((a,b)=>b[0]-a[0]).forEach(([,i])=>{ if(left>0){ out[i]++; left--; } });
+  return out.map(x=>x/100);
+}
+function adjustedByGroup(groups, adjustedTotal){
+  const keys = [...groups.keys()];
+  const parts = distributeAmount(adjustedTotal, keys.map(k=>groups.get(k).reduce((s,r)=>s+(Number(r.total)||0),0)));
+  const m = new Map(); keys.forEach((k,i)=>m.set(k, parts[i])); return m;
+}
 function computeAll(q){
   const hull = computeHull(q);
   const paint = computePaint(q, hull);
@@ -1221,15 +1262,19 @@ function computeAll(q){
   // Labor lives inside the preset lines (hull / structural), so there is no separate labor charge.
   const materialCost = hull.total + paint.total + structural.total;
   const base = materialCost + acc.total + eng.total;
-  const overheadCost = base * (Number(q.rates.overheadPct)||0)/100;
-  const contingencyCost = base * (Number(q.rates.contingencyPct)||0)/100;
-  const marginCost = base * (Number(q.rates.marginPct)||0)/100;
   const marinaCost = (q.marina && Array.isArray(q.marina.items)) ? q.marina.items.reduce((s,it)=>s+(Number(it.price)||0),0) : 0;
-  const unitFinalTotal = base + overheadCost + contingencyCost + marginCost + marinaCost + testing.total;
+  // Overhead, Contingency and Profit are overall percentages of the total base cost of all six categories;
+  // the combined additional amount is then spread over the categories by each one's share of that base cost.
+  const alloc = allocatePricing([hull.total + structural.total, paint.total, acc.total, eng.total, testing.total, marinaCost],
+    q.rates.overheadPct, q.rates.contingencyPct, q.rates.marginPct);
+  const categories = PRICING_CATEGORIES.map((label,i)=>({ label, base: alloc.base[i], allocated: alloc.allocated[i], adjusted: alloc.adjusted[i] }));
+  const overheadCost = alloc.overhead, contingencyCost = alloc.contingency, marginCost = alloc.profit;
+  const totalBase = alloc.totalBase, totalAdditional = alloc.totalAdditional;
+  const unitFinalTotal = alloc.finalPrice;
   const numBoats = Math.max(1, Number(q.project.numBoats)||1);
   const multiplyPrice = !!q.project.multiplyPrice;
   const finalTotal = multiplyPrice ? unitFinalTotal * numBoats : unitFinalTotal;
-  return { hull, paint, structural, acc, testing, eng, materialCost, overheadCost, contingencyCost, marginCost, marinaCost, base, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
+  return { hull, paint, structural, acc, testing, eng, materialCost, overheadCost, contingencyCost, marginCost, marinaCost, base, categories, totalBase, totalAdditional, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
 }
 const round2 = n => Math.round((Number(n)||0)*100 + 1e-9)/100;
 function computeInvoiceTotals(q, c){
@@ -2630,13 +2675,17 @@ function liveSummaryShell(q){
         <div class="cell"><div class="l">Hull Area</div><div class="v" id="lsArea"></div></div>
       </div>
     </div>
-    <div class="sum-row"><span class="k">Materials &amp; Labor</span><span class="v" id="lsMaterials"></span></div>
-    <div class="sum-row"><span class="k">MARINA Documentation</span><span class="v" id="lsMarina"></span></div>
+    <div class="sum-label">Cost Categories</div>
+    ${PRICING_CATEGORIES.map((n,i)=>`<div class="sum-row"><span class="k">${n.replace(/&/g,'&amp;')}</span><span class="v" id="lsCat${i}"></span></div>`).join('')}
     <div class="sum-row" id="lsBoatsRow" style="display:none;"><span class="k">Number of Boats</span><span class="v" id="lsBoats"></span></div>
+    <div class="sum-label" style="margin-top:14px;">Overall Pricing Settings</div>
     ${pctRow('Overhead','sbOverhead',q.rates.overheadPct,'lsOverhead')}
     ${pctRow('Contingency','sbContingency',q.rates.contingencyPct,'lsContingency')}
-    ${pctRow('Profit Margin','sbMargin',q.rates.marginPct,'lsMargin')}
-    <div class="sum-total"><span class="k">Final Price</span><span class="v" id="lsFinal"></span></div>
+    ${pctRow('Profit','sbMargin',q.rates.marginPct,'lsMargin')}
+    <div class="sum-row"><span class="k">Total Base Cost</span><span class="v" id="lsBase"></span></div>
+    <div class="sum-row"><span class="k">Total Additional Amount</span><span class="v" id="lsAdditional"></span></div>
+    <div class="sum-hint" style="margin:2px 0 8px;">Category totals above already include their share of overhead, contingency and profit.</div>
+    <div class="sum-total"><span class="k">Final Quotation Price</span><span class="v" id="lsFinal"></span></div>
     <div class="sum-row sum-edit"><span class="k">Discount</span>
       <span class="sum-ctl">
         <select id="discountType" class="side-input sum-select"><option value="pct" ${inv.discountType!=='fixed'?'selected':''}>%</option><option value="fixed" ${inv.discountType==='fixed'?'selected':''}>₱ Fixed</option></select>
@@ -2660,8 +2709,9 @@ function updateLiveSummary(q){
   set('lsBeam', fmtFtIn(q.hull.beam));
   set('lsDepth', fmtFtIn(q.hull.depth));
   set('lsArea', fmtNum(sqft(c.hull.area),1) + ' sq ft');
-  set('lsMaterials', fmt(c.materialCost));
-  set('lsMarina', fmt(c.marinaCost));
+  c.categories.forEach((cat,i)=>set('lsCat'+i, fmt(cat.adjusted)));
+  set('lsBase', fmt(c.totalBase));
+  set('lsAdditional', fmt(c.totalAdditional));
   const boats = document.getElementById('lsBoatsRow');
   if(boats) boats.style.display = c.numBoats>1 ? '' : 'none';
   set('lsBoats', c.numBoats + (c.multiplyPrice ? ' × unit price' : ' (price not multiplied)'));
@@ -4002,12 +4052,7 @@ function tabOutput(host, q){
         <div class="doc-section-title">Cost Summary</div>
         <table class="doc-item-table">
           <tbody>
-            <tr><td>Structural Components &amp; Core Materials</td><td class="right mono">${fmt(c.hull.total + c.structural.total)}</td></tr>
-            <tr><td>Paint &amp; Finish</td><td class="right mono">${fmt(c.paint.total)}</td></tr>
-            <tr><td>Accessories &amp; Components</td><td class="right mono">${fmt(c.acc.total)}</td></tr>
-            <tr><td>Marine Propulsion System</td><td class="right mono">${fmt(c.eng.total)}</td></tr>
-            <tr><td>Testing &amp; Delivery</td><td class="right mono">${fmt(c.testing.total)}</td></tr>
-            <tr><td>MARINA Documentation &amp; Regulatory Requirements</td><td class="right mono">${fmt(c.marinaCost)}</td></tr>
+            ${c.categories.map(cat=>`<tr><td>${escH(cat.label)}</td><td class="right mono">${fmt(cat.adjusted)}</td></tr>`).join('')}
             ${c.multiplyPrice && c.numBoats>1 ? `<tr><td style="font-weight:700;border-top:1px solid var(--doc-ink);">Per-Unit Price × ${c.numBoats} Boats Quoted</td><td class="right mono" style="font-weight:700;border-top:1px solid var(--doc-ink);">${fmt(c.unitFinalTotal)} × ${c.numBoats}</td></tr>` : ``}
           </tbody>
         </table>
@@ -4053,15 +4098,16 @@ function tabOutput(host, q){
         ${(()=>{
           const rows = c.structural.rows;
           if(!rows.length) return `<div class="doc-na-block" style="font-style:normal;">No structural items listed.</div>`;
+          const adj = distributeAmount(c.categories[0].adjusted, rows.map(r=>r.total));
           return `<table class="doc-item-table">
-              <tbody>${rows.map(r=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td><td class="right mono">${fmt(r.total)}</td></tr>`).join('')}</tbody>
+              <tbody>${rows.map((r,i)=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td><td class="right mono">${fmt(adj[i])}</td></tr>`).join('')}</tbody>
             </table>`;
         })()}
 
         <div class="doc-section-title">III. Paint &amp; Finish</div>
         ${(()=>{
           if(!c.paint.rows.length) return `<div class="doc-na-block" style="font-style:normal;">No paint items listed.</div>`;
-          const total = c.paint.rows.reduce((s,r)=>s+r.cost,0);
+          const total = c.categories[1].adjusted;
           return `
           <div class="marina-box">
             <div class="marina-row">
@@ -4076,7 +4122,8 @@ function tabOutput(host, q){
         <div class="doc-section-title">IV. Accessories &amp; Components</div>
         ${(()=>{
           const groups = groupByCat(c.acc.rows);
-          const catRows = (cat, rows)=> docQtyCat(esc(cat), rows && rows.length ? fmt(rows.reduce((s,r)=>s+r.total,0)) : '')
+          const adjByCat = adjustedByGroup(groups, c.categories[2].adjusted);
+          const catRows = (cat, rows)=> docQtyCat(esc(cat), rows && rows.length ? fmt(adjByCat.get(cat)||0) : '')
             + rows.map(r=>docQtyRow(esc(r.name), r.qty, esc(r.unit)||'pc/s')).join('');
           // Fixed named sections always appear, in this order, each
           // supporting "Not Applicable"; any other category found in the
@@ -4099,7 +4146,7 @@ function tabOutput(host, q){
           let body = docQtyRow(`${esc(e.model)||'—'} ${e.type?`(${esc(e.type)})`:''} — ${e.hp} HP`, n, 'unit/s');
           if(propulsionShowsDrive(e.type)) body += docQtyRow(`Transmission: ${esc(e.transmission)||'—'} &nbsp; Propeller: ${esc(e.propeller)||'—'}`, n, 'set/s');
           // Price for the whole propulsion system sits on a heading row, same as the other sections.
-          return docQtyTable(docQtyCat('Propulsion System', fmt(c.eng.total)) + body);
+          return docQtyTable(docQtyCat('Propulsion System', fmt(c.categories[3].adjusted)) + body);
         })()}
         ${q.engine.description ? `<div class="doc-band-body" style="margin-top:8px;line-height:1.6;">${escNl(q.engine.description)}</div>` : ``}
         ${q.engine.inclusions && q.engine.inclusions.length ? `
@@ -4110,7 +4157,8 @@ function tabOutput(host, q){
         <div class="doc-section-title">VI. Testing &amp; Delivery</div>
         ${(()=>{
           const groups = groupByCat(c.testing.rows);
-          const catRows = (cat, items)=> docQtyCat(esc(cat), items && items.length ? fmt(items.reduce((s,r)=>s+r.total,0)) : '')
+          const adjByCat = adjustedByGroup(groups, c.categories[4].adjusted);
+          const catRows = (cat, items)=> docQtyCat(esc(cat), items && items.length ? fmt(adjByCat.get(cat)||0) : '')
             + items.map(r=>docQtyRow(esc(r.name), r.qty, esc(r.unit)||'pc/s')).join('');
           const namedHtml = PRINTED_TESTING_DELIVERY_SECTIONS.map(cat=>{
             const items = groups.get(cat);
@@ -4127,7 +4175,7 @@ function tabOutput(host, q){
         <div class="doc-section-title">VII. MARINA Documentation &amp; Regulatory Requirements</div>
         ${(()=>{
           const items = q.marina.items;
-          const total = items.reduce((s,it)=>s+(Number(it.price)||0),0);
+          const total = c.categories[5].adjusted;
           const body = docQtyCat('MARINA DOCUMENTS', items.length ? fmt(total) : '')
             + (items.length ? items.map(it=>docQtyRow(esc(it.name), 1, 'pc/s')).join('') : docQtyNote('No Item Listed'));
           return docQtyTable(body);
