@@ -1709,8 +1709,8 @@ let _presetKind = 'boat';      // which tab of the Presets page is showing
 let _presetOpenId = null;      // open Transom / Console / Deck preset (by id)
 const PRESET_KINDS = {
   boat:    { label:'Boat Models' },
-  transom: { label:'Transom',               singular:'Transom',               defaultCat:'Transom', single:true  },
-  console: { label:'Console',               singular:'Console',               defaultCat:'Console', single:true  },
+  transom: { label:'Transom',               singular:'Transom',               defaultCat:'Transom', single:false },
+  console: { label:'Console',               singular:'Console',               defaultCat:'Console', single:false },
   deck:    { label:'Deck & Superstructure', singular:'Deck / Superstructure', defaultCat:'Deck',    single:false }
 };
 /* Labor panel shared by the Hull, structural components and the Transom / Console / Deck presets. */
@@ -1841,8 +1841,8 @@ function renderTemplates(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} ${kind==='boat' ? 'Add Boat Model' : 'Add '+esc(meta.singular)+' Preset'}</button>`;
   const leads = {
     boat: `Click a Boat Model's card to open and edit its standard measurements, structural components, and painting components. Drag a card by its ⠿ handle to rearrange the order. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Presets" — same as the Pricing Database.`,
-    transom: `Standard transoms (for example a single-engine or twin-engine transom). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
-    console: `Standard consoles (for example a center console or a side console). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
+    transom: `Standard transoms (for example a single-engine or twin-engine transom). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick as many as you need under "Transom, Console & Deck Presets" and each one's cost is added to the structural list.`,
+    console: `Standard consoles (for example a center console or a side console). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick as many as you need under "Transom, Console & Deck Presets" and each one's cost is added to the structural list.`,
     deck: `Deck and superstructure work such as a canopy, cabin or wheelhouse. Make one preset per item. In a quotation's Hull tab you can add as many as you need under "Transom, Console & Deck Presets", and each one's cost is added to the structural list.`
   };
   content.innerHTML = `<div class="tabs" id="presetKinds">${Object.keys(PRESET_KINDS).map(k=>`<div class="tab ${k===kind?'active':''}" data-kind="${k}">${esc(PRESET_KINDS[k].label)}</div>`).join('')}</div>
@@ -3008,21 +3008,21 @@ function tabHull(host, q){
     };
     hostEl.innerHTML = `<div class="grid g3">${['transom','console','deck'].map(kind=>{
       const meta = PRESET_KINDS[kind], list = addonPresets(kind), ap = applied(kind);
+      const on = new Set(ap.map(a=>a.id));
       const chips = ap.map(a=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--paper);border-radius:999px;padding:4px 6px 4px 12px;font-size:12px;font-weight:600;margin:6px 6px 0 0;">${esc(a.name)} <span class="btn btn-ghost btn-sm" data-rmaddon="${kind}:${esc(a.id)}" title="Remove from quotation" style="padding:0 6px;color:var(--danger);">✕</span></span>`).join('');
       return `<div class="field"><label>${esc(meta.label)}</label>
         <select class="addon-pick" data-kind="${kind}">
-          <option value="">${list.length ? (meta.single ? '— choose —' : '+ Add…') : 'No presets yet'}</option>
-          ${list.map(p=>`<option value="${esc(p.id)}">${esc(p.name)} (${fmt(presetTotalCost(p))})</option>`).join('')}
+          <option value="">${list.length ? '+ Add…' : 'No presets yet'}</option>
+          ${list.map(p=>`<option value="${esc(p.id)}">${on.has(p.id) ? '✓ ' : ''}${esc(p.name)} (${fmt(presetTotalCost(p))})</option>`).join('')}
         </select>
         <div>${chips}</div></div>`;
     }).join('')}</div>
-    <div class="hint" style="margin-top:10px;">Each preset adds its components as lines in the structural list below. Transom and Console hold one preset each (picking another replaces it); Deck &amp; Superstructure can hold several (canopy, cabin…). Create presets in the Presets page.</div>`;
+    <div class="hint" style="margin-top:10px;">Pick as many presets as you need under Transom, Console and Deck &amp; Superstructure; ones already added show a ✓. Each one adds its components as lines in the structural list below, and ✕ on its chip removes it. Create presets in the Presets page.</div>`;
     hostEl.querySelectorAll('.addon-pick').forEach(sel=>sel.onchange = ()=>{
       const kind = sel.dataset.kind, p = TEMPLATES.find(x=>x.id===sel.value);
       if(!p) return;
-      let items = q.structural.items||[];
-      if(PRESET_KINDS[kind].single) items = items.filter(it=>it.presetType!==kind);
-      else if(items.some(it=>it.presetId===p.id)){ toast(`"${p.name}" is already on this quotation`); sel.value=''; return; }
+      const items = q.structural.items||[];
+      if(items.some(it=>it.presetType===kind && it.presetId===p.id)){ toast(`"${p.name}" is already on this quotation (use ✕ to remove it)`); sel.value=''; return; }
       q.structural.items = [...items, ...addonPresetToQuoteItems(p)];
       persistQuote(q); drawAddonPresets(); drawStruct(); drawHullCalc(); updateLiveSummary(q);
     });
