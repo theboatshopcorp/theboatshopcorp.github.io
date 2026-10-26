@@ -1726,6 +1726,13 @@ function bindLaborPanel(root, c, owner, onTotals, redraw){
     redraw();
   });
 }
+function mergeAddonComponents(t, defaultCat){
+  const comps = t.components || [];
+  const clone = x=>JSON.parse(JSON.stringify(x));
+  const one = { cat: (comps[0] && comps[0].cat) || defaultCat || '', useFormula:true, numberDays:0, laborTeams:[], materials:[] };
+  comps.forEach(c=>{ migratePresetComponent(c); ensureTeamMaterials(c); one.laborTeams.push(...clone(c.laborTeams||[])); one.materials.push(...clone(c.materials||[])); });
+  t.components = [one];
+}
 function addonPresets(kind){
   return (TEMPLATES||[]).filter(t=>t.presetType===kind).sort((a,b)=>(Number.isFinite(a.order)?a.order:1e9)-(Number.isFinite(b.order)?b.order:1e9));
 }
@@ -1746,8 +1753,8 @@ function renderTemplates(content, actions){
   actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} ${kind==='boat' ? 'Add Boat Model' : 'Add '+esc(meta.singular)+' Preset'}</button>`;
   const leads = {
     boat: `Click a Boat Model's card to open and edit its standard measurements, structural components, and painting components. Drag a card by its ⠿ handle to rearrange the order. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Presets" — same as the Pricing Database.`,
-    transom: `Standard transoms (for example a single-engine or twin-engine transom). Each preset is a list of components with labor and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
-    console: `Standard consoles (for example a center console or a side console). Each preset is a list of components with labor and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
+    transom: `Standard transoms (for example a single-engine or twin-engine transom). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
+    console: `Standard consoles (for example a center console or a side console). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick one under "Transom, Console & Deck Presets" and its cost is added to the structural list.`,
     deck: `Deck and superstructure work such as a canopy, cabin or wheelhouse. Make one preset per item. In a quotation's Hull tab you can add as many as you need under "Transom, Console & Deck Presets", and each one's cost is added to the structural list.`
   };
   content.innerHTML = `<div class="tabs" id="presetKinds">${Object.keys(PRESET_KINDS).map(k=>`<div class="tab ${k===kind?'active':''}" data-kind="${k}">${esc(PRESET_KINDS[k].label)}</div>`).join('')}</div>
@@ -1870,21 +1877,22 @@ function renderTemplates(content, actions){
   }
 
   // Shared by Boat Models (structural components) and the Transom / Console / Deck presets.
-  function componentEditorHTML(title, key, sfx){
+  function componentEditorHTML(title, key, sfx, single){
     key = key || 'components'; sfx = sfx || '';
     return `<div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;gap:8px;flex-wrap:wrap;">
             <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);">${esc(title)}</div>
-            <div style="display:flex;gap:6px;">
+            ${single ? '' : `<div style="display:flex;gap:6px;">
               <button class="btn btn-ghost btn-sm" id="btnCollapseAll${sfx}">Collapse all</button>
               <button class="btn btn-ghost btn-sm" id="btnAddComp${sfx}">${icon('plus')} Add Component</button>
-            </div>
+            </div>`}
           </div>
-          <table><thead><tr><th>${key==='paintComponents' ? 'Category' : 'Component'}</th><th style="width:90px;"></th></tr></thead>
+          <table>${single ? '' : `<thead><tr><th>Category</th><th style="width:90px;"></th></tr></thead>`}
           <tbody id="compRows${sfx}"></tbody></table>
           <div class="hint" style="margin-top:8px;">Formula: <em>Total Work Cost = for each labor category (Rate × Laborers × its own Days) + the cost of every material used (quantity × price per unit)</em>. ${key==='paintComponents' ? `Each painting component (for example Surface Preparation, Primer, Topcoat) becomes one line on the quotation's Paint &amp; Finish tab, named after its category.` : `Each component becomes one line on the quotation's structural list, named after its category.`}</div>`;
   }
-  function initComponentEditor(t, defaultCat, key, sfx){
+  function initComponentEditor(t, defaultCat, key, sfx, single){
     key = key || 'components'; sfx = sfx || '';
+    if(single) mergeAddonComponents(t, defaultCat);
     const body = document.getElementById('compRows'+sfx);
     function drawComponents(){
       body.innerHTML = (t[key]||[]).map((c,idx)=>{
@@ -1900,22 +1908,22 @@ function renderTemplates(content, actions){
             <td class="right mono" style="width:120px;" id="matCost_${idx}_${mi}">${fmt((Number(m.qty)||0)*(Number(m.price)||0))}</td>
             <td class="right" style="width:40px;"><span class="btn btn-ghost btn-sm" data-delmat="${idx}:${mi}" style="color:var(--danger);" title="Remove material">✕</span></td>
           </tr>`;
-        const collapsed = _collapsedWork.has(c);
+        const collapsed = single ? false : _collapsedWork.has(c);
         return `
-        <tr>
+        ${single ? '' : `<tr>
           <td>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn btn-ghost btn-sm comp-toggle" data-idx="${idx}" aria-expanded="${!collapsed}" title="${collapsed?'Show':'Hide'} labor and materials" style="padding:6px 8px;">${chevronIcon(collapsed)}</button>
-${key==='paintComponents' ? `<select class="tbl-input comp-cat" data-idx="${idx}" style="flex:1;min-width:180px;max-width:340px;">
+<select class="tbl-input comp-cat" data-idx="${idx}" style="flex:1;min-width:180px;max-width:340px;">
               ${c.cat ? '' : '<option value="">— choose category —</option>'}
               ${cats.map(k=>`<option value="${esc(k)}" ${k===c.cat?'selected':''}>${esc(k)}</option>`).join('')}
               <option value="__new">+ New category…</option>
-            </select>` : `<span style="font-weight:600;font-size:12.5px;">Component ${idx+1}</span>`}
+            </select>
             ${collapsed ? `<span class="hint" style="margin:0;">${workSummaryHTML(c)}</span>` : ''}
             </div>
           </td>
           <td class="right"><span class="btn btn-ghost btn-sm" data-delcomp="${idx}" style="color:var(--danger);">Remove</span></td>
-        </tr>
+        </tr>`}
         ${collapsed ? '' : `<tr class="comp-formula-row" data-formula-idx="${idx}">
           <td colspan="2" style="background:var(--paper);padding:12px;">
             ${teamsPanelHTML(c, idx, matRowFn)}
@@ -1995,12 +2003,14 @@ ${key==='paintComponents' ? `<select class="tbl-input comp-cat" data-idx="${idx}
     }
 
     drawComponents();
-    document.getElementById('btnCollapseAll'+sfx).onclick = ()=>{
+    const _ca = document.getElementById('btnCollapseAll'+sfx);
+    if(_ca) _ca.onclick = ()=>{
       const comps = t[key]||[], allCollapsed = comps.length>0 && comps.every(c=>_collapsedWork.has(c));
       comps.forEach(c=>{ if(allCollapsed) _collapsedWork.delete(c); else _collapsedWork.add(c); });
       drawComponents();
     };
-    document.getElementById('btnAddComp'+sfx).onclick = ()=>{
+    const _ab = document.getElementById('btnAddComp'+sfx);
+    if(_ab) _ab.onclick = ()=>{
       if(!t[key]) t[key] = [];
       const nc = {cat:defaultCat, useFormula:true, numberDays:0, laborTeams:[], materials:[]};
       t[key].push(nc);
@@ -2018,7 +2028,7 @@ ${key==='paintComponents' ? `<select class="tbl-input comp-cat" data-idx="${idx}
         <div class="card-body">
           <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;">${esc(p.name)}</div>
           <div style="display:flex;gap:14px;font-size:11.5px;color:var(--ink-soft);">
-            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Components</div><div style="font-weight:600;color:var(--ink);">${(p.components||[]).length}</div></div>
+            <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Teams</div><div style="font-weight:600;color:var(--ink);">${(p.components||[]).reduce((n,c)=>n+((c.laborTeams||[]).length),0)}</div></div>
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Total cost</div><div style="font-weight:600;color:var(--ink);">${fmt(presetTotalCost(p))}</div></div>
           </div>
         </div>
@@ -2041,7 +2051,7 @@ ${key==='paintComponents' ? `<select class="tbl-input comp-cat" data-idx="${idx}
         <div class="card-body">
           <div class="field" style="max-width:420px;"><label>Preset name</label><input id="addonName" value="${esc(t.name)}"></div>
           <div class="field"><label>Description</label><textarea id="addonDesc" rows="2" placeholder="Printed after the preset name in the quotation">${escH(t.description||'')}</textarea></div>
-          ${componentEditorHTML('Components')}
+          ${componentEditorHTML('Labor & Materials', 'components', '', true)}
         </div>
       </div>`;
     document.getElementById('btnBackAddon').onclick = ()=>{ _presetOpenId = null; draw(); };
@@ -2056,7 +2066,7 @@ ${key==='paintComponents' ? `<select class="tbl-input comp-cat" data-idx="${idx}
       const i = TEMPLATES.indexOf(t); if(i>=0) TEMPLATES.splice(i,1);
       _presetOpenId = null; draw();
     };
-    initComponentEditor(t, meta.defaultCat);
+    initComponentEditor(t, meta.defaultCat, 'components', '', true);
   }
 
   function drawDetail(pid){
