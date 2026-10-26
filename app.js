@@ -1522,7 +1522,7 @@ function renderDashboard(content, actions){
    QUOTATIONS LIST
    ============================================================ */
 function renderQuotesList(content, actions){
-  actions.innerHTML = `<button class="btn" id="btnDemoSample">Load Demo Sample</button> <button class="btn" id="btnDemoSample2">Load Demo Sample 2</button> <button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
+  actions.innerHTML = `<button class="btn" id="btnDemoAll">Load Full Demo Data</button> <button class="btn" id="btnDemoSample">Load Demo Sample</button> <button class="btn" id="btnDemoSample2">Load Demo Sample 2</button> <button class="btn btn-primary" id="btnNewQ2">${icon('plus')} New Quotation</button>`;
   const pendingApproval = CURRENT_IS_ADMIN ? QUOTES.filter(q=>q.status==='for_approval').sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'', undefined, {numeric:true})) : [];
   content.innerHTML = `
     <div class="pill-row" style="align-items:center;">
@@ -1543,6 +1543,7 @@ function renderQuotesList(content, actions){
     <div class="card"><div class="card-body" style="padding:0;" id="qTableWrap"></div></div>
   `;
   document.getElementById('btnNewQ2').onclick = ()=>openEditor(null);
+  document.getElementById('btnDemoAll').onclick = addFullDemoData;
   document.getElementById('btnDemoSample').onclick = addDemoSample;
   document.getElementById('btnDemoSample2').onclick = addDemoSample2;
   content.querySelectorAll('.pill-row [data-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.open));
@@ -4458,6 +4459,151 @@ function addDemoSample(){
   QUOTES.push(d);
   persistQuote(d);
   toast('Demo sample added to Quotations');
+  renderAll();
+}
+
+
+/* ============================================================
+   FULL DEMO DATA: customer + Pricing Database entries + presets (Boat Model, Transom, Console, Deck)
+   + one quotation built from those presets, so you can walk through making a quotation end to end.
+   Everything is tagged "demo_" so it is added only once and is easy to find and delete.
+   ============================================================ */
+function addFullDemoData(){
+  if(CUSTOMERS.some(c=>c.id==='demo_cust_1') || TEMPLATES.some(t=>t.id==='demo_tpl_boat')){
+    toast('Demo data is already loaded — look in Customers, Presets, Pricing Database and Quotations');
+    return;
+  }
+  /* ---- 1. Pricing Database: labor category, materials, accessories ---- */
+  PRICING.laborDailyRates = PRICING.laborDailyRates || {};
+  if(PRICING.laborDailyRates.carpentry===undefined) PRICING.laborDailyRates.carpentry = 1400;
+  PRICING.structuralCatalog = PRICING.structuralCatalog || [];
+  [
+    ['Biaxial Fiberglass Cloth 810gsm','kg',230],
+    ['Vinylester Resin','liter',310],
+    ['Isophthalic Gelcoat (White)','kg',285],
+    ['Closed-Cell Pour Foam (flotation)','cu.ft',850],
+    ['Marine Plywood 18mm (4x8ft)','sheet',3600],
+    ['Fairing Compound','kg',420],
+    ['Epoxy Primer','liter',780],
+    ['2-Pack Polyurethane Topcoat','liter',1450],
+    ['SS316 Tube 1in (frame)','ft',380],
+    ['Tempered Glass 6mm (windshield)','pc',9500],
+    ['Stainless Fasteners (assorted)','lot',3500],
+  ].forEach(m=>{
+    if(!PRICING.structuralCatalog.some(a=>(a.name||'').trim().toLowerCase()===m[0].toLowerCase()))
+      PRICING.structuralCatalog.push({ name:m[0], unit:m[1], unitPrice:m[2] });
+  });
+  PRICING.accessoryCatalog = PRICING.accessoryCatalog || [];
+  [
+    ['Fuel System','Fuel Tank 200L (aluminum)',38000],
+    ['Fuel System','Fuel Filter / Water Separator',6500],
+    ['Navigation & Electronics','GPS Chartplotter 9in',42000],
+    ['Navigation & Electronics','VHF Marine Radio',11500],
+    ['Navigation & Electronics','LED Navigation Light Set',12500],
+    ['Hull & Deck Accessories','SS316 Rod Holder',2400],
+    ['Hull & Deck Accessories','Livewell Pump & Plumbing Kit',14500],
+  ].forEach(a=>{
+    if(!PRICING.accessoryCatalog.some(x=>(x.name||'').trim().toLowerCase()===a[1].toLowerCase() && (x.cat||'').trim().toLowerCase()===a[0].toLowerCase()))
+      PRICING.accessoryCatalog.push({ cat:a[0], name:a[1], unitPrice:a[2] });
+  });
+  save(DB_KEYS.pricing, PRICING);
+
+  /* ---- 2. Customer ---- */
+  const cust = { id:'demo_cust_1', name:'Bantayan Island Fishing Cooperative', email:'procurement@bantayanfishcoop.example', contact:'0918-555-0142',
+    address:'Poblacion, Santa Fe, Bantayan Island, Cebu, Philippines', repName:'Lorna M. Pacaña', repPosition:'Cooperative Manager', repContact:'0918-555-0177', repEmail:'lorna.pacana@bantayanfishcoop.example' };
+  CUSTOMERS.push(cust);
+  save(DB_KEYS.customers, CUSTOMERS);
+
+  /* ---- 3. Presets ---- */
+  const team = (cat, laborers, days)=>({ id:uid('tm'), cat, laborers, days, rate:laborRateFor(cat) });
+  // teams: [[labor category, laborers, days], ...]; mats: [[team index, name, unit, qty, price], ...]
+  const comp = (cat, description, teams, mats)=>{
+    const laborTeams = teams.map(t=>team(t[0],t[1],t[2]));
+    return { cat, description, useFormula:true, numberDays:0, laborTeams,
+      materials: mats.map(m=>({ cat:'Materials', name:m[1], unit:m[2], qty:m[3], price:m[4], teamId:laborTeams[m[0]].id })) };
+  };
+  const boat = { id:'demo_tpl_boat', name:'Marlin Series', boatModel:'Marlin Series', boatType:'Fishing Boat', loa:28, beam:9.5, depth:4, numHulls:1,
+    components:[
+      comp('Hull','Hand laid fiberglass hull, four layers biaxial cloth with vinylester resin, white gelcoat finish and foam-filled compartments',
+        [['fiberglass',5,12]],
+        [[0,'Biaxial Fiberglass Cloth 810gsm','kg',380,230],[0,'Vinylester Resin','liter',420,310],[0,'Isophthalic Gelcoat (White)','kg',90,285],[0,'Closed-Cell Pour Foam (flotation)','cu.ft',160,850]]),
+      comp('Stiffeners & Framing','Foam-cored FRP longitudinal stringers and transverse frames, fully laminated to the hull',
+        [['fiberglass',3,6]],
+        [[0,'Biaxial Fiberglass Cloth 810gsm','kg',90,230],[0,'Vinylester Resin','liter',100,310],[0,'Marine Plywood 18mm (4x8ft)','sheet',4,3600]]),
+      comp('Bulkheads','Marine plywood bulkheads, glassed both sides, with watertight fuel and storage compartments',
+        [['carpentry',2,5],['fiberglass',2,3]],
+        [[0,'Marine Plywood 18mm (4x8ft)','sheet',8,3600],[1,'Biaxial Fiberglass Cloth 810gsm','kg',40,230],[1,'Vinylester Resin','liter',45,310]])
+    ],
+    paintComponents:[
+      Object.assign(comp('Surface Preparation','',
+        [['painting',3,4]],
+        [[0,'Fairing Compound','kg',40,420],[0,'Epoxy Primer','liter',25,780]]), { details:'Sanding, fairing and epoxy primer on hull and deck' }),
+      Object.assign(comp('Topcoat','',
+        [['painting',3,3]],
+        [[0,'2-Pack Polyurethane Topcoat','liter',30,1450]]), { details:'2-pack marine polyurethane, white hull and light grey non-skid deck' })
+    ]
+  };
+  const addon = (id, kind, name, description, order, c)=>({ id, presetType:kind, name, description, order, components:[c] });
+  const transom = addon('demo_tpl_transom','transom','Twin-Engine Transom','Reinforced transom for twin outboards up to 2 x 200HP, marine plywood core with six layers of fiberglass',0,
+    comp('Transom','',[['fiberglass',3,3],['carpentry',2,2]],
+      [[0,'Biaxial Fiberglass Cloth 810gsm','kg',60,230],[0,'Vinylester Resin','liter',50,310],[1,'Marine Plywood 18mm (4x8ft)','sheet',2,3600]]));
+  const consolePreset = addon('demo_tpl_console','console','Center Console with Windshield','FRP center console with tempered glass windshield, helm panel provision and rod storage',0,
+    comp('Console','',[['fiberglass',2,3],['assembly',3,4]],
+      [[0,'Biaxial Fiberglass Cloth 810gsm','kg',45,230],[0,'Vinylester Resin','liter',50,310],[1,'Tempered Glass 6mm (windshield)','pc',1,9500],[1,'Stainless Fasteners (assorted)','lot',1,3500]]));
+  const deck1 = addon('demo_tpl_deck1','deck','T-Top Canopy','Stainless steel frame T-top with FRP hardtop and rod holders',0,
+    comp('Canopy','',[['fabrication',2,4],['fiberglass',2,2]],
+      [[0,'SS316 Tube 1in (frame)','ft',60,380],[0,'Stainless Fasteners (assorted)','lot',1,3500],[1,'Biaxial Fiberglass Cloth 810gsm','kg',25,230],[1,'Vinylester Resin','liter',28,310]]));
+  const deck2 = addon('demo_tpl_deck2','deck','Aft Cockpit Deck with Livewell','FRP non-skid aft cockpit deck with built-in 80L livewell and fish box',1,
+    comp('Deck','',[['fiberglass',3,4]],
+      [[0,'Biaxial Fiberglass Cloth 810gsm','kg',70,230],[0,'Vinylester Resin','liter',75,310],[0,'Closed-Cell Pour Foam (flotation)','cu.ft',30,850]]));
+  [boat, transom, consolePreset, deck1, deck2].forEach(t=>TEMPLATES.push(t));
+  save(DB_KEYS.templates, TEMPLATES);
+
+  /* ---- 4. Quotation built from those presets ---- */
+  const q = blankQuote();
+  q.customerId = cust.id;
+  Object.assign(q.customerSnap, { name:cust.name, companyName:cust.name, clientName:cust.repName, clientPosition:cust.repPosition, companyTin:'456-789-123-000',
+    email:cust.email, address:cust.address, contact:cust.contact, repName:cust.repName, repPosition:cust.repPosition, repContact:cust.repContact, repEmail:cust.repEmail });
+  Object.assign(q.project, { title:"28' Center Console Fishing Boat with Twin Yamaha 200HP",
+    notes:'Demo quotation built from the Marlin Series preset, Transom, Console and Deck presets.', numBoats:1, passengerCapacity:8,
+    multiplyPrice:false, buildType:'Standard Build', boatModel:boat.boatModel, boatPresetId:boat.id, boatApplication:'Fishing Boat' });
+  q.hull = { boatType:boat.boatType, loa:boat.loa, beam:boat.beam, depth:boat.depth, numHulls:1, hullAreaOverride:null, layers:0, glassPerLayer:0, coreArea:0, coreEnabled:false, work:null, noLaminate:true };
+  q.paint = { items: boat.paintComponents.map(presetPaintToQuoteItem) };
+  q.structural = { items: [...boatComponentsToQuoteItems(boat), ...[transom, consolePreset, deck1, deck2].flatMap(addonPresetToQuoteItems)] };
+  q.accessories = [
+    ['Hull & Deck Accessories','SS316 Rod Holder',6,2400,15],
+    ['Hull & Deck Accessories','Livewell Pump & Plumbing Kit',1,14500,15],
+    ['Hull & Deck Accessories','Stainless Cleat',6,1800,15],
+    ['Fuel System','Fuel Tank 200L (aluminum)',2,38000,15],
+    ['Fuel System','Fuel Filter / Water Separator',2,6500,15],
+    ['Electrical System','Bilge Pump w/ Auto Float',2,4200,15],
+    ['Electrical System','LED Navigation Light Set',1,12500,15],
+    ['Anchor & Docking','Anchor Set w/ Chain & Rope',1,22000,15],
+    ['Navigation & Electronics','GPS Chartplotter 9in',1,42000,15],
+    ['Navigation & Electronics','VHF Marine Radio',1,11500,15]
+  ].map(a=>sampleAccessory(a[0],a[1],a[2],a[3],a[4]));
+  q.specialFeatures = { enabled:true, items:[
+    ['Hydraulic jack plate','set',1,68000,15],
+    ['Bow thruster-ready backing plate','lot',1,18000,15]
+  ].map(a=>({ id:uid('sf'), cat:'', name:a[0], unit:a[1], qty:a[2], unitPrice:a[3], markup:a[4] })) };
+  q.testingDelivery = [
+    ['Trailer','Galvanized single axle trailer with keel rollers, manual winch, tongue jack and lights','unit',1,145000,10],
+    ['Sea Trial','1hr sea trial and final inspection','lot',1,35000,10],
+    ['Delivery','Subject to actual cost','lot',1,0,0]
+  ].map(a=>({ id:uid('ti'), cat:a[0], name:a[1], unit:a[2], qty:a[3], unitPrice:a[4], markup:a[5] }));
+  q.testingDeliveryNA = {};
+  Object.assign(q.engine, { brand:'Yamaha', model:'F200XB', type:'OBM', hp:200, qty:2, unitPrice:1650000, installation:0, transmission:'', propeller:'', speed:'38 knots', fuelCapacity:'400 liters',
+    description:'Dual Installation of Yamaha 200HP, Model: F200XB, 4 Stroke, DOHC, In-line 4 cylinder, Brand New complete with the following;',
+    inclusions:['Digital remote control box with wiring harness (dual)','Multifunction digital gauge kit','Stainless propeller','Battery cables','Engine Owner\'s Manual'],
+    steeringEnabled:true,
+    steeringItems:[{name:'Hydraulic Steering Helm Pump',qty:1,unit:'set'},{name:'Hydraulic Steering Cylinder',qty:2,unit:'pc/s'},{name:'Hydraulic Hoses & Fittings',qty:1,unit:'lot'},{name:'Stainless Steel Steering Wheel',qty:1,unit:'pc/s'}] });
+  q.schedule = { startDate:todayISO(), standardDays:120, requestedDays:120 };
+  q.marina.items.forEach(it=>{ if(it.name in DEMO_MARINA_2) it.price = DEMO_MARINA_2[it.name]; });
+  q.invoice = { vatEnabled:true, vatPct:12, previousPayment:0, discountType:'pct', discountValue:0, discountNote:'' };
+  ensureQuoteDefaults(q);
+  QUOTES.push(q);
+  persistQuote(q);
+  toast('Demo data added: customer, presets, pricing items and a sample quotation');
   renderAll();
 }
 
