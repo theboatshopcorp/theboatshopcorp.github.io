@@ -886,6 +886,40 @@ function registerPresetMaterials(){
   }))));
   return n;
 }
+/* ---------- Pricing Database -> Presets ----------
+   Preset components keep a copy of each material price and labor rate. When one of those is changed in the
+   Pricing Database, the same item inside every preset (Boat Model, Transom, Console, Deck) follows it. Saved
+   quotations are NOT touched: each quotation keeps its own snapshot. */
+function forEachPresetComponent(fn){
+  (TEMPLATES||[]).forEach(t=>Object.values(t||{}).forEach(v=>{
+    if(Array.isArray(v)) v.forEach(c=>{ if(c && typeof c==='object' && !Array.isArray(c)) fn(c); });
+    else if(v && typeof v==='object') fn(v);
+  }));
+}
+function propagateMaterialToPresets(oldName, item){
+  const key = (oldName||'').trim().toLowerCase();
+  if(!key || !item || !(item.name||'').trim()) return 0;
+  let n = 0;
+  forEachPresetComponent(c=>(Array.isArray(c.materials) ? c.materials : []).forEach(m=>{
+    if((m.name||'').trim().toLowerCase()!==key) return;
+    m.name = item.name; m.price = Number(item.unitPrice)||0; if(item.unit) m.unit = item.unit;
+    if(m.catName) m.catName = item.name;
+    n++;
+  }));
+  if(n) save(DB_KEYS.templates, TEMPLATES);
+  return n;
+}
+function propagateLaborRateToPresets(catName, rate){
+  const key = (catName||'').trim().toLowerCase();
+  if(!key) return 0;
+  let n = 0;
+  forEachPresetComponent(c=>(Array.isArray(c.laborTeams) ? c.laborTeams : []).forEach(tm=>{
+    if((tm.cat||'').trim().toLowerCase()!==key) return;
+    tm.rate = Math.max(0, Number(rate)||0); n++;
+  }));
+  if(n) save(DB_KEYS.templates, TEMPLATES);
+  return n;
+}
 function syncAccessoryCatalog(cat, name, unitPrice){
   cat = (cat||'').trim(); name = (name||'').trim();
   if(!cat || !name || name==='New Item') return false;
@@ -2298,8 +2332,11 @@ function renderPricing(content, actions){
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-matcat="${idx}" style="color:var(--danger);">Remove</span></td>
       </tr>`).join('') || `<tr><td colspan="4" class="empty" style="padding:12px;">No materials yet.</td></tr>`;
     document.querySelectorAll('.matcat-f').forEach(i=>i.onchange=()=>{
-      r.structuralCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
+      const item = r.structuralCatalog[i.dataset.idx], oldName = item.name;
+      item[i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
       save(DB_KEYS.pricing, PRICING);
+      const n = propagateMaterialToPresets(oldName, item);   // presets that use this material follow the new price / unit / name
+      if(n) toast(`Updated "${item.name}" in ${n} preset line${n===1?'':'s'}`);
     });
     document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); save(DB_KEYS.pricing, PRICING); drawMaterials(); });
   }
@@ -2313,7 +2350,15 @@ function renderPricing(content, actions){
         <td><input type="number" min="0" step="any" class="lr-f" data-k="${esc(k)}" value="${Number(r.laborDailyRates[k])||0}" style="width:100%;border:1px solid var(--paper-line);border-radius:6px;padding:6px 8px;"></td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-lr="${esc(k)}" style="color:var(--danger);" title="Remove this category">✕</span></td>
       </tr>`).join('') || `<tr><td colspan="3" class="empty" style="padding:12px;">No labor categories yet. Click "Add Category".</td></tr>`;
-    document.querySelectorAll('.lr-f').forEach(i=>i.addEventListener('input', ()=>{ r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0); }));
+    document.querySelectorAll('.lr-f').forEach(i=>{
+      i.addEventListener('input', ()=>{ r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0); });
+      i.addEventListener('change', ()=>{
+        r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0);
+        save(DB_KEYS.pricing, PRICING);
+        const n = propagateLaborRateToPresets(i.dataset.k, r.laborDailyRates[i.dataset.k]);   // presets that use this labor category follow the new rate
+        if(n) toast(`Updated ${capFirst(i.dataset.k)} rate in ${n} preset labor line${n===1?'':'s'}`);
+      });
+    });
     document.querySelectorAll('[data-del-lr]').forEach(b=>b.onclick=()=>{
       const k = b.dataset.delLr;
       if(!confirm(`Remove the "${capFirst(k)}" labor category? Presets that already use it keep the rate they saved.`)) return;
@@ -4200,23 +4245,20 @@ function tabOutput(host, q){
         ${(()=>{
           const rows = c.structural.rows;
           if(!rows.length) return `<div class="doc-na-block" style="font-style:normal;">No structural items listed.</div>`;
-          const adj = distributeAmount(c.categories[0].adjusted, rows.map(r=>r.total));
           return `<table class="doc-item-table">
-              <tbody>${rows.map((r,i)=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td><td class="right mono">${fmt(adj[i])}</td></tr>`).join('')}</tbody>
+              <tbody>${rows.map(r=>`<tr><td>${escH(r.name)}${r.description ? ` - ${escH(r.description)}` : ''}</td></tr>`).join('')}</tbody>
             </table>`;
         })()}
 
         <div class="doc-section-title">III. Paint &amp; Finish</div>
         ${(()=>{
           if(!c.paint.rows.length) return `<div class="doc-na-block" style="font-style:normal;">No paint items listed.</div>`;
-          const total = c.categories[1].adjusted;
           return `
           <div class="marina-box">
             <div class="marina-row">
               <ul class="marina-list">
                 ${c.paint.rows.map(r=>`<li>${esc(r.coatLabel||'Coat')}${r.type?` — ${esc(r.type)}`:''}${r.color?` (${esc(r.color)})`:''}</li>`).join('')}
               </ul>
-              <div class="marina-price">${fmt(total)}</div>
             </div>
           </div>`;
         })()}
@@ -4224,8 +4266,7 @@ function tabOutput(host, q){
         <div class="doc-section-title">IV. Accessories &amp; Components</div>
         ${(()=>{
           const groups = groupByCat(c.acc.rows);
-          const adjByCat = adjustedByGroup(groups, c.categories[2].adjusted);
-          const catRows = (cat, rows)=> docQtyCat(esc(cat), rows && rows.length ? fmt(adjByCat.get(cat)||0) : '')
+          const catRows = (cat, rows)=> docQtyCat(esc(cat))
             + rows.map(r=>docQtyRow(esc(r.name), r.qty, esc(r.unit)||'pc/s')).join('');
           // Fixed named sections always appear, in this order, each
           // supporting "Not Applicable"; any other category found in the
@@ -4248,7 +4289,7 @@ function tabOutput(host, q){
           let body = docQtyRow(`${esc(e.model)||'—'} ${e.type?`(${esc(e.type)})`:''} — ${e.hp} HP`, n, 'unit/s');
           if(propulsionShowsDrive(e.type)) body += docQtyRow(`Transmission: ${esc(e.transmission)||'—'} &nbsp; Propeller: ${esc(e.propeller)||'—'}`, n, 'set/s');
           // Price for the whole propulsion system sits on a heading row, same as the other sections.
-          return docQtyTable(docQtyCat('Propulsion System', fmt(c.categories[3].adjusted)) + body);
+          return docQtyTable(docQtyCat('Propulsion System') + body);
         })()}
         ${q.engine.description ? `<div class="doc-band-body" style="margin-top:8px;line-height:1.6;">${escNl(q.engine.description)}</div>` : ``}
         ${q.engine.inclusions && q.engine.inclusions.length ? `
@@ -4263,16 +4304,12 @@ function tabOutput(host, q){
         <div class="doc-section-title">VI. Testing &amp; Delivery</div>
         ${(()=>{
           const groups = groupByCat(c.testing.rows);
-          const adjByCat = adjustedByGroup(groups, c.categories[4].adjusted);
           // One row per item: the category name sits in the Item column on its first row. An item with no price
           // (for example "Subject to actual cost") prints its description only, without qty, unit or price.
-          const itemRows = (cat, items)=>{
-            const adj = distributeAmount(adjByCat.get(cat)||0, items.map(r=>r.total));
-            return items.map((r,i)=>{
-              const priced = (Number(r.total)||0) > 0;
-              return docTestRow(i===0 ? esc(cat) : '', esc(r.name), priced ? r.qty : '', priced ? (esc(r.unit)||'pc/s') : '', priced ? fmt(adj[i]) : '');
-            }).join('');
-          };
+          const itemRows = (cat, items)=> items.map((r,i)=>{
+            const priced = (Number(r.total)||0) > 0;
+            return docTestRow(i===0 ? esc(cat) : '', esc(r.name), priced ? r.qty : '', priced ? (esc(r.unit)||'pc/s') : '', '');
+          }).join('');
           const namedHtml = PRINTED_TESTING_DELIVERY_SECTIONS.map(cat=>{
             const items = groups.get(cat);
             groups.delete(cat);
@@ -4287,8 +4324,7 @@ function tabOutput(host, q){
         <div class="doc-section-title">VII. MARINA Documentation &amp; Regulatory Requirements</div>
         ${(()=>{
           const items = q.marina.items;
-          const total = c.categories[5].adjusted;
-          const body = docQtyCat('MARINA DOCUMENTS', items.length ? fmt(total) : '')
+          const body = docQtyCat('MARINA DOCUMENTS')
             + (items.length ? items.map(it=>docQtyRow(esc(it.name), 1, 'pc/s')).join('') : docQtyNote('No Item Listed'));
           return docQtyTable(body);
         })()}
@@ -4336,28 +4372,28 @@ function tabOutput(host, q){
 /* Quotation output: shared Item Description | QTY | Unit | Price layout used from section IV to the last section. */
 function docQtyTable(bodyRows, noHead){
   return `<table class="doc-item-table doc-qty-table" style="width:100%;table-layout:fixed;">
-    <colgroup><col><col style="width:64px"><col style="width:84px"><col style="width:140px"></colgroup>
-    ${noHead ? '' : '<thead><tr><th style="text-align:left;">Item Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>'}
+    <colgroup><col><col style="width:64px"><col style="width:84px"></colgroup>
+    ${noHead ? '' : '<thead><tr><th style="text-align:left;">Item Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th></tr></thead>'}
     <tbody>${bodyRows}</tbody></table>`;
 }
-function docQtyCat(title, priceText){
-  return `<tr><td colspan="3" style="font-weight:700;padding-top:12px;">${title}</td><td class="right mono" style="font-weight:700;padding-top:12px;">${priceText||''}</td></tr>`;
+function docQtyCat(title){
+  return `<tr><td colspan="3" style="font-weight:700;padding-top:12px;">${title}</td></tr>`;
 }
 function docQtyRow(desc, qty, unit){
-  return `<tr><td>${desc}</td><td style="text-align:center;">${qty}</td><td>${unit}</td><td></td></tr>`;
+  return `<tr><td>${desc}</td><td style="text-align:center;">${qty}</td><td>${unit}</td></tr>`;
 }
 /* Testing & Delivery output: Item | Description | QTY | Unit | Price */
 function docTestTable(bodyRows){
   return `<table class="doc-item-table doc-qty-table" style="width:100%;table-layout:fixed;">
-    <colgroup><col style="width:92px"><col><col style="width:64px"><col style="width:84px"><col style="width:140px"></colgroup>
-    <thead><tr><th style="text-align:left;">Item</th><th style="text-align:left;">Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th><th class="right">Price</th></tr></thead>
+    <colgroup><col style="width:92px"><col><col style="width:64px"><col style="width:84px"></colgroup>
+    <thead><tr><th style="text-align:left;">Item</th><th style="text-align:left;">Description</th><th style="text-align:center;">QTY</th><th style="text-align:left;">Unit</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>`;
 }
 function docTestRow(item, desc, qty, unit, price, italic){
-  return `<tr><td style="font-weight:700;vertical-align:top;">${item}</td><td${italic?' style="font-style:italic;"':''}>${desc}</td><td style="text-align:center;vertical-align:top;">${qty}</td><td style="vertical-align:top;">${unit}</td><td class="right mono" style="vertical-align:top;">${price}</td></tr>`;
+  return `<tr><td style="font-weight:700;vertical-align:top;">${item}</td><td${italic?' style="font-style:italic;"':''}>${desc}</td><td style="text-align:center;vertical-align:top;">${qty}</td><td style="vertical-align:top;">${unit}</td></tr>`;
 }
 function docQtyNote(text){
-  return `<tr><td colspan="4" style="font-style:italic;">${text}</td></tr>`;
+  return `<tr><td colspan="3" style="font-style:italic;">${text}</td></tr>`;
 }
 function sampleAccessory(cat, name, qty, unitPrice, markup){
   return { id:uid('ai'), cat, name, qty, unitPrice, markup };
