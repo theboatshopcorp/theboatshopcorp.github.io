@@ -2475,10 +2475,11 @@ function ensureQuoteDefaults(q){
     q.terms = defaultTerms();
   }
   q.terms.forEach(t=>{ if(Array.isArray(t.bullets) && t.bullets.length) t.body = (t.body ? t.body+'\n' : '') + t.bullets.join('\n'); delete t.bullets; });
-  if(q.closingMessage===undefined) q.closingMessage = defaultClosingMessage();
+  if(q.closingMessage===undefined || q.closingMessage === oldClosingMessage()) q.closingMessage = defaultClosingMessage();
 }
+function oldClosingMessage(){ return 'Thank you for considering TBSC for your boat requirement. We look forward to working with you.'; }
 function defaultClosingMessage(){
-  return 'Thank you for considering TBSC for your boat requirement. We look forward to working with you.';
+  return 'We sincerely thank you for giving The Boat Shop Corporation the opportunity to be of service to you. Should you require further information or clarification, please do not hesitate to contact us.\n\nIf the foregoing terms and conditions are acceptable, kindly signify your conformity by signing below.';
 }
 function persistQuote(q){ q.updatedAt = Date.now(); save(DB_KEYS.quotes, QUOTES); }
 
@@ -4300,7 +4301,7 @@ function tabOutput(host, q){
             </div>`).join('')}
         </div>
 
-        ${q.closingMessage && q.closingMessage.trim() ? `<div class="doc-terms" style="margin-top:12px;color:var(--doc-ink);">${escNl(q.closingMessage)}</div>` : ``}
+        ${q.closingMessage && q.closingMessage.trim() ? `<div class="doc-terms" style="margin-top:12px;color:var(--doc-ink);">${q.closingMessage.split(/\n\s*\n/).filter(p=>p.trim()).map((p,i)=>`<div style="${i?'margin-top:8px;':''}">${escNl(p)}</div>`).join('')}</div>` : ``}
 
         <div class="doc-sign">
           <div data-sigprev="prepared">
