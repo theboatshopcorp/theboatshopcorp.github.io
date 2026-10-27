@@ -1051,6 +1051,20 @@ function numberToWords(n){
 /* ============================================================
    NEW QUOTATION FACTORY
    ============================================================ */
+/* Premade Terms & Conditions — every NEW quotation starts with these clauses (all editable per quotation).
+   The final "Quotation Validity" clause is added automatically on the output from the Validity (days) field. */
+function defaultTerms(){
+  return [
+    {title:'Completion Period', body:'The estimated completion period shall be five (5) months from order confirmation, subject to receipt of the required down payment and duly signed Purchase Order and/or Contract.'},
+    {title:'Payment Terms', body:'Payment shall be made according to the following schedule:\n• 30% – Down payment upon order confirmation.\n• 20% – Thirty (30) days from order confirmation.\n• 20% – Sixty (60) days from order confirmation.\n• 20% – One hundred (100) days from order confirmation.\n• 10% – Upon completion of the boat, prior to delivery.'},
+    {title:'Construction Commencement', body:'Construction shall commence upon receipt of the signed Purchase Order and/or Contract and the required down payment.'},
+    {title:'Additional Requests and Modifications', body:"Any additional requests, modifications, or specifications beyond the approved quotation shall be subject to the Company's evaluation. Additional costs and adjustments to the completion schedule shall be separately quoted and mutually agreed upon before implementation."},
+    {title:'Hull Structural Warranty', body:'The Company warrants the hull structure against manufacturing defects under normal operating conditions for the following periods:\n• Pleasure Use: Two (2) years.\n• Commercial Use: One (1) year.\nThe warranty period shall commence upon delivery, subject to the terms of the applicable warranty certificate.'},
+    {title:'Warranty Exclusions', body:"The warranty does not cover normal wear and tear, cosmetic damage, misuse, negligence, improper maintenance, unauthorized modifications or repairs, accidents, adverse environmental conditions, or force majeure. Accessories, hardware, and navigational equipment shall be subject to their respective manufacturers' or suppliers' warranties, if applicable."},
+    {title:'Engine Warranty', body:'The engine warranty shall be provided solely by the manufacturer, authorized distributor, or supplier in accordance with their applicable warranty terms and conditions.'},
+    {title:'Licenses and Regulatory Compliance', body:"All fees and expenses for registration, licenses, permits, inspections, and certificates required by MARINA and other relevant regulatory agencies shall be for the Customer's account, unless otherwise agreed in writing."},
+  ];
+}
 function blankQuote(){
   return {
     id: uid('q'),
@@ -1086,14 +1100,7 @@ function blankQuote(){
     // (see computeLabor) — no per-quote labor field needed anymore.
     rates: Object.assign(JSON.parse(JSON.stringify(PRICING)), { overheadPct:10, contingencyPct:10, marginPct:10 }), // snapshot, editable per-quote; overall Overhead / Contingency / Profit default to 10% each
     schedule: { startDate: todayISO(), standardDays: PRICING.standardDurationDays, requestedDays: PRICING.standardDurationDays },
-    terms: [
-      {title:'Completion Time', body:'12 months from date of receipt of downpayment and Purchase Order'},
-      {title:'Payment Terms', body:'Payment shall be made according to the following schedule:\nThirty percent (30%) down payment upon confirmation of order.\nTwenty percent (20%) after thirty (30) days from order confirmation.\nTwenty percent (20%) after sixty (60) days from order confirmation.\nTwenty percent (20%) after one hundred (100) days from order confirmation.\nTen percent (10%) final balance upon completion of the boat and before delivery.'},
-      {title:'Hull Warranty', body:'Two (2) years on hull structure for pleasure use, one (1) year for commercial use, covering manufacturing defects under normal use conditions.'},
-      {title:'Warranty Exclusions', body:'Warranty excludes normal wear and tear, misuse or negligence, unauthorized modification, force majeure, and third-party accessories which follow manufacturer warranty.'},
-      {title:'Delivery', body:'Delivery outside factory premises subject to separate agreement and additional logistics charges.'},
-      {title:'Regulatory Compliance', body:'Boat registration, MARINA licenses, permits and certificates shall be borne by the customer.'},
-    ],
+    terms: defaultTerms(),
     closingMessage: defaultClosingMessage(),
     marina: {
       items: [
@@ -2465,14 +2472,7 @@ function ensureQuoteDefaults(q){
   }
   if(!Array.isArray(q.terms)){
     const t = q.terms || {};
-    q.terms = [
-      {title:'Completion Time', body:t.completion||'12 months from date of receipt of downpayment and Purchase Order'},
-      {title:'Payment Terms', body:t.payment||'20% downpayment upon confirmation of order; progress billing per agreed schedule; 10% upon completion and sea trial before delivery'},
-      {title:'Hull Warranty', body:t.warranty||'Two (2) years on hull structure for pleasure use, one (1) year for commercial use, covering manufacturing defects under normal use conditions.'},
-      {title:'Warranty Exclusions', body:t.exclusions||'Warranty excludes normal wear and tear, misuse or negligence, unauthorized modification, force majeure, and third-party accessories which follow manufacturer warranty.'},
-      {title:'Delivery', body:t.delivery||'Delivery outside factory premises subject to separate agreement and additional logistics charges.'},
-      {title:'Regulatory Compliance', body:t.compliance||'Boat registration, MARINA licenses, permits and certificates shall be borne by the customer.'},
-    ];
+    q.terms = defaultTerms();
   }
   q.terms.forEach(t=>{ if(Array.isArray(t.bullets) && t.bullets.length) t.body = (t.body ? t.body+'\n' : '') + t.bullets.join('\n'); delete t.bullets; });
   if(q.closingMessage===undefined) q.closingMessage = defaultClosingMessage();
@@ -3740,6 +3740,29 @@ function tabMarina(host, q){
   draw();
 }
 
+/* Makes a textarea grow/shrink to fit its content so nothing is hidden behind a scrollbar. */
+function autoGrow(el){
+  if(!el) return;
+  el.style.overflowY = 'hidden';
+  el.style.resize = 'none';
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight + 2) + 'px';
+}
+function bindAutoGrow(root){
+  const list = root.matches && root.matches('textarea') ? [root] : [...root.querySelectorAll('textarea.autogrow')];
+  list.forEach(el=>{
+    el.addEventListener('input', ()=>autoGrow(el));
+    autoGrow(el);
+  });
+  // re-measure once layout/fonts have settled (and when the window is resized)
+  requestAnimationFrame(()=>list.forEach(autoGrow));
+  setTimeout(()=>list.forEach(autoGrow), 150);
+  if(!window.__autoGrowResize){
+    window.__autoGrowResize = true;
+    window.addEventListener('resize', ()=>document.querySelectorAll('textarea.autogrow').forEach(autoGrow));
+  }
+}
+
 /* ---- Tab: Terms & Conditions ---- */
 function tabTerms(host, q){
   host.innerHTML = `
@@ -3751,6 +3774,7 @@ function tabTerms(host, q){
       <div class="card-body" style="padding-top:0;">
         <div id="termRows"></div>
         <button class="btn btn-sm" id="addTerm" style="margin-top:4px;">${icon('plus')} Add Clause</button>
+        <button class="btn btn-ghost btn-sm" id="resetTerms" style="margin-top:4px;" title="Replace this quotation's clauses with the standard TBSC terms">Reset to Standard Terms</button>
       </div>
     </div>
     <div class="card" style="margin-top:14px;">
@@ -3759,11 +3783,12 @@ function tabTerms(host, q){
         Printed between the Terms &amp; Conditions and the signatories. Leave empty to print nothing.
       </div>
       <div class="card-body" style="padding-top:0;">
-        <div class="field" style="margin-bottom:0;"><label>Message</label><textarea id="closingMsg" rows="3">${esc(q.closingMessage||'')}</textarea></div>
+        <div class="field" style="margin-bottom:0;"><label>Message</label><textarea id="closingMsg" class="autogrow" rows="3">${esc(q.closingMessage||'')}</textarea></div>
       </div>
     </div>
   `;
   document.getElementById('closingMsg').addEventListener('input', e=>{ q.closingMessage = e.target.value; persistQuote(q); });
+  bindAutoGrow(document.getElementById('closingMsg'));
   const wrap = document.getElementById('termRows');
   function autoScroll(y){
     const edge = 70, dy = y < edge ? -16 : (y > window.innerHeight - edge ? 16 : 0);
@@ -3782,7 +3807,7 @@ function tabTerms(host, q){
               <button class="btn btn-ghost btn-sm" data-del="${idx}" style="color:var(--danger);" title="Remove">✕</button>
             </div>
           </div>
-          <div class="field" style="margin-bottom:0;"><label>Clause Text</label><textarea class="term-f" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
+          <div class="field" style="margin-bottom:0;"><label>Clause Text</label><textarea class="term-f autogrow" data-idx="${idx}" data-f="body" rows="2">${esc(t.body)}</textarea></div>
         </div>
       </div>
     `).join('') : `<div class="empty">No clauses yet. Add one to start building your terms &amp; conditions.</div>`;
@@ -3791,6 +3816,7 @@ function tabTerms(host, q){
         q.terms[el.dataset.idx][el.dataset.f] = el.value; persistQuote(q);
       });
     });
+    bindAutoGrow(wrap);
     wrap.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
       q.terms.splice(Number(b.dataset.del),1); persistQuote(q); draw();
     });
@@ -3823,6 +3849,10 @@ function tabTerms(host, q){
       });
     });
   }
+  document.getElementById('resetTerms').onclick = ()=>{
+    if(!confirm('Replace all clauses in this quotation with the standard TBSC Terms & Conditions? Your current edits to the clauses will be lost.')) return;
+    q.terms = defaultTerms(); persistQuote(q); draw();
+  };
   document.getElementById('addTerm').onclick = ()=>{
     q.terms.push({title:'New Clause', body:''}); persistQuote(q); draw();
   };
@@ -4263,9 +4293,9 @@ function tabOutput(host, q){
         <div style="break-inside:avoid;page-break-inside:avoid;">
         <div class="doc-section-title">Terms &amp; Conditions</div>
         <div class="doc-terms">
-          ${[...q.terms, {title:'Validity', body:`This quotation is valid for ${q.validityDays} calendar days from date of issuance.`}].map(t=>`
+          ${[...q.terms, {title:'Quotation Validity', body:`This quotation shall be valid for ${q.validityDays} calendar days from the date of issuance. After expiration, prices and delivery schedules may be subject to revision.`}].map((t,i)=>`
             <div style="margin-bottom:10px;">
-              ${t.title ? `<div style="font-weight:700;color:var(--doc-ink);text-transform:uppercase;">${esc(t.title)}</div>` : ''}
+              ${t.title ? `<div style="font-weight:700;color:var(--doc-ink);text-transform:uppercase;">${i+1}. ${esc(t.title)}</div>` : ''}
               ${t.body ? `<div>${escNl(t.body)}</div>` : ''}
             </div>`).join('')}
         </div>
