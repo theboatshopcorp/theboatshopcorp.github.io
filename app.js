@@ -2252,20 +2252,23 @@ function renderPricing(content, actions){
   content.innerHTML = `
     <div class="section-lead">These values feed every new quotation's default rates (each quotation keeps its own editable snapshot, so changes here won't retroactively alter saved quotes).</div>
     <div class="grid g-wide">
-      <div class="card"><div class="card-head"><h3>Labor Rates</h3><button class="btn btn-sm" id="addLaborCat">${icon('plus')} Add Category</button></div><div class="card-body" style="padding:0;">
+      <div class="card"><div class="card-head"><h3>Labor Rates</h3></div><div class="card-body" style="padding:0;">
         <div class="section-lead" style="padding:14px 20px 0;">Daily rate per laborer for each labor category (for example Carpentry or Fiberglass). Boat Presets use these: pick the categories, how many laborers each needs, and the number of days. Add or remove categories as your shop needs.</div>
         <table style="margin-top:10px;"><thead><tr><th>Category</th><th style="width:150px;">Rate (₱/day)</th><th style="width:60px;"></th></tr></thead>
         <tbody id="laborRows"></tbody></table>
+        <div class="card-foot" style="padding:12px 20px;border-top:1px solid var(--paper-line);"><button class="btn btn-sm" id="addLaborCat">${icon('plus')} Add Category</button></div>
       </div></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Standard Accessory Catalog</h3><button class="btn btn-sm" id="addAccItem">${icon('plus')} Add Item</button></div>
-      <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th>Item Name</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="accCatRows"></tbody></table></div>
+      <div class="card-head"><h3>Standard Accessory Catalog</h3></div>
+      <div class="card-body" style="padding:0;"><table><thead><tr><th>Category</th><th>Item Name</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="accCatRows"></tbody></table>
+        <div class="card-foot" style="padding:12px 20px;border-top:1px solid var(--paper-line);"><button class="btn btn-sm" id="addAccItem">${icon('plus')} Add Item</button></div></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <div class="card-head"><h3>Materials</h3><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button></div>
+      <div class="card-head"><h3>Materials</h3></div>
       <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials (weights in kg). These are the items you tick under "Choose materials" in Presets, and the prices they start with.</div>
-      <div class="card-body" style="padding:0;"><table><thead><tr><th>Material</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="matCatRows"></tbody></table></div>
+      <div class="card-body" style="padding:0;"><table><thead><tr><th>Material</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="matCatRows"></tbody></table>
+        <div class="card-foot" style="padding:12px 20px;border-top:1px solid var(--paper-line);"><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button></div></div>
     </div>
   `;
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
