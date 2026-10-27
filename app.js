@@ -1234,12 +1234,7 @@ function allocatePricing(bases, overheadPct, contingencyPct, profitPct){
   const totalC = baseC.reduce((a,b)=>a+b,0);
   const pctAmt = pct=>Math.round(totalC*(Number(pct)||0)/100 + 1e-9);
   const overheadC = pctAmt(overheadPct), contingencyC = pctAmt(contingencyPct), profitC = pctAmt(profitPct);
-  // The cost build-up (base + overhead + contingency + profit) is left untouched. Only its final sum is rounded up,
-  // and the small rounding difference is spread over the six categories like the other additions, so every
-  // category line, the Live Total and the printed quotation all add up to the same rounded selling price.
-  const unroundedC = totalC + overheadC + contingencyC + profitC;
-  const roundingC = totalC > 0 ? roundUpPriceC(unroundedC) - unroundedC : 0;
-  const additionalC = overheadC + contingencyC + profitC + roundingC;
+  const additionalC = overheadC + contingencyC + profitC;
   const allocC = baseC.map(b=> totalC > 0 ? Math.round(additionalC*b/totalC) : 0);
   // Rounding correction: any leftover centavos go to the category with the largest base cost.
   const diff = additionalC - allocC.reduce((a,b)=>a+b,0);
@@ -1247,11 +1242,28 @@ function allocatePricing(bases, overheadPct, contingencyPct, profitPct){
     let k = 0; baseC.forEach((b,i)=>{ if(b > baseC[k]) k = i; });
     allocC[k] += diff;
   }
+  // Selling-price rounding, applied AFTER overhead, contingency and profit are added to each category
+  // (and before discount and VAT): every category is rounded up (see roundUpPriceC), and the final price is the
+  // sum of the rounded categories. Base costs and the three percentages themselves are not touched.
+  const unroundedC = baseC.map((b,i)=>b+allocC[i]);
+  const roundedC = unroundedC.map(roundUpPriceC);
+  // A sum of ₱5-multiples (categories under ₱1,000) can land on an odd 5 when the total is ₱1,000 or more.
+  // Nudge one such category up by ₱5 so the final price is itself a valid rounded amount.
+  const sumC = roundedC.reduce((a,b)=>a+b,0);
+  const targetC = roundUpPriceC(sumC);
+  if(targetC > sumC){
+    let k = roundedC.findIndex(x=> x > 0 && x < 100000 && x % 1000 === 500);
+    if(k < 0){ k = 0; roundedC.forEach((x,i)=>{ if(x > roundedC[k]) k = i; }); }
+    roundedC[k] += targetC - sumC;
+  }
+  const finalC = roundedC.reduce((a,b)=>a+b,0);
+  const unroundedTotalC = unroundedC.reduce((a,b)=>a+b,0);
+  const adjAllocC = roundedC.map((r,i)=>r - baseC[i]);
   return {
-    base: baseC.map(x=>x/100), allocated: allocC.map(x=>x/100), adjusted: baseC.map((b,i)=>(b+allocC[i])/100),
+    base: baseC.map(x=>x/100), allocated: adjAllocC.map(x=>x/100), adjusted: roundedC.map(x=>x/100),
     totalBase: totalC/100, overhead: overheadC/100, contingency: contingencyC/100, profit: profitC/100,
-    rounding: roundingC/100, unroundedPrice: unroundedC/100,
-    totalAdditional: additionalC/100, finalPrice: (totalC+additionalC)/100,
+    rounding: (finalC - unroundedTotalC)/100, unroundedPrice: unroundedTotalC/100,
+    totalAdditional: (finalC - totalC)/100, finalPrice: finalC/100,
   };
 }
 // Splits an amount over weights in whole centavos (largest remainder) so the parts add up exactly to the amount.
@@ -1261,11 +1273,15 @@ function distributeAmount(total, weights){
   const wsum = w.reduce((a,b)=>a+b,0);
   if(!w.length) return [];
   if(wsum <= 0) return w.map((_,i)=> i===0 ? totalC/100 : 0);
-  const raw = w.map(x=>totalC*x/wsum);
+  // Rounded category totals are multiples of ₱10 (₱5 under ₱1,000); split them in the same steps so item lines are
+  // round too and still add up exactly. Any other amount is split to the centavo, as before.
+  const step = totalC % 1000 === 0 ? 1000 : (totalC % 500 === 0 ? 500 : 1);
+  const units = totalC / step;
+  const raw = w.map(x=>units*x/wsum);
   const out = raw.map(Math.floor);
-  let left = totalC - out.reduce((a,b)=>a+b,0);
+  let left = units - out.reduce((a,b)=>a+b,0);
   raw.map((x,i)=>[x-Math.floor(x), i]).sort((a,b)=>b[0]-a[0]).forEach(([,i])=>{ if(left>0){ out[i]++; left--; } });
-  return out.map(x=>x/100);
+  return out.map(x=>x*step/100);
 }
 function adjustedByGroup(groups, adjustedTotal){
   const keys = [...groups.keys()];
