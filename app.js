@@ -2475,7 +2475,6 @@ function ensureQuoteDefaults(q){
     q.terms = defaultTerms();
   }
   q.terms.forEach(t=>{ if(Array.isArray(t.bullets) && t.bullets.length) t.body = (t.body ? t.body+'\n' : '') + t.bullets.join('\n'); delete t.bullets; });
-  if(!Array.isArray(q.actualCosts)) q.actualCosts = [];   // internal actual-cost entries, never printed
   if(q.closingMessage===undefined) q.closingMessage = defaultClosingMessage();
 }
 function defaultClosingMessage(){
@@ -2491,9 +2490,8 @@ const EDITOR_TABS = [
   {id:'engine', n:'05', label:'Marine Propulsion System'},
   {id:'testing', n:'06', label:'Testing & Delivery'},
   {id:'marina', n:'07', label:'MARINA Documentation'},
-  {id:'actual', n:'08', label:'Actual Cost'},
-  {id:'terms', n:'09', label:'Terms & Conditions'},
-  {id:'output', n:'10', label:'Quotation Output'},
+  {id:'terms', n:'08', label:'Terms & Conditions'},
+  {id:'output', n:'09', label:'Quotation Output'},
 ];
 
 function renderEditor(content, actions){
@@ -2640,14 +2638,14 @@ function renderEditor(content, actions){
   tabsEl.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{ CURRENT.tab = el.dataset.tab; renderEditor(content,actions); });
 
   const host = document.getElementById('tabHost');
-  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, marina:tabMarina, testing:tabTesting, actual:tabActual, terms:tabTerms, output:tabOutput };
+  const renderers = { client:tabClient, hull:tabHull, paint:tabPaint, accessories:tabAccessories, engine:tabEngine, marina:tabMarina, testing:tabTesting, terms:tabTerms, output:tabOutput };
   if(!renderers[CURRENT.tab]) CURRENT.tab = 'client';
   renderers[CURRENT.tab](host, q);
 
   // Once a quotation leaves Draft, it's locked from editing — only viewing
   // (Print, the internal-cost toggle) and the workflow action buttons stay
   // interactive. Those live outside #tabHost or are explicitly allow-listed.
-  if(q.status !== 'draft' && CURRENT.tab !== 'actual'){   // Actual Cost stays editable: costs are recorded while the boat is being built
+  if(q.status !== 'draft'){
     const keepEnabled = new Set(['btnPrint']);
     host.querySelectorAll('input, select, textarea, button').forEach(el=>{
       if(!keepEnabled.has(el.id)) el.disabled = true;
@@ -3740,143 +3738,6 @@ function tabMarina(host, q){
   };
   document.getElementById('marinaNotes').addEventListener('input', (e)=>{ m.notes = e.target.value; persistQuote(q); });
   draw();
-}
-
-/* ---- Tab: Actual Cost ----
-   Top: a ready-to-print "Actual Cost Report" (quoted vs actual per category + the itemised breakdown), built live from the entries.
-   Bottom: where the actual costs are recorded. Only the report prints (the page's print CSS hides everything but .doc-wrap). */
-function tabActual(host, q){
-  if(!Array.isArray(q.actualCosts)) q.actualCosts = [];
-  const items = q.actualCosts;
-  const RED = '#b42318', GREEN = '#067647';
-  host.innerHTML = `
-    <div class="no-print" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
-      <button class="btn btn-primary" id="btnPrintActual">🖨 Print / Export as PDF</button>
-      <span class="hint">Only the report below prints. Record costs in the section under it — the report updates as you type. Internal document, not part of the client quotation.</span>
-    </div>
-    <div class="doc-wrap"><div class="doc" id="acReport"></div></div>
-    <div class="no-print" style="margin-top:20px;">
-      <div class="section-lead" style="margin-bottom:10px;"><b>Record actual costs</b> under each category. Quoted Cost is the base cost from this quotation (before overhead, contingency and profit).</div>
-      <div id="acCats"></div>
-    </div>
-  `;
-  const varColor = v => v > 0.004 ? RED : (v < -0.004 ? GREEN : 'inherit');
-  const sgn = v => (v > 0.004 ? '+' : (v < -0.004 ? '−' : '')) + fmt(Math.abs(v));
-  const pctTxt = (act, quo) => quo > 0 ? (act>=quo ? '+' : '−') + Math.abs((act-quo)/quo*100).toFixed(1) + '%' : '—';
-  const catActual = i => items.filter(r=>Number(r.cat)===i).reduce((s,r)=>s+(Number(r.amount)||0),0);
-  const mdy = d => { const x = new Date(d); return isNaN(x) ? (d||'') : (x.getMonth()+1)+'/'+x.getDate()+'/'+x.getFullYear(); };
-  const escT = t => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-  function updateReport(){
-    const c = computeAll(q), inv = computeInvoiceTotals(q, c);
-    const k = c.multiplyPrice ? c.numBoats : 1;   // quoted figures cover every boat when the price is multiplied
-    let qCost = 0, qPrice = 0, aCost = 0;
-    const sumRows = PRICING_CATEGORIES.map((name,i)=>{
-      const quo = round2(c.categories[i].base * k), price = round2(c.categories[i].adjusted * k), act = round2(catActual(i));
-      qCost += quo; qPrice += price; aCost += act;
-      const v = round2(act - quo);
-      const sub = document.getElementById('acSub'+i); if(sub) sub.textContent = fmt(act);
-      return `<tr><td>${escT(name)}</td><td class="right mono">${fmt(quo)}</td><td class="right mono">${fmt(act)}</td>
-        <td class="right mono" style="color:${varColor(v)};">${sgn(v)}</td><td class="right mono" style="color:${varColor(v)};">${(act>0||quo>0) ? pctTxt(act,quo) : '—'}</td><td class="right mono">${fmt(price)}</td></tr>`;
-    }).join('');
-    const tv = round2(aCost - qCost);
-    const revenue = inv.discountedAmount;   // what the client pays before VAT, after any discount
-    const qProfit = round2(revenue - qCost), aProfit = round2(revenue - aCost);
-    const mg = p => revenue > 0 ? (p/revenue*100).toFixed(1)+'%' : '—';
-    const kv = (l, v, st)=>`<div class="doc-kv-row"><span class="k">${l}</span><span class="v"${st?` style="${st}"`:''}>${v}</span></div>`;
-    const breakdown = PRICING_CATEGORIES.map((name,i)=>{
-      const rows = items.filter(r=>Number(r.cat)===i).slice().sort((x,y)=>String(x.date||'').localeCompare(String(y.date||'')));
-      if(!rows.length) return '';
-      return `<div style="break-inside:avoid;margin-top:12px;">
-        <div class="doc-band-head" style="margin-bottom:4px;">${escT(name)}</div>
-        <table class="doc-item-table"><thead><tr><th style="width:70px;">Date</th><th>Description</th><th style="width:150px;">Supplier / Reference</th><th class="right" style="width:100px;">Amount</th></tr></thead><tbody>
-          ${rows.map(r=>`<tr><td>${escT(mdy(r.date))}</td><td>${escT(r.description)||'—'}</td><td>${escT(r.supplier)}</td><td class="right mono">${fmt(r.amount)}</td></tr>`).join('')}
-          <tr style="font-weight:700;"><td colspan="3" class="right">Subtotal</td><td class="right mono">${fmt(catActual(i))}</td></tr>
-        </tbody></table></div>`;
-    }).join('');
-    document.getElementById('acReport').innerHTML = `
-      <div class="doc-header-top">
-        <div class="co"><h2>${esc(COMPANY.name)}</h2><div class="tag">${esc(COMPANY.tagline)}</div></div>
-        <div class="doc-logo-wrap" style="width:${LOGO.width}px;cursor:default;">${LOGO.img ? `<img src="${esc(LOGO.img)}" alt="Company logo">` : ''}</div>
-      </div>
-      <div class="doc-header-row">
-        <div class="doc-header-left"><div class="doc-titlebar">ACTUAL COST REPORT</div></div>
-        <div class="doc-header-right"><table class="doc-info-table"><tbody>
-          <tr><td class="lbl">Ref No.</td><td class="val">${esc(q.refNo)}</td></tr>
-          <tr><td class="lbl">Client</td><td class="val">${escT(q.customerSnap.companyName || q.customerSnap.clientName || '—')}</td></tr>
-          <tr><td class="lbl">Report Date</td><td class="val">${mdy(new Date())}</td></tr>
-        </tbody></table></div>
-      </div>
-      <div class="doc-header-divider"></div>
-      <div class="doc-project-bar">${escT(generateProjectTitle(q)) || 'Boat Construction Project'}</div>
-
-      <div class="doc-section-title">Quoted vs Actual Cost</div>
-      <table class="doc-item-table"><thead><tr><th>Category</th><th class="right">Quoted Cost</th><th class="right">Actual Cost</th><th class="right">Variance (₱)</th><th class="right">Variance (%)</th><th class="right">Quoted Price</th></tr></thead>
-        <tbody>${sumRows}
-          <tr style="font-weight:700;"><td style="border-top:1px solid var(--doc-ink);">Total</td><td class="right mono" style="border-top:1px solid var(--doc-ink);">${fmt(qCost)}</td><td class="right mono" style="border-top:1px solid var(--doc-ink);">${fmt(aCost)}</td>
-            <td class="right mono" style="border-top:1px solid var(--doc-ink);color:${varColor(tv)};">${sgn(tv)}</td><td class="right mono" style="border-top:1px solid var(--doc-ink);color:${varColor(tv)};">${qCost>0 ? pctTxt(aCost,qCost) : '—'}</td><td class="right mono" style="border-top:1px solid var(--doc-ink);">${fmt(qPrice)}</td></tr>
-        </tbody></table>
-      <div class="hint" style="margin:6px 0 0;font-size:9px;color:var(--doc-ink-faint);">Quoted Cost = base cost before overhead, contingency and profit. Variance = Actual − Quoted (+ over budget, − under budget).</div>
-
-      <div class="doc-section-title" style="margin-top:18px;">Profit Check</div>
-      <div class="doc-band-body" style="max-width:420px;">
-        ${kv('Contract amount (after discount, before VAT)', fmt(revenue))}
-        ${kv('Quoted total cost', fmt(qCost))}
-        ${kv('Expected profit (quoted) — '+mg(qProfit), fmt(qProfit))}
-        ${kv('Actual total cost', fmt(aCost))}
-        ${kv('<b>Actual profit — '+mg(aProfit)+'</b>', '<b>'+fmt(aProfit)+'</b>', 'color:'+(aProfit<qProfit-0.004?RED:(aProfit>qProfit+0.004?GREEN:'inherit')))}
-        ${kv('Profit difference vs quoted', sgn(round2(aProfit-qProfit)), 'color:'+varColor(round2(qProfit-aProfit)))}
-      </div>
-
-      <div class="doc-section-title" style="margin-top:18px;">Actual Cost Breakdown</div>
-      ${breakdown || '<div style="color:var(--doc-ink-faint);font-style:italic;">No actual costs recorded yet.</div>'}
-
-      <div class="doc-sign">
-        <div><div class="imgslot"></div><div class="ln"><div class="nm">&nbsp;</div></div><div class="role" style="margin-top:6px;margin-bottom:0;">Prepared By</div></div>
-        <div><div class="imgslot"></div><div class="ln"><div class="nm">&nbsp;</div></div><div class="role" style="margin-top:6px;margin-bottom:0;">Reviewed / Approved By</div></div>
-      </div>
-      <div style="margin-top:14px;text-align:center;font-size:8.8px;color:var(--doc-ink-faint);letter-spacing:.06em;text-transform:uppercase;">Internal document — not for distribution to the client</div>
-    `;
-  }
-
-  function drawCats(){
-    document.getElementById('acCats').innerHTML = PRICING_CATEGORIES.map((name,i)=>{
-      const rows = items.filter(r=>Number(r.cat)===i);
-      return `
-      <div class="card" style="margin-bottom:14px;">
-        <div class="card-head"><h3>${name.replace(/&/g,'&amp;')}</h3><button class="btn btn-sm" data-addcat="${i}">${icon('plus')} Add Cost</button></div>
-        <div class="card-body" style="padding:0;overflow-x:auto;">
-          <table><thead><tr><th style="width:140px;">Date</th><th>Description</th><th style="width:220px;">Supplier / Reference</th><th style="width:150px;" class="right">Actual Amount (₱)</th><th style="width:44px;"></th></tr></thead>
-            <tbody>${rows.length ? rows.map(r=>`
-              <tr>
-                <td><input type="date" class="tbl-input acf" data-id="${r.id}" data-f="date" value="${esc(r.date||'')}"></td>
-                <td><input class="tbl-input acf" data-id="${r.id}" data-f="description" value="${esc(r.description)}" placeholder="e.g. Fiberglass mat 450gsm"></td>
-                <td><input class="tbl-input acf" data-id="${r.id}" data-f="supplier" value="${esc(r.supplier)}" placeholder="Supplier, OR / PO no."></td>
-                <td><input type="number" step="any" class="tbl-input num acf" data-id="${r.id}" data-f="amount" value="${Number(r.amount)||0}"></td>
-                <td class="right"><span class="btn btn-ghost btn-sm" data-delid="${r.id}" style="color:var(--danger);">✕</span></td>
-              </tr>`).join('') : `<tr><td colspan="5"><div class="empty">No actual costs recorded yet.</div></td></tr>`}</tbody>
-            <tfoot><tr><td colspan="3" class="right" style="font-weight:600;">Actual subtotal</td><td class="right mono" id="acSub${i}" style="font-weight:600;"></td><td></td></tr></tfoot>
-          </table>
-        </div>
-      </div>`;
-    }).join('');
-    const root = document.getElementById('acCats');
-    root.querySelectorAll('.acf').forEach(inp=>inp.addEventListener('input', ()=>{
-      const r = items.find(x=>x.id===inp.dataset.id); if(!r) return;
-      r[inp.dataset.f] = inp.dataset.f==='amount' ? Number(inp.value) : inp.value;
-      persistQuote(q); updateReport();
-    }));
-    root.querySelectorAll('[data-addcat]').forEach(b=>b.onclick=()=>{
-      items.push({id:uid('ac'), cat:Number(b.dataset.addcat), date:todayISO(), description:'', supplier:'', amount:0});
-      persistQuote(q); drawCats(); updateReport();
-    });
-    root.querySelectorAll('[data-delid]').forEach(b=>b.onclick=()=>{
-      const k = items.findIndex(x=>x.id===b.dataset.delid); if(k>=0) items.splice(k,1);
-      persistQuote(q); drawCats(); updateReport();
-    });
-  }
-  document.getElementById('btnPrintActual').onclick = ()=>window.print();
-  drawCats(); updateReport();
 }
 
 /* Makes a textarea grow/shrink to fit its content so nothing is hidden behind a scrollbar. */
