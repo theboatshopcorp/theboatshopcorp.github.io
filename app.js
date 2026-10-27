@@ -1217,13 +1217,29 @@ function computeEngine(q){
 /* ---- Overall Overhead / Contingency / Profit, allocated proportionally across the six cost categories ----
    All maths is done in whole centavos so the adjusted category totals always add up exactly to the final price. */
 const PRICING_CATEGORIES = ['Structural Components & Core Materials','Paint & Finish','Accessories & Components','Marine Propulsion System','Testing & Delivery','MARINA Documentation & Regulatory Requirements'];
+/* ---- Selling-price rounding (applies BEFORE discount and VAT) ----
+   Always rounds UP: below ₱1,000 -> next multiple of 5; ₱1,000 and above -> next multiple of 10.
+   An amount that is already an exact multiple of its increment is left unchanged.
+   Works in whole centavos so there are no floating-point surprises (e.g. 1,450.00 never becomes 1,460). */
+function roundUpPriceC(centavos){
+  const c = Math.round(Number(centavos)||0);
+  if(c <= 0) return 0;
+  const incC = c < 100000 ? 500 : 1000;          // ₱5 or ₱10, in centavos
+  return Math.ceil(c / incC) * incC;
+}
+function roundUpPrice(n){ return roundUpPriceC(Math.round((Number(n)||0)*100 + 1e-9)) / 100; }
 function allocatePricing(bases, overheadPct, contingencyPct, profitPct){
   const toC = x=>Math.round((Number(x)||0)*100 + 1e-9);
   const baseC = bases.map(toC);
   const totalC = baseC.reduce((a,b)=>a+b,0);
   const pctAmt = pct=>Math.round(totalC*(Number(pct)||0)/100 + 1e-9);
   const overheadC = pctAmt(overheadPct), contingencyC = pctAmt(contingencyPct), profitC = pctAmt(profitPct);
-  const additionalC = overheadC + contingencyC + profitC;
+  // The cost build-up (base + overhead + contingency + profit) is left untouched. Only its final sum is rounded up,
+  // and the small rounding difference is spread over the six categories like the other additions, so every
+  // category line, the Live Total and the printed quotation all add up to the same rounded selling price.
+  const unroundedC = totalC + overheadC + contingencyC + profitC;
+  const roundingC = totalC > 0 ? roundUpPriceC(unroundedC) - unroundedC : 0;
+  const additionalC = overheadC + contingencyC + profitC + roundingC;
   const allocC = baseC.map(b=> totalC > 0 ? Math.round(additionalC*b/totalC) : 0);
   // Rounding correction: any leftover centavos go to the category with the largest base cost.
   const diff = additionalC - allocC.reduce((a,b)=>a+b,0);
@@ -1234,6 +1250,7 @@ function allocatePricing(bases, overheadPct, contingencyPct, profitPct){
   return {
     base: baseC.map(x=>x/100), allocated: allocC.map(x=>x/100), adjusted: baseC.map((b,i)=>(b+allocC[i])/100),
     totalBase: totalC/100, overhead: overheadC/100, contingency: contingencyC/100, profit: profitC/100,
+    rounding: roundingC/100, unroundedPrice: unroundedC/100,
     totalAdditional: additionalC/100, finalPrice: (totalC+additionalC)/100,
   };
 }
@@ -1274,12 +1291,13 @@ function computeAll(q){
     q.rates.overheadPct, q.rates.contingencyPct, q.rates.marginPct);
   const categories = PRICING_CATEGORIES.map((label,i)=>({ label, base: alloc.base[i], allocated: alloc.allocated[i], adjusted: alloc.adjusted[i] }));
   const overheadCost = alloc.overhead, contingencyCost = alloc.contingency, marginCost = alloc.profit;
+  const roundingAdjustment = alloc.rounding, unroundedTotal = alloc.unroundedPrice;
   const totalBase = alloc.totalBase, totalAdditional = alloc.totalAdditional;
   const unitFinalTotal = alloc.finalPrice;
   const numBoats = Math.max(1, Number(q.project.numBoats)||1);
   const multiplyPrice = !!q.project.multiplyPrice;
   const finalTotal = multiplyPrice ? unitFinalTotal * numBoats : unitFinalTotal;
-  return { hull, paint, structural, acc, testing, eng, materialCost, overheadCost, contingencyCost, marginCost, marinaCost, base, categories, totalBase, totalAdditional, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
+  return { hull, paint, structural, acc, testing, eng, materialCost, overheadCost, contingencyCost, marginCost, roundingAdjustment, unroundedTotal, marinaCost, base, categories, totalBase, totalAdditional, unitFinalTotal, numBoats, multiplyPrice, finalTotal };
 }
 const round2 = n => Math.round((Number(n)||0)*100 + 1e-9)/100;
 function computeInvoiceTotals(q, c){
@@ -2689,9 +2707,10 @@ function liveSummaryShell(q){
     ${pctRow('Overhead','sbOverhead',q.rates.overheadPct,'lsOverhead')}
     ${pctRow('Contingency','sbContingency',q.rates.contingencyPct,'lsContingency')}
     ${pctRow('Profit','sbMargin',q.rates.marginPct,'lsMargin')}
+    <div class="sum-row" id="lsRoundingRow"><span class="k">Rounding (up to ₱5 / ₱10)</span><span class="v" id="lsRounding"></span></div>
     <div class="sum-row"><span class="k">Total Base Cost</span><span class="v" id="lsBase"></span></div>
     <div class="sum-row"><span class="k">Total Additional Amount</span><span class="v" id="lsAdditional"></span></div>
-    <div class="sum-hint" style="margin:2px 0 8px;">Category totals above already include their share of overhead, contingency and profit.</div>
+    <div class="sum-hint" style="margin:2px 0 8px;">Category totals above already include their share of overhead, contingency, profit and rounding.</div>
     <div class="sum-total"><span class="k">Final Quotation Price</span><span class="v" id="lsFinal"></span></div>
     <div class="sum-row sum-edit"><span class="k">Discount</span>
       <span class="sum-ctl">
@@ -2722,6 +2741,8 @@ function updateLiveSummary(q){
   set('lsOverhead', fmt(c.overheadCost));
   set('lsContingency', fmt(c.contingencyCost));
   set('lsMargin', fmt(c.marginCost));
+  set('lsRounding', fmt(c.roundingAdjustment));
+  const rr = document.getElementById('lsRoundingRow'); if(rr) rr.style.display = c.roundingAdjustment>0 ? '' : 'none';
   set('lsFinal', fmt(c.finalTotal));
   set('lsDiscount', inv.discountAmount>0 ? '-' + fmt(inv.discountAmount) : fmt(0));
   set('lsNet', fmt(inv.discountedAmount));
