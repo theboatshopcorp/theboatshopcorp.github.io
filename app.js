@@ -886,40 +886,6 @@ function registerPresetMaterials(){
   }))));
   return n;
 }
-/* ---------- Pricing Database -> Presets ----------
-   Preset components keep a copy of each material price and labor rate. When one of those is changed in the
-   Pricing Database, the same item inside every preset (Boat Model, Transom, Console, Deck) follows it. Saved
-   quotations are NOT touched: each quotation keeps its own snapshot. */
-function forEachPresetComponent(fn){
-  (TEMPLATES||[]).forEach(t=>Object.values(t||{}).forEach(v=>{
-    if(Array.isArray(v)) v.forEach(c=>{ if(c && typeof c==='object' && !Array.isArray(c)) fn(c); });
-    else if(v && typeof v==='object') fn(v);
-  }));
-}
-function propagateMaterialToPresets(oldName, item){
-  const key = (oldName||'').trim().toLowerCase();
-  if(!key || !item || !(item.name||'').trim()) return 0;
-  let n = 0;
-  forEachPresetComponent(c=>(Array.isArray(c.materials) ? c.materials : []).forEach(m=>{
-    if((m.name||'').trim().toLowerCase()!==key) return;
-    m.name = item.name; m.price = Number(item.unitPrice)||0; if(item.unit) m.unit = item.unit;
-    if(m.catName) m.catName = item.name;
-    n++;
-  }));
-  if(n) save(DB_KEYS.templates, TEMPLATES);
-  return n;
-}
-function propagateLaborRateToPresets(catName, rate){
-  const key = (catName||'').trim().toLowerCase();
-  if(!key) return 0;
-  let n = 0;
-  forEachPresetComponent(c=>(Array.isArray(c.laborTeams) ? c.laborTeams : []).forEach(tm=>{
-    if((tm.cat||'').trim().toLowerCase()!==key) return;
-    tm.rate = Math.max(0, Number(rate)||0); n++;
-  }));
-  if(n) save(DB_KEYS.templates, TEMPLATES);
-  return n;
-}
 function syncAccessoryCatalog(cat, name, unitPrice){
   cat = (cat||'').trim(); name = (name||'').trim();
   if(!cat || !name || name==='New Item') return false;
@@ -1877,10 +1843,267 @@ function addonPresetToQuoteItems(p){
   });
 }
 
+/* ============================================================
+   BILL OF MATERIALS (Excel) -> PRESETS
+   One workbook, one sheet per team (Fiberglass, Carpentry, Painting, Welding, Electrical). Every row has a USE
+   (what the materials are for) that carries down until the next one. Each USE becomes a "section"; sections are
+   sorted automatically into Hull / Transom / Console / Deck / Superstructure / Painting (and can be changed by
+   hand) and then built into NEW presets. Existing presets are never changed. Prices come from the Pricing
+   Database; the BOM itself has no prices.
+   ============================================================ */
+const BOM_TARGETS = { hull:'Hull', transom:'Transom', console:'Console', deck:'Deck', superstructure:'Superstructure', paint:'Painting (boat model)', skip:'Skip' };
+const BOM_KIND = { transom:'transom', console:'console', deck:'deck', superstructure:'deck' };
+function bomParseQty(v){
+  if(typeof v==='number') return v;
+  const s = String(v==null ? '' : v).trim(); if(!s) return NaN;
+  const F = {'½':.5,'¼':.25,'¾':.75,'⅓':1/3,'⅔':2/3,'⅛':.125};
+  let m = s.match(/^(\d+(?:\.\d+)?)?\s*([½¼¾⅓⅔⅛])$/); if(m) return (parseFloat(m[1])||0) + F[m[2]];
+  m = s.match(/^(\d+)\s+(\d+)\/(\d+)$/); if(m) return (+m[1]) + (+m[2])/(+m[3]);
+  m = s.match(/^(\d+)\/(\d+)$/); if(m) return (+m[1])/(+m[2]);
+  const n = parseFloat(s.replace(/,/g,'')); return isFinite(n) ? n : NaN;
+}
+function bomUnit(u){
+  const raw = String(u==null ? '' : u).trim(), k = raw.toLowerCase().replace(/\./g,'');
+  const map = {kl:'kg',ki:'kg',kg:'kg',kgs:'kg',kilo:'kg',kilos:'kg',pc:'pc',pcs:'pc',piece:'pc',pieces:'pc',gal:'gal',gals:'gal',qrt:'qt',qt:'qt',ft:'ft',mtrs:'m',mtr:'m',m:'m',yds:'yd',yd:'yd',grs:'gross',gross:'gross',l:'L',ltr:'L',liter:'L',litre:'L',pair:'pair',pairs:'pair',set:'set',sets:'set',box:'box',can:'can',pack:'pack',roll:'roll',sheet:'sheet',sheets:'sheet',lot:'lot'};
+  return map[k] || raw || 'pc';
+}
+// ALL-CAPS descriptions become Title Case (common abbreviations stay capitalised).
+function bomTitle(s){
+  s = String(s==null ? '' : s).replace(/\s+/g,' ').trim();
+  if(!s || /[a-z]/.test(s)) return s;
+  const keep = new Set(['SS','PVC','LED','FH','HH','RH','BI','KD','BWS','GPA','SMF','SP','AC','DC','JB','PN']);
+  return s.toLowerCase().replace(/[a-z][a-z.\/]*/g, w=>{ const up = w.toUpperCase().replace(/[.\/]/g,''); return keep.has(up) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1); });
+}
+const bomKey = s => String(s==null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g,'');
+function bomCatalogHit(name){ const k = bomKey(name); return k ? (PRICING.structuralCatalog||[]).find(a=>bomKey(a.name)===k) : null; }
+
+function parseBomWorkbook(X, buf){
+  const wb = X.read(buf, {type:'array'});
+  const sections = [], byKey = new Map();
+  let project = '', bomNo = '';
+  wb.SheetNames.forEach(sn=>{
+    const rows = X.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true, defval:''});
+    rows.slice(0,12).forEach(r=>r.forEach(c=>{
+      const t = String(c); let m;
+      if((m = t.match(/^\s*PROJECT\s*:\s*(.+)$/i))) project = project || m[1].trim();
+      if((m = t.match(/BOM\s*No\.?\s*:\s*(.+)$/i))) bomNo = bomNo || m[1].trim();
+    }));
+    let h = -1, col = {};
+    for(let i=0; i<Math.min(rows.length,30); i++){
+      const cells = rows[i].map(c=>String(c).trim().toLowerCase());
+      const q = cells.indexOf('qty'), d = cells.findIndex(c=>/item description|^description$/.test(c));
+      if(q>=0 && d>=0){ h = i; col = {qty:q, unit:cells.indexOf('unit'), desc:d, use:cells.indexOf('use'), group:cells.indexOf('group'), notes:cells.indexOf('notes')}; break; }
+    }
+    if(h<0) return;
+    let use = '', group = '';
+    for(let i=h+1; i<rows.length; i++){
+      const r = rows[i];
+      if(/summary of materials|^\s*\*?\s*note|prepared by|checked by/i.test(String(r[col.qty]==null ? '' : r[col.qty]))) break;
+      const u = col.use>=0 ? String(r[col.use]==null ? '' : r[col.use]).trim() : '';
+      const g = col.group>=0 ? String(r[col.group]==null ? '' : r[col.group]).trim() : '';
+      if(u) use = u;
+      if(g) group = g;
+      const desc = String(r[col.desc]==null ? '' : r[col.desc]).trim(), qty = bomParseQty(r[col.qty]);
+      if(!desc || !isFinite(qty) || qty<=0) continue;
+      const note = col.notes>=0 && typeof r[col.notes]==='string' ? r[col.notes].trim() : '';
+      const key = sn+'|'+use;
+      let sec = byKey.get(key);
+      if(!sec){ sec = {id:uid('bs'), team:sn, use:use || '(no use listed)', group, items:[]}; byKey.set(key, sec); sections.push(sec); }
+      sec.items.push({desc:bomTitle(desc), qty, unit:bomUnit(r[col.unit]), rawUnit:String(r[col.unit]==null ? '' : r[col.unit]).trim(), skip:/cancel/i.test(note)});
+    }
+  });
+  return {project, bomNo, sections};
+}
+// First guess for where a section belongs. Everything can be changed by hand in the review step.
+function bomSuggest(sec){
+  const u = sec.use.toLowerCase(), team = sec.team.toLowerCase(), clean = sec.use.replace(/\s+/g,' ').trim();
+  if(/^\s*trail[eo]r\b/.test(u)) return {t:'skip', name:'Trailer'};   // only a section that IS the trailer, not one that merely mentions a trailer fender
+  if(team==='painting') return {t:'paint', name:clean};
+  if(team==='electrical') return {t:'hull', name:'Electrical System'};
+  if(/console/.test(u)) return {t:'console', name:'Console'};
+  if(/stiffen|stiffin/.test(u)) return {t:'hull', name:'Stiffeners & Framing'};
+  if(/transom/.test(u)) return {t:'transom', name:'Transom'};
+  if(/rail|bollard|cleat|endstop|hardware|acces|fender/.test(u)) return {t:'deck', name:'Deck Fittings & Accessories'};
+  if(/floor|deck|non-?skid/.test(u)) return {t:'deck', name:'Deck & Flooring'};
+  if(/cabin|canopy|wheelhouse|superstructure|t-top|hardtop/.test(u)) return {t:'superstructure', name: /canopy/.test(u) ? 'Canopy' : (/cabin/.test(u) ? 'Cabin' : 'Superstructure')};
+  return {t:'hull', name:'Hull'};
+}
+function bomDefaultName(sec, target){
+  return ({hull:'Hull', transom:'Transom', console:'Console', deck:'Deck & Flooring', superstructure:'Superstructure', paint:sec.use.replace(/\s+/g,' ').trim(), skip:''})[target] || '';
+}
+// One preset component: a labor team per BOM team (head-count and days are left at 0 for you to fill in)
+// and every material as a line under its team. Identical materials in the same team are added together.
+function bomBuildComponent(cat, secs, stats){
+  const teams = [], lines = new Map(), materials = [];
+  const teamFor = name=>{
+    let t = teams.find(x=>x.src===name);
+    if(!t){
+      const lc = laborCategoryNames().find(n=>n.trim().toLowerCase()===name.trim().toLowerCase()) || name;
+      t = {id:uid('tm'), src:name, cat:lc, laborers:0, days:0, rate:laborRateFor(lc)}; teams.push(t);
+    }
+    return t;
+  };
+  secs.forEach(sec=>{
+    const tm = teamFor(sec.team);
+    sec.items.forEach(it=>{
+      if(it.skip) return;
+      const k = tm.id+'|'+bomKey(it.desc)+'|'+it.unit;
+      const old = lines.get(k);
+      if(old){ old.qty = Math.round((old.qty + it.qty)*1000)/1000; return; }
+      const hit = bomCatalogHit(it.desc);
+      let price = 0, name = it.desc, catg = '';
+      if(hit && bomUnit(hit.unit)===it.unit){ price = Number(hit.unitPrice)||0; name = hit.name; catg = 'Materials'; stats.priced++; }
+      else if(hit){ stats.unitMismatch.add(`${it.desc} — BOM unit ${it.rawUnit || it.unit}, Pricing Database unit ${hit.unit}`); }
+      else stats.unmatched.add(it.desc);
+      const m = {cat:catg, name, unit:it.unit, qty:it.qty, price, teamId:tm.id};
+      lines.set(k, m); materials.push(m);
+    });
+  });
+  teams.forEach(t=>{ delete t.src; });
+  return {cat, description:'', useFormula:true, numberDays:0, laborTeams:teams, materials};
+}
+function bomCreatePresets(parsed, opts){
+  const stats = {priced:0, unmatched:new Set(), unitMismatch:new Set()};
+  const groups = new Map();   // "kind|name" -> {kind, name, secs}
+  parsed.sections.forEach(sec=>{
+    if(sec.target==='skip' || !(sec.name||'').trim()) return;
+    const kind = BOM_KIND[sec.target] || sec.target;   // hull / paint / transom / console / deck
+    if((kind==='hull' || kind==='paint') && !opts.makeBoat) return;
+    const k = kind+'|'+sec.name.trim().toLowerCase();
+    if(!groups.has(k)) groups.set(k, {kind, name:sec.name.trim(), secs:[]});
+    groups.get(k).secs.push(sec);
+  });
+  const created = []; let boatId = null, firstKind = null;
+  const hullG = [...groups.values()].filter(g=>g.kind==='hull'), paintG = [...groups.values()].filter(g=>g.kind==='paint');
+  if(hullG.length || paintG.length){
+    let name = opts.boatName.trim() || 'BOM Boat Model';
+    const loa = Number(opts.loa)||0;
+    if(TEMPLATES.some(t=>isBoatPreset(t) && t.boatModel.toLowerCase()===name.toLowerCase() && (Number(t.loa)||0)===loa)) name += ' (BOM)';
+    const maxOrder = Math.max(-1, ...TEMPLATES.map(t=>Number.isFinite(t.order)?t.order:-1));
+    const p = { id:uid('tpl'), name, boatModel:name, boatType:'Passenger Boat', loa, beam:0, depth:0, numHulls:1,
+      components: hullG.map(g=>bomBuildComponent(g.name, g.secs, stats)),
+      paintComponents: paintG.map(g=>Object.assign(bomBuildComponent(g.name, g.secs, stats), {details:''})),
+      order: maxOrder+1 };
+    TEMPLATES.push(p); boatId = p.id;
+    created.push(`Boat Model “${name}” — ${hullG.length} structural and ${paintG.length} painting component${hullG.length+paintG.length===1?'':'s'}`);
+  }
+  groups.forEach(g=>{
+    if(g.kind==='hull' || g.kind==='paint') return;
+    const label = g.kind==='deck' ? 'Deck & Superstructure' : PRESET_KINDS[g.kind].singular;
+    let name = `${g.name} – ${opts.boatName.trim() || 'BOM'}`, n = 2;
+    while(addonPresets(g.kind).some(p=>(p.name||'').toLowerCase()===name.toLowerCase())) name = `${g.name} – ${opts.boatName.trim() || 'BOM'} (${n++})`;
+    const p = { id:uid('tpl'), presetType:g.kind, name, description:`Created from ${parsed.bomNo || 'a bill of materials'}`, components:[bomBuildComponent(PRESET_KINDS[g.kind].defaultCat, g.secs, stats)], order:addonPresets(g.kind).length };
+    TEMPLATES.push(p);
+    firstKind = firstKind || g.kind;
+    created.push(`${label} preset “${name}”`);
+  });
+  if(created.length) save(DB_KEYS.templates, TEMPLATES);
+  return {created, stats, boatId, firstKind};
+}
+function openBomImport(onDone){
+  const overlay = document.createElement('div');
+  overlay.className = 'picker-overlay';
+  overlay.innerHTML = `
+    <div class="picker" role="dialog" aria-modal="true" aria-label="Create presets from a bill of materials" style="width:min(1040px,100%);">
+      <div class="picker-head">
+        <div><h3>Create presets from a Bill of Materials</h3><div class="hint" style="margin:3px 0 0;">Upload the BOM workbook (one sheet per team). Sections are sorted into Hull, Transom, Console, Deck, Superstructure and Painting automatically. You can change any of them before anything is created.</div></div>
+        <button type="button" class="btn btn-ghost btn-sm" data-pk="close" aria-label="Close">✕</button>
+      </div>
+      <div class="picker-list" id="bomBody" style="padding:8px 22px 16px;"></div>
+      <div class="picker-foot"><span class="picker-count" id="bomCount"></span><div style="display:flex;gap:8px;" id="bomFoot"></div></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const body = overlay.querySelector('#bomBody'), count = overlay.querySelector('#bomCount'), foot = overlay.querySelector('#bomFoot');
+  let parsed = null, result = null;
+  function close(){ document.removeEventListener('keydown', onKey); overlay.remove(); }
+  function onKey(e){ if(e.key==='Escape') close(); }
+  document.addEventListener('keydown', onKey);
+  const setFoot = html=>{ foot.innerHTML = html; };
+
+  function showChooser(msg){
+    body.innerHTML = `
+      ${msg ? `<div style="color:var(--danger);margin-bottom:10px;">${escH(msg)}</div>` : ''}
+      <input type="file" id="bomFile" accept=".xlsx,.xls" style="display:block;margin:6px 0 12px;">
+      <div class="hint">Each sheet needs a header row with QTY, UNIT and ITEM DESCRIPTION, and optionally USE. The USE text carries down to the rows below it until the next one. Rows marked “cancel” in NOTES are left out. Prices are taken from the Pricing Database, so import your materials and prices there first (Pricing Database → Materials → Import from Excel). Existing presets are never changed.</div>`;
+    count.textContent = ''; setFoot('<button type="button" class="btn btn-ghost" data-pk="close">Cancel</button>');
+    body.querySelector('#bomFile').onchange = async e=>{
+      const f = e.target.files && e.target.files[0]; if(!f) return;
+      body.insertAdjacentHTML('beforeend', '<div class="hint" style="margin-top:10px;">Reading file…</div>');
+      try{
+        const X = await loadSheetJS();
+        parsed = parseBomWorkbook(X, await f.arrayBuffer());
+        if(!parsed.sections.length) return showChooser('No bill-of-materials rows found. Each sheet needs a header row with QTY, UNIT and ITEM DESCRIPTION.');
+        parsed.sections.forEach(sec=>{ const g = bomSuggest(sec); sec.target = g.t; sec.name = g.name; });
+        showReview();
+      }catch(err){ showChooser('Could not read that file: ' + (err && err.message ? err.message : 'unknown error')); }
+    };
+  }
+  function showReview(){
+    const proj = parsed.project || '';
+    const m = proj.match(/(\d+(?:\.\d+)?)\s*(?:ft|feet|')/i);
+    const cancelled = parsed.sections.reduce((n,s)=>n+s.items.filter(i=>i.skip).length, 0);
+    body.innerHTML = `
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin:6px 0 12px;">
+        <div class="field" style="margin:0;flex:2;min-width:240px;"><label>Boat model name</label><input class="tbl-input" id="bomBoatName" value="${escH(proj)}" placeholder="e.g. 24 ft. Demo Boat"></div>
+        <div class="field" style="margin:0;width:110px;"><label>LOA (ft)</label><input type="number" step="any" class="tbl-input" id="bomLoa" value="${m ? m[1] : ''}"></div>
+        <label style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><input type="checkbox" id="bomMakeBoat" checked> Create a Boat Model (Hull and Painting sections)</label>
+      </div>
+      <div class="hint" style="margin-bottom:8px;">Sections sent to the same place with the same name are combined into one. Transom, Console and Deck presets are named “&lt;name&gt; – &lt;boat model name&gt;”. Labor head-counts and days are not in a BOM, so they start at 0 for you to fill in.${cancelled ? ` ${cancelled} item${cancelled===1?'':'s'} marked cancel left out.` : ''}</div>
+      <table><thead><tr><th style="width:110px;">Team</th><th>Used for</th><th style="width:210px;">Goes to</th><th style="width:250px;">Name</th></tr></thead><tbody>
+        ${parsed.sections.map(sec=>{
+          const n = sec.items.filter(i=>!i.skip).length;
+          return `<tr data-sid="${sec.id}">
+            <td>${escH(sec.team)}</td>
+            <td>${escH(sec.use)}${sec.group ? ` <span class="hint">(${escH(sec.group)})</span>` : ''}<div class="hint">${n} item${n===1?'':'s'}</div></td>
+            <td><select class="tbl-input bom-t">${Object.keys(BOM_TARGETS).map(k=>`<option value="${k}" ${k===sec.target?'selected':''}>${escH(BOM_TARGETS[k])}</option>`).join('')}</select></td>
+            <td><input class="tbl-input bom-n" value="${escH(sec.name)}" ${sec.target==='skip' ? 'disabled' : ''}></td>
+          </tr>`; }).join('')}
+      </tbody></table>`;
+    count.textContent = `${parsed.sections.length} sections found`;
+    setFoot('<button type="button" class="btn btn-ghost" data-pk="back">← Choose another file</button><button type="button" class="btn btn-ghost" data-pk="close">Cancel</button><button type="button" class="btn btn-primary" data-pk="create">Create presets</button>');
+    body.querySelectorAll('.bom-t').forEach(sel=>sel.onchange = ()=>{
+      const sec = parsed.sections.find(s=>s.id===sel.closest('tr').dataset.sid), inp = sel.closest('tr').querySelector('.bom-n');
+      sec.target = sel.value;
+      if(sec.target==='skip'){ inp.disabled = true; }
+      else { inp.disabled = false; if(!sec.nameEdited){ sec.name = bomDefaultName(sec, sec.target); inp.value = sec.name; } }
+    });
+    body.querySelectorAll('.bom-n').forEach(inp=>inp.addEventListener('input', ()=>{
+      const sec = parsed.sections.find(s=>s.id===inp.closest('tr').dataset.sid); sec.name = inp.value; sec.nameEdited = true;
+    }));
+  }
+  function showResult(){
+    const st = result.stats;
+    const list = (title, set)=> set.size ? `<details style="margin-top:10px;"><summary style="cursor:pointer;font-weight:600;">${escH(title)} (${set.size})</summary><ul style="margin:6px 0 0;padding-left:20px;line-height:1.6;">${[...set].map(x=>`<li>${escH(x)}</li>`).join('')}</ul></details>` : '';
+    body.innerHTML = `
+      <div style="font-weight:600;margin:8px 0 6px;">${result.created.length ? 'Created and saved:' : 'Nothing was created — every section was set to Skip.'}</div>
+      <ul style="margin:0;padding-left:20px;line-height:1.7;">${result.created.map(c=>`<li>${escH(c)}</li>`).join('')}</ul>
+      <div class="hint" style="margin-top:12px;">${st.priced} material line${st.priced===1?'':'s'} priced from the Pricing Database. Materials with no price are at ₱0: set their price in the preset (or add them to the Pricing Database and re-run the import).</div>
+      ${list('Materials not found in the Pricing Database — price ₱0', st.unmatched)}
+      ${list('Found, but the unit differs — price ₱0', st.unitMismatch)}`;
+    count.textContent = '';
+    setFoot('<button type="button" class="btn btn-primary" data-pk="open">Open presets</button>');
+  }
+  overlay.addEventListener('click', e=>{
+    if(e.target===overlay) return close();
+    const b = e.target.closest('[data-pk]'); if(!b) return;
+    const k = b.dataset.pk;
+    if(k==='close') return close();
+    if(k==='back') return showChooser('');
+    if(k==='create'){
+      result = bomCreatePresets(parsed, {
+        boatName: body.querySelector('#bomBoatName').value, loa: body.querySelector('#bomLoa').value,
+        makeBoat: body.querySelector('#bomMakeBoat').checked });
+      return showResult();
+    }
+    if(k==='open'){ close(); onDone(result); }
+  });
+  showChooser('');
+}
+
 function renderTemplates(content, actions){
   if(!PRESET_KINDS[_presetKind]) _presetKind = 'boat';
   const kind = _presetKind, meta = PRESET_KINDS[kind];
-  actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Presets</button> <button class="btn" id="btnAddModel">${icon('plus')} ${kind==='boat' ? 'Add Boat Model' : 'Add '+esc(meta.singular)+' Preset'}</button>`;
+  actions.innerHTML = `<button class="btn btn-primary" id="btnSaveTemplates">Save Presets</button> <button class="btn" id="btnImportBom" title="Create presets from a Bill of Materials Excel file">⬆ Import BOM (Excel)</button> <button class="btn" id="btnAddModel">${icon('plus')} ${kind==='boat' ? 'Add Boat Model' : 'Add '+esc(meta.singular)+' Preset'}</button>`;
   const leads = {
     boat: `Click a Boat Model's card to open and edit its standard measurements, structural components, and painting components. Drag a card by its ⠿ handle to rearrange the order. Selecting that model in a quotation's Hull Particulars tab automatically fills in these details. Edits here are staged until you click "Save Presets" — same as the Pricing Database.`,
     transom: `Standard transoms (for example a single-engine or twin-engine transom). Each preset is one set of labor teams and materials. In a quotation's Hull tab, pick as many as you need under "Transom, Console & Deck Presets" and each one's cost is added to the structural list.`,
@@ -1898,6 +2121,11 @@ function renderTemplates(content, actions){
     save(DB_KEYS.templates, TEMPLATES);
     toast(added ? `Presets saved — ${added} new item${added===1?'':'s'} added to the Pricing Database` : 'Presets saved');
   };
+  document.getElementById('btnImportBom').onclick = ()=>openBomImport(res=>{
+    if(res.boatId){ _presetKind = 'boat'; _presetOpenModel = res.boatId; }
+    else if(res.firstKind){ _presetKind = res.firstKind; _presetOpenModel = null; _presetOpenId = null; }
+    renderTemplates(content, actions);
+  });
   document.getElementById('btnAddModel').onclick = ()=>{
     if(kind!=='boat'){
       const nm = (prompt(`Name the new ${meta.singular} preset:`)||'').trim();
@@ -2378,7 +2606,6 @@ function openMaterialImport(r, onDone){
     const nNew = st.filter(x=>x.t==='new').length, nUp = st.filter(x=>x.t==='update').length, nSame = st.length - nNew - nUp;
     body.innerHTML = `
       <div class="hint" style="margin-bottom:8px;">${parsed.headerFound ? '' : 'No header row found, so columns A, B and C were read as Material, Unit and Price. '}${parsed.skipped ? `${parsed.skipped} row(s) without a valid price were skipped.` : ''}</div>
-      <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><input type="checkbox" id="impPresets" checked> Also update these materials in Presets that already use them</label>
       <table><thead><tr><th>Material</th><th>Unit</th><th class="right">Price (₱)</th><th>Status</th></tr></thead><tbody>
         ${parsed.rows.map((o,i)=>{ const x = st[i];
           const label = x.t==='new' ? '<span style="color:#067647;font-weight:600;">New</span>'
@@ -2394,20 +2621,18 @@ function openMaterialImport(r, onDone){
     if(e.target===overlay) return close();
     const b = e.target.closest('[data-pk]'); if(!b) return;
     if(b.dataset.pk==='ok' && parsed){
-      const alsoPresets = !!(body.querySelector('#impPresets') && body.querySelector('#impPresets').checked);
       r.structuralCatalog = r.structuralCatalog || [];
-      let added = 0, updated = 0, presetLines = 0;
+      let added = 0, updated = 0;
       parsed.rows.forEach(o=>{
         const x = statusOf(o);
         if(x.t==='new'){ r.structuralCatalog.push({name:o.name, unit:o.unit||'pc', unitPrice:o.price}); added++; }
         else if(x.t==='update'){
           if(o.unit) x.ex.unit = o.unit;
           x.ex.unitPrice = o.price; updated++;
-          if(alsoPresets) presetLines += propagateMaterialToPresets(x.ex.name, x.ex);
         }
       });
       onDone();
-      toast(`Imported: ${added} added, ${updated} updated${presetLines ? `, ${presetLines} preset line${presetLines===1?'':'s'} updated` : ''}`);
+      toast(`Imported: ${added} added, ${updated} updated`);
     }
     close();
   });
@@ -2473,18 +2698,13 @@ function renderPricing(content, actions){
         <td style="width:160px;"><input class="tbl-input num matcat-f" data-idx="${idx}" data-f="unitPrice" type="number" min="0" step="any" value="${a.unitPrice}"></td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-matcat="${idx}" style="color:var(--danger);">Remove</span></td>
       </tr>`).join('') || `<tr><td colspan="4" class="empty" style="padding:12px;">No materials yet.</td></tr>`;
-    const prevNames = {};   // each row's name before the current edit, so presets can follow a rename
-    r.structuralCatalog.forEach((a,idx)=>{ prevNames[idx] = a.name; });
     document.querySelectorAll('.matcat-f').forEach(i=>{
       let t = null;
       const commit = ()=>{
         clearTimeout(t);
-        const idx = i.dataset.idx, item = r.structuralCatalog[idx]; if(!item) return;
+        const item = r.structuralCatalog[i.dataset.idx]; if(!item) return;
         item[i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
         savePricing();
-        const n = propagateMaterialToPresets(prevNames[idx], item);   // presets that use this material follow the new price / unit / name
-        prevNames[idx] = item.name;
-        if(n) toast(`Updated "${item.name}" in ${n} preset line${n===1?'':'s'}`);
       };
       i.addEventListener('input', ()=>{ clearTimeout(t); t = setTimeout(commit, 700); });
       i.addEventListener('change', commit);
@@ -2507,8 +2727,6 @@ function renderPricing(content, actions){
         clearTimeout(t);
         r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0);
         savePricing();
-        const n = propagateLaborRateToPresets(i.dataset.k, r.laborDailyRates[i.dataset.k]);   // presets that use this labor category follow the new rate
-        if(n) toast(`Updated ${capFirst(i.dataset.k)} rate in ${n} preset labor line${n===1?'':'s'}`);
       };
       i.addEventListener('input', ()=>{ r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0); clearTimeout(t); t = setTimeout(commit, 700); });
       i.addEventListener('change', commit);
