@@ -2279,8 +2279,142 @@ function renderTemplates(content, actions){
 /* ============================================================
    PRICING DATABASE
    ============================================================ */
+/* ---------- Import materials from Excel / CSV (Pricing Database -> Materials) ---------- */
+function loadSheetJS(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((res, rej)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = ()=>res(window.XLSX);
+    s.onerror = ()=>rej(new Error('Could not load the Excel reader. Check your internet connection and try again.'));
+    document.head.appendChild(s);
+  });
+}
+// Reads the first sheet. Looks for a header row with Material / Unit / Price columns (any order, a few common
+// spellings); with no header row it assumes column A = Material, B = Unit, C = Price.
+function parseMaterialSheet(XLSX, buf){
+  const wb = XLSX.read(buf, {type:'array'});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+  let hdr = -1, col = {name:0, unit:1, price:2};
+  for(let i=0; i<Math.min(rows.length, 15); i++){
+    const cells = rows[i].map(c=>String(c).trim().toLowerCase());
+    const p = cells.findIndex(c=>/price|cost|amount|rate/.test(c));
+    const n = cells.findIndex((c,j)=>j!==p && /material|item|name|description|particular/.test(c));
+    if(p>=0 && n>=0){
+      const u = cells.findIndex((c,j)=>j!==p && j!==n && /^(unit|units|uom|unit of measure|unit of measurement)$/.test(c));
+      hdr = i; col = {name:n, unit:u, price:p}; break;
+    }
+  }
+  const out = []; let skipped = 0;
+  rows.slice(hdr+1).forEach(r=>{
+    const name = String(r[col.name]==null ? '' : r[col.name]).trim();
+    if(!name) return;
+    const raw = r[col.price];
+    const price = typeof raw==='number' ? raw : parseFloat(String(raw).replace(/[^0-9.\-]/g,''));
+    if(!isFinite(price)){ skipped++; return; }
+    out.push({name, unit: col.unit>=0 ? String(r[col.unit]==null ? '' : r[col.unit]).trim() : '', price: Math.max(0, price)});
+  });
+  const byName = new Map(); out.forEach(o=>byName.set(o.name.toLowerCase(), o));   // a repeated name: the last row wins
+  return {rows:[...byName.values()], skipped, headerFound: hdr>=0};
+}
+function openMaterialImport(r, onDone){
+  const overlay = document.createElement('div');
+  overlay.className = 'picker-overlay';
+  overlay.innerHTML = `
+    <div class="picker" role="dialog" aria-modal="true" aria-label="Import materials from Excel">
+      <div class="picker-head">
+        <div><h3>Import materials from Excel</h3><div class="hint" style="margin:3px 0 0;">First sheet, with columns Material, Unit and Price. .xlsx, .xls or .csv.</div></div>
+        <button type="button" class="btn btn-ghost btn-sm" data-pk="cancel" aria-label="Close">✕</button>
+      </div>
+      <div class="picker-list" id="impBody" style="padding:16px 20px;"></div>
+      <div class="picker-foot">
+        <span class="picker-count" id="impCount"></span>
+        <div style="display:flex;gap:8px;"><button type="button" class="btn btn-ghost" data-pk="cancel">Cancel</button><button type="button" class="btn btn-primary" data-pk="ok" id="impOk" disabled>Import</button></div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const body = overlay.querySelector('#impBody'), count = overlay.querySelector('#impCount'), okBtn = overlay.querySelector('#impOk');
+  let parsed = null;
+  const keyOf = n => (n||'').trim().toLowerCase();
+  const statusOf = o => {
+    const ex = (r.structuralCatalog||[]).find(a=>keyOf(a.name)===keyOf(o.name));
+    if(!ex) return {t:'new', ex:null};
+    const same = (Number(ex.unitPrice)||0)===o.price && (!o.unit || o.unit===ex.unit);
+    return {t: same ? 'same' : 'update', ex};
+  };
+  function close(){ document.removeEventListener('keydown', onKey); overlay.remove(); }
+  function onKey(e){ if(e.key==='Escape') close(); }
+  document.addEventListener('keydown', onKey);
+
+  function showChooser(msg){
+    body.innerHTML = `
+      ${msg ? `<div style="color:var(--danger);margin-bottom:10px;">${esc(msg)}</div>` : ''}
+      <input type="file" id="impFile" accept=".xlsx,.xls,.csv" style="display:block;margin-bottom:12px;">
+      <div class="hint">Materials already in the database (matched by name) get the new Unit and Price. New names are added. Nothing is deleted.</div>
+      <div style="margin-top:12px;"><button type="button" class="btn btn-sm" id="impTemplate">⬇ Download a blank template</button></div>`;
+    count.textContent = ''; okBtn.disabled = true;
+    body.querySelector('#impTemplate').onclick = async ()=>{
+      try{
+        const X = await loadSheetJS();
+        const wb = X.utils.book_new();
+        X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Material','Unit','Price'],['Fiberglass Mat 450gsm','kg',180],['Polyester Resin','kg',150]]), 'Materials');
+        X.writeFile(wb, 'materials-import-template.xlsx');
+      }catch(err){ showChooser(err.message); }
+    };
+    body.querySelector('#impFile').onchange = async e=>{
+      const f = e.target.files && e.target.files[0]; if(!f) return;
+      body.insertAdjacentHTML('beforeend', '<div class="hint" style="margin-top:10px;">Reading file…</div>');
+      try{
+        const X = await loadSheetJS();
+        parsed = parseMaterialSheet(X, await f.arrayBuffer());
+        if(!parsed.rows.length) return showChooser('No materials found. Check that the first sheet has Material, Unit and Price columns.');
+        showPreview();
+      }catch(err){ showChooser('Could not read that file: ' + (err && err.message ? err.message : 'unknown error')); }
+    };
+  }
+  function showPreview(){
+    const st = parsed.rows.map(statusOf);
+    const nNew = st.filter(x=>x.t==='new').length, nUp = st.filter(x=>x.t==='update').length, nSame = st.length - nNew - nUp;
+    body.innerHTML = `
+      <div class="hint" style="margin-bottom:8px;">${parsed.headerFound ? '' : 'No header row found, so columns A, B and C were read as Material, Unit and Price. '}${parsed.skipped ? `${parsed.skipped} row(s) without a valid price were skipped.` : ''}</div>
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><input type="checkbox" id="impPresets" checked> Also update these materials in Presets that already use them</label>
+      <table><thead><tr><th>Material</th><th>Unit</th><th class="right">Price (₱)</th><th>Status</th></tr></thead><tbody>
+        ${parsed.rows.map((o,i)=>{ const x = st[i];
+          const label = x.t==='new' ? '<span style="color:#067647;font-weight:600;">New</span>'
+            : x.t==='update' ? `Update <span class="hint">(was ${esc(fmt(x.ex.unitPrice))}${o.unit && o.unit!==x.ex.unit ? `, ${esc(x.ex.unit||'')}` : ''})</span>` : '<span class="hint">No change</span>';
+          return `<tr><td>${esc(o.name)}</td><td>${esc(o.unit || (x.ex ? x.ex.unit : 'pc'))}</td><td class="right mono">${esc(fmt(o.price))}</td><td>${label}</td></tr>`; }).join('')}
+      </tbody></table>
+      <div style="margin-top:10px;"><button type="button" class="btn btn-ghost btn-sm" id="impBack">← Choose another file</button></div>`;
+    count.textContent = `${nNew} new · ${nUp} to update · ${nSame} unchanged`;
+    okBtn.disabled = (nNew + nUp) === 0;
+    body.querySelector('#impBack').onclick = ()=>showChooser('');
+  }
+  overlay.addEventListener('click', e=>{
+    if(e.target===overlay) return close();
+    const b = e.target.closest('[data-pk]'); if(!b) return;
+    if(b.dataset.pk==='ok' && parsed){
+      const alsoPresets = !!(body.querySelector('#impPresets') && body.querySelector('#impPresets').checked);
+      r.structuralCatalog = r.structuralCatalog || [];
+      let added = 0, updated = 0, presetLines = 0;
+      parsed.rows.forEach(o=>{
+        const x = statusOf(o);
+        if(x.t==='new'){ r.structuralCatalog.push({name:o.name, unit:o.unit||'pc', unitPrice:o.price}); added++; }
+        else if(x.t==='update'){
+          if(o.unit) x.ex.unit = o.unit;
+          x.ex.unitPrice = o.price; updated++;
+          if(alsoPresets) presetLines += propagateMaterialToPresets(x.ex.name, x.ex);
+        }
+      });
+      onDone();
+      toast(`Imported: ${added} added, ${updated} updated${presetLines ? `, ${presetLines} preset line${presetLines===1?'':'s'} updated` : ''}`);
+    }
+    close();
+  });
+  showChooser('');
+}
 function renderPricing(content, actions){
-  actions.innerHTML = `<button class="btn btn-primary" id="btnSavePricing">Save Pricing Database</button> <button class="btn btn-ghost" id="btnResetPricing">Reset to Defaults</button>`;
+  actions.innerHTML = `<span id="pricingSaveState" class="hint" style="margin:0 12px 0 0;align-self:center;">✓ Changes save automatically</span> <button class="btn btn-ghost" id="btnResetPricing">Reset to Defaults</button>`;
   const r = PRICING;
   ensurePricingShape();
   content.innerHTML = `
@@ -2302,10 +2436,16 @@ function renderPricing(content, actions){
       <div class="card-head"><h3>Materials</h3></div>
       <div class="card-body section-lead">Fiberglass, resin, gelcoat, core and other materials (weights in kg). These are the items you tick under "Choose materials" in Presets, and the prices they start with.</div>
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Material</th><th>Unit</th><th class="right">Unit Price (₱)</th><th></th></tr></thead><tbody id="matCatRows"></tbody></table>
-        <div class="card-foot" style="padding:12px 20px;border-top:1px solid var(--paper-line);"><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button></div></div>
+        <div class="card-foot" style="padding:12px 20px;border-top:1px solid var(--paper-line);"><button class="btn btn-sm" id="addMaterial">${icon('plus')} Add Material</button> <button class="btn btn-sm" id="importMaterials" title="Import Material, Unit and Price from an Excel or CSV file">⬆ Import from Excel</button></div></div>
     </div>
   `;
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  // Everything on this page saves itself: typing saves after a short pause, leaving a field saves at once.
+  function savePricing(){
+    save(DB_KEYS.pricing, PRICING);
+    const el = document.getElementById('pricingSaveState');
+    if(el) el.textContent = '✓ Saved automatically · ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
 
   function drawAcc(){
     document.getElementById('accCatRows').innerHTML = r.accessoryCatalog.map((a,idx)=>`
@@ -2315,13 +2455,15 @@ function renderPricing(content, actions){
         <td style="width:150px;"><input class="tbl-input num acc-f" data-idx="${idx}" data-f="unitPrice" type="number" value="${a.unitPrice}"></td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-acc="${idx}" style="color:var(--danger);">Remove</span></td>
       </tr>`).join('');
-    document.querySelectorAll('.acc-f').forEach(i=>i.onchange=()=>{
-      r.accessoryCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Number(i.value) : i.value;
-      save(DB_KEYS.pricing, PRICING);
+    document.querySelectorAll('.acc-f').forEach(i=>{
+      let t = null;
+      const commit = ()=>{ clearTimeout(t); r.accessoryCatalog[i.dataset.idx][i.dataset.f] = i.dataset.f==='unitPrice'? Number(i.value) : i.value; savePricing(); };
+      i.addEventListener('input', ()=>{ clearTimeout(t); t = setTimeout(commit, 500); });
+      i.addEventListener('change', commit);
     });
-    document.querySelectorAll('[data-del-acc]').forEach(b=>b.onclick=()=>{ r.accessoryCatalog.splice(Number(b.dataset.delAcc),1); save(DB_KEYS.pricing, PRICING); drawAcc(); });
+    document.querySelectorAll('[data-del-acc]').forEach(b=>b.onclick=()=>{ r.accessoryCatalog.splice(Number(b.dataset.delAcc),1); savePricing(); drawAcc(); });
   }
-  document.getElementById('addAccItem').onclick=()=>{ r.accessoryCatalog.push({cat:'Custom',name:'New Item',unitPrice:0}); save(DB_KEYS.pricing, PRICING); drawAcc(); };
+  document.getElementById('addAccItem').onclick=()=>{ r.accessoryCatalog.push({cat:'Custom',name:'New Item',unitPrice:0}); savePricing(); drawAcc(); };
 
   function drawMaterials(){
     document.getElementById('matCatRows').innerHTML = r.structuralCatalog.map((a,idx)=>`
@@ -2331,16 +2473,25 @@ function renderPricing(content, actions){
         <td style="width:160px;"><input class="tbl-input num matcat-f" data-idx="${idx}" data-f="unitPrice" type="number" min="0" step="any" value="${a.unitPrice}"></td>
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-matcat="${idx}" style="color:var(--danger);">Remove</span></td>
       </tr>`).join('') || `<tr><td colspan="4" class="empty" style="padding:12px;">No materials yet.</td></tr>`;
-    document.querySelectorAll('.matcat-f').forEach(i=>i.onchange=()=>{
-      const item = r.structuralCatalog[i.dataset.idx], oldName = item.name;
-      item[i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
-      save(DB_KEYS.pricing, PRICING);
-      const n = propagateMaterialToPresets(oldName, item);   // presets that use this material follow the new price / unit / name
-      if(n) toast(`Updated "${item.name}" in ${n} preset line${n===1?'':'s'}`);
+    const prevNames = {};   // each row's name before the current edit, so presets can follow a rename
+    r.structuralCatalog.forEach((a,idx)=>{ prevNames[idx] = a.name; });
+    document.querySelectorAll('.matcat-f').forEach(i=>{
+      let t = null;
+      const commit = ()=>{
+        clearTimeout(t);
+        const idx = i.dataset.idx, item = r.structuralCatalog[idx]; if(!item) return;
+        item[i.dataset.f] = i.dataset.f==='unitPrice'? Math.max(0, Number(i.value)||0) : i.value;
+        savePricing();
+        const n = propagateMaterialToPresets(prevNames[idx], item);   // presets that use this material follow the new price / unit / name
+        prevNames[idx] = item.name;
+        if(n) toast(`Updated "${item.name}" in ${n} preset line${n===1?'':'s'}`);
+      };
+      i.addEventListener('input', ()=>{ clearTimeout(t); t = setTimeout(commit, 700); });
+      i.addEventListener('change', commit);
     });
-    document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); save(DB_KEYS.pricing, PRICING); drawMaterials(); });
+    document.querySelectorAll('[data-del-matcat]').forEach(b=>b.onclick=()=>{ r.structuralCatalog.splice(Number(b.dataset.delMatcat),1); savePricing(); drawMaterials(); });
   }
-  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); save(DB_KEYS.pricing, PRICING); drawMaterials(); };
+  document.getElementById('addMaterial').onclick=()=>{ r.structuralCatalog.push({name:'New Material',unit:'kg',unitPrice:0}); savePricing(); drawMaterials(); };
 
   function drawLaborRates(){
     const names = Object.keys(r.laborDailyRates);
@@ -2351,18 +2502,21 @@ function renderPricing(content, actions){
         <td class="right"><span class="btn btn-ghost btn-sm" data-del-lr="${esc(k)}" style="color:var(--danger);" title="Remove this category">✕</span></td>
       </tr>`).join('') || `<tr><td colspan="3" class="empty" style="padding:12px;">No labor categories yet. Click "Add Category".</td></tr>`;
     document.querySelectorAll('.lr-f').forEach(i=>{
-      i.addEventListener('input', ()=>{ r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0); });
-      i.addEventListener('change', ()=>{
+      let t = null;
+      const commit = ()=>{
+        clearTimeout(t);
         r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0);
-        save(DB_KEYS.pricing, PRICING);
+        savePricing();
         const n = propagateLaborRateToPresets(i.dataset.k, r.laborDailyRates[i.dataset.k]);   // presets that use this labor category follow the new rate
         if(n) toast(`Updated ${capFirst(i.dataset.k)} rate in ${n} preset labor line${n===1?'':'s'}`);
-      });
+      };
+      i.addEventListener('input', ()=>{ r.laborDailyRates[i.dataset.k] = Math.max(0, Number(i.value)||0); clearTimeout(t); t = setTimeout(commit, 700); });
+      i.addEventListener('change', commit);
     });
     document.querySelectorAll('[data-del-lr]').forEach(b=>b.onclick=()=>{
       const k = b.dataset.delLr;
       if(!confirm(`Remove the "${capFirst(k)}" labor category? Presets that already use it keep the rate they saved.`)) return;
-      delete r.laborDailyRates[k]; drawLaborRates();
+      delete r.laborDailyRates[k]; savePricing(); drawLaborRates();
     });
   }
   document.getElementById('addLaborCat').onclick = ()=>{
@@ -2370,15 +2524,14 @@ function renderPricing(content, actions){
     if(!nm) return;
     nm = nm.charAt(0).toUpperCase() + nm.slice(1);
     if(Object.keys(r.laborDailyRates).some(k=>k.trim().toLowerCase()===nm.toLowerCase())){ toast('That labor category already exists'); return; }
-    r.laborDailyRates[nm] = 0; drawLaborRates();
+    r.laborDailyRates[nm] = 0; savePricing(); drawLaborRates();
     const inputs = document.querySelectorAll('.lr-f'); if(inputs.length) inputs[inputs.length-1].focus();
   };
 
+  document.getElementById('importMaterials').onclick = ()=>openMaterialImport(r, ()=>{ savePricing(); drawMaterials(); });
+
   drawAcc(); drawMaterials(); drawLaborRates();
 
-  document.getElementById('btnSavePricing').onclick = ()=>{
-    save(DB_KEYS.pricing, PRICING); toast('Pricing database saved');
-  };
   document.getElementById('btnResetPricing').onclick = ()=>{
     if(confirm('Reset all pricing to factory defaults?')){ PRICING = JSON.parse(JSON.stringify(DEFAULT_PRICING)); migrateUnitsToImperial(); save(DB_KEYS.pricing,PRICING); renderPricing(content,actions); }
   };
