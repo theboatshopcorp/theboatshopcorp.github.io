@@ -171,7 +171,41 @@ const ADMIN_ONLY_VIEWS = ['quotes','editor','sales','templates','pricing','setti
 // since opening/editing a quote is part of the Quotations section.
 function permissionKeyFor(view){ return view==='editor' ? 'quotes' : view; }
 // Admins bypass per-section permissions entirely — they always have full access.
-function hasAccess(view){ return CURRENT_IS_ADMIN || CURRENT_PERMISSIONS.has(permissionKeyFor(view)); }
+/* ---------- DEPARTMENTS ----------
+   Each signed-in user belongs to one department (user_profiles.department) and only sees that department's
+   environment. Admins can enter any department (or "All Departments") using the switcher next to their name. */
+const DEPARTMENTS = {
+  sales:      { label:'Sales',      home:'dashboard', views:['dashboard','quotes','editor','sales','customers','profile'] },
+  purchasing: { label:'Purchasing', home:'pricing',   views:['pricing','profile'] },
+  production: { label:'Production', home:'templates', views:['templates','profile'] }
+};
+const ADMIN_PICK_KEY = 'tbsc_admin_dept';   // sessionStorage: the department an admin is currently "entering"
+let ACTIVE_DEPT = null;                      // 'sales' | 'purchasing' | 'production' | null (null = admin sees everything)
+function resolveActiveDept(){
+  const mine = profileByEmail(CURRENT_USER.email);
+  const assigned = mine && DEPARTMENTS[mine.department] ? mine.department : null;
+  if(CURRENT_IS_ADMIN){
+    const saved = sessionStorage.getItem(ADMIN_PICK_KEY);
+    if(saved === 'all') ACTIVE_DEPT = null;
+    else ACTIVE_DEPT = (saved && DEPARTMENTS[saved]) ? saved : assigned;   // first visit: own department, else everything
+  } else {
+    ACTIVE_DEPT = assigned;   // regular users are locked to the department an admin assigned
+  }
+}
+function setAdminDept(value){
+  if(!CURRENT_IS_ADMIN) return;
+  sessionStorage.setItem(ADMIN_PICK_KEY, DEPARTMENTS[value] ? value : 'all');
+  resolveActiveDept();
+  CURRENT.view = deptHome();
+  renderAll();
+}
+function deptHome(){ return ACTIVE_DEPT ? DEPARTMENTS[ACTIVE_DEPT].home : 'dashboard'; }
+// A view is allowed if it belongs to the active department. Settings (team & company setup) is admin-only.
+function hasAccess(view){
+  if(view === 'settings') return CURRENT_IS_ADMIN;
+  if(CURRENT_IS_ADMIN && !ACTIVE_DEPT) return true;
+  return !!ACTIVE_DEPT && DEPARTMENTS[ACTIVE_DEPT].views.includes(view);
+}
 function profileByEmail(email){ return ALL_PROFILES.find(p=>p.email===(email||'').toLowerCase()) || null; }
 
 async function checkUserPermissions(email){
@@ -213,8 +247,22 @@ async function refreshAllProfiles(){
     ALL_PROFILES = data || [];
     const mine = profileByEmail(CURRENT_USER.email);
     if(mine) CURRENT_IS_ADMIN = !!mine.is_admin;
+    resolveActiveDept();
   }catch(e){
     console.error('Loading profiles failed', e);
+  }
+}
+
+// Admin: assign a user to a department ('' clears it).
+async function setUserDepartment(email, dept){
+  try{
+    const { error } = await supabaseClient.from('user_profiles').update({ department: dept || null, updated_at: new Date().toISOString() }).eq('email', (email||'').toLowerCase());
+    if(error) throw error;
+    await refreshAllProfiles();
+    return true;
+  }catch(e){
+    console.error('Saving department failed', e);
+    return false;
   }
 }
 
@@ -229,6 +277,18 @@ async function saveMyProfile(fields){
     console.error('Saving profile failed', e);
     return false;
   }
+}
+
+function renderNoDepartment(content, actions){
+  actions.innerHTML = '';
+  content.innerHTML = `
+    <div class="card" style="max-width:480px;margin:60px auto;text-align:center;">
+      <div class="card-body" style="padding:40px 32px;">
+        <div style="font-size:32px;margin-bottom:12px;">🧭</div>
+        <h3 style="margin-bottom:8px;">No department assigned yet</h3>
+        <div class="section-lead" style="margin-bottom:0;">Your account is signed in, but an admin hasn't assigned you to Sales, Purchasing or Production. Ask an admin to assign your department, then sign in again.</div>
+      </div>
+    </div>`;
 }
 
 function renderAccessRestricted(content, actions){
@@ -1385,7 +1445,7 @@ function icon(name){
 
 function renderNav(){
   const nav = document.getElementById('navList');
-  const visibleRoutes = ROUTES.filter(r=>!(r.hidden && HIDE_SALES_TRACKER));
+  const visibleRoutes = ROUTES.filter(r=>!(r.hidden && HIDE_SALES_TRACKER) && (r.id==='profile' || hasAccess(r.id)));
   nav.innerHTML = visibleRoutes.map((r,i)=>`
     <div class="nav-item ${CURRENT.view===r.id?'active':''}" data-route="${r.id}">
       ${icon(r.icon)}<span>${r.label}</span>
@@ -1398,6 +1458,21 @@ function renderNav(){
       closeSidebar();
     });
   });
+}
+
+// Floating dock: only show the shortcuts the current department can use.
+function applyDockAccess(){
+  const need = { new:'editor', search:'quotes', customers:'customers', templates:'templates', pricing:'pricing', settings:'settings' };
+  let shown = 0;
+  document.querySelectorAll('[data-dock]').forEach(btn=>{
+    const ok = hasAccess(need[btn.dataset.dock]);
+    btn.style.display = ok ? '' : 'none';
+    if(ok) shown++;
+  });
+  const sep = document.querySelector('.dock-sep');
+  if(sep) sep.style.display = hasAccess('settings') && shown>1 ? '' : 'none';
+  const dock = document.querySelector('.sidebar');
+  if(dock) dock.style.display = shown ? '' : 'none';
 }
 
 function openSidebar(){
@@ -1416,13 +1491,18 @@ document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar
 
 function renderAll(){
   if(HIDE_SALES_TRACKER && CURRENT.view==='sales') CURRENT.view = 'dashboard';
+  const needsDept = !CURRENT_IS_ADMIN && !ACTIVE_DEPT;
+  if(needsDept) CURRENT.view = 'profile';
+  else if(CURRENT.view!=='profile' && !hasAccess(CURRENT.view)) CURRENT.view = deptHome();
   renderNav();
+  applyDockAccess();
+  updateSidebarFoot();
   const titleMap = {dashboard:'Dashboard', editor:'Quotation Editor', quotes:'Quotations', sales:'Sales Tracker', customers:'Customer Database', templates:'Presets', pricing:'Pricing Database', profile:'My Profile', settings:'Settings'};
   document.getElementById('topbarTitle').textContent = titleMap[CURRENT.view] || '';
   const content = document.getElementById('content');
   const actions = document.getElementById('topbarActions');
   actions.innerHTML='';
-  if(ADMIN_ONLY_VIEWS.includes(CURRENT.view) && !hasAccess(CURRENT.view)){ renderAccessRestricted(content, actions); return; }
+  if(needsDept){ renderNoDepartment(content, actions); return; }
   if(CURRENT.view==='dashboard') renderDashboard(content, actions);
   else if(CURRENT.view==='editor') renderEditor(content, actions);
   else if(CURRENT.view==='quotes') renderQuotesList(content, actions);
@@ -4386,6 +4466,9 @@ function renderMyProfile(content, actions){
           <div class="field"><label>Contact Number</label><input id="myContact" value="${esc(p.contact_number)}"></div>
           <div class="field"><label>Email</label><input value="${esc(CURRENT_USER.email)}" disabled></div>
         </div>
+        <div class="grid g2">
+          <div class="field"><label>Department</label><input value="${esc(DEPARTMENTS[p.department] ? DEPARTMENTS[p.department].label : (CURRENT_IS_ADMIN ? 'Admin (all departments)' : 'Not yet assigned'))}" disabled><div class="hint">Assigned by an admin in Settings → Team &amp; Departments.</div></div>
+        </div>
         <div class="field"><label>E-Signature</label>
           <div class="prev ${p.esign?'':'empty'}" style="margin-bottom:8px;">${p.esign? `<img src="${esc(p.esign)}" alt="">` : 'No signature uploaded'}</div>
           <div class="row2" style="display:flex;gap:8px;">
@@ -4459,9 +4542,35 @@ function renderSettings(content, actions){
       <div class="card-body section-lead">Shown on the payment/invoice section of printed quotations.</div>
       <div class="card-body" style="padding:0;"><table><thead><tr><th>Bank Name</th><th>Branch</th><th>Account Name</th><th>Account Number</th><th></th></tr></thead><tbody id="bankRows"></tbody></table></div>
     </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h3>Team &amp; Departments</h3></div>
+      <div class="card-body section-lead">Choose which department each person enters when they sign in. Sales = Quotations &amp; Customers, Purchasing = Pricing Database, Production = Presets. People appear here after their first sign-in.</div>
+      <div class="card-body" style="padding:0;"><table><thead><tr><th>Name</th><th>Email</th><th>Department</th></tr></thead><tbody id="deptRows"></tbody></table></div>
+    </div>
   `;
 
   bindLogoCardStandalone(content, ()=>renderSettings(content, actions));
+
+  (function drawTeam(){
+    const tb = document.getElementById('deptRows');
+    const people = [...ALL_PROFILES].sort((a,b)=>String(a.full_name||a.email).localeCompare(String(b.full_name||b.email)));
+    tb.innerHTML = people.length ? people.map(p=>`
+      <tr>
+        <td>${esc(p.full_name||'—')}${p.is_admin?' <span class="dept-badge">Admin</span>':''}</td>
+        <td>${esc(p.email)}</td>
+        <td><select class="dept-pick" data-email="${esc(p.email)}">
+          <option value="">Not assigned</option>
+          ${Object.keys(DEPARTMENTS).map(k=>`<option value="${k}" ${p.department===k?'selected':''}>${DEPARTMENTS[k].label}</option>`).join('')}
+        </select></td>
+      </tr>`).join('') : '<tr><td colspan="3" class="hint" style="padding:16px;">No users yet.</td></tr>';
+    tb.querySelectorAll('.dept-pick').forEach(sel=>{
+      sel.addEventListener('change', async ()=>{
+        const ok = await setUserDepartment(sel.dataset.email, sel.value);
+        toast(ok ? 'Department saved' : 'Save failed — run the department SQL first, or check your connection');
+        if(!ok) drawTeam(); else updateSidebarFoot();
+      });
+    });
+  })();
 
   content.querySelectorAll('.cf').forEach(i=>{
     i.addEventListener('input', ()=>{ c[i.dataset.key] = i.value; });
@@ -5077,6 +5186,8 @@ async function startApp(session){
   document.querySelectorAll('#bootScreen').forEach(function(node){ node.remove(); });
   await checkUserPermissions(session.user.email);
   await loadMyProfile(session.user.email);
+  resolveActiveDept();
+  CURRENT.view = deptHome();
   updateSidebarFoot();
   renderAll();
   pullAllFromRemote().then(subscribeRemote);
@@ -5099,7 +5210,13 @@ function updateSidebarFoot(){
   const initials = (me.full_name
     ? me.full_name.trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('')
     : String(CURRENT_USER.email||'?').split('@')[0].slice(0,2)).toUpperCase();
-  foot.innerHTML = `<span class="who-name">${esc(shown)}</span><span class="avatar" title="${esc(CURRENT_USER.email)}">${esc(initials)}</span><button type="button" class="who-out" id="signOutLink">Sign out</button>`;
+  const deptOpts = Object.keys(DEPARTMENTS).map(k=>`<option value="${k}" ${ACTIVE_DEPT===k?'selected':''}>${DEPARTMENTS[k].label}</option>`).join('');
+  const deptHtml = CURRENT_IS_ADMIN
+    ? `<select id="deptSwitch" class="dept-switch" title="Department you are entering" aria-label="Department"><option value="all" ${ACTIVE_DEPT?'':'selected'}>All Departments</option>${deptOpts}</select>`
+    : (ACTIVE_DEPT ? `<span class="dept-badge">${DEPARTMENTS[ACTIVE_DEPT].label}</span>` : '');
+  foot.innerHTML = `${deptHtml}<span class="who-name">${esc(shown)}</span><span class="avatar" title="${esc(CURRENT_USER.email)}">${esc(initials)}</span><button type="button" class="who-out" id="signOutLink">Sign out</button>`;
+  const sw = document.getElementById('deptSwitch');
+  if(sw) sw.addEventListener('change', ()=> setAdminDept(sw.value));
   const link = document.getElementById('signOutLink');
   if(link) link.addEventListener('click', async (e)=>{ e.preventDefault(); await supabaseClient.auth.signOut(); });
 }
