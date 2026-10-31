@@ -141,9 +141,25 @@ a{color:inherit;}
 }
 .who-out:hover{background:#fff;}
 
-.dept-badge{display:inline-block;padding:3px 11px;border-radius:var(--pill);background:var(--yellow);color:var(--ink);font-size:11px;font-weight:600;white-space:nowrap;}
-.dept-switch,.dept-pick{border:none;background:var(--glass-strong);color:var(--ink);padding:7px 12px;border-radius:var(--pill);font-size:12px;font-weight:600;box-shadow:var(--shadow-sm);}
-.dept-pick{min-width:150px;}
+/* ---------- Departments ---------- */
+.dept-badge{display:inline-block;padding:3px 11px;border-radius:var(--pill);background:var(--yellow);color:var(--ink);font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;}
+.dept-badge.admin{background:var(--black);color:#fff;margin-left:6px;}
+/* header switcher: same frosted pill as "Sign out" */
+.dept-switch{
+  border:none;background:var(--glass-strong);color:var(--ink);padding:7px 13px;border-radius:var(--pill);
+  font-size:12px;font-weight:600;box-shadow:var(--shadow-sm);max-width:170px;text-overflow:ellipsis;
+  transition:background var(--t), box-shadow var(--t);
+}
+.dept-switch:hover{background:#fff;}
+.dept-switch:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(242,194,48,.55);}
+/* Settings table: same pill input as the other filters/forms */
+.dept-pick{
+  min-width:160px;padding:7px 14px;border:1px solid rgba(21,21,21,.1);border-radius:var(--pill);
+  background:rgba(255,255,255,.8);color:var(--ink);font-size:12.5px;font-weight:500;
+  transition:border-color var(--t), box-shadow var(--t), background var(--t);
+}
+.dept-pick:hover{border-color:rgba(21,21,21,.22);}
+.dept-pick:focus{outline:none;border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(242,194,48,.45);}
 
 .sidebar-overlay{display:none;}
 .menu-btn{display:none;}
@@ -660,6 +676,7 @@ input, select, textarea { max-width: 100%; }
   .sidebar-foot{order:2;margin-left:auto;}
   .nav{order:3;flex-basis:100%;}
   .who-name{display:none;}
+  .dept-switch{max-width:128px;padding:7px 10px;}
   .topbar{padding:10px 14px 0;}
   .content{padding:16px 14px 40px;}
   .sidebar{ /* dock moves to the bottom edge */
