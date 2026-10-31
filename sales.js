@@ -1,826 +1,540 @@
-/* =====================================================================
-   TBSC Quotation System — "Soft studio" theme
-   Warm gradient canvas, frosted panels, pill controls, and solid
-   status-colored quotation cards. Variable names are kept from the
-   previous theme so inline styles in app.js keep working.
-   ===================================================================== */
-:root{
-  --yellow:#f2c230;
-  --green:#2f5d4d;
-  --red:#d6482a;
-  --black:#151515;
-
-  --ink:#151515;
-  --ink-soft:#5f625c;
-  --ink-faint:#9a9b94;
-  --paper:#f4efe6;
-  --paper-line:rgba(21,21,21,.09);
-  --surface:#ffffff;
-
-  --teal:#2f5d4d;
-  --teal-dark:#214238;
-  --teal-soft:#e6eee8;
-  --amber:#f2c230;
-  --amber-dark:#7a5c00;
-  --amber-soft:#fbf0c6;
-  --danger:#d6482a;
-  --danger-soft:#fbe9e4;
-  --good:#2f5d4d;
-  --good-soft:#e6eee8;
-
-  --steel-200:#d9d6cc;
-  --sidebar-hover-bg:rgba(21,21,21,.05);
-
-  --radius-sm:12px;
-  --radius:20px;
-  --radius-lg:28px;
-  --pill:999px;
-
-  --glass:rgba(255,255,255,.66);
-  --glass-strong:rgba(255,255,255,.86);
-  --glass-border:rgba(255,255,255,.85);
-
-  --shadow-sm:0 1px 2px rgba(60,45,20,.04);
-  --shadow:0 1px 2px rgba(60,45,20,.04), 0 10px 30px -14px rgba(60,45,20,.16);
-  --shadow-lg:0 6px 18px rgba(60,45,20,.08), 0 28px 60px -20px rgba(60,45,20,.28);
-
-  --ease:cubic-bezier(.4,0,.2,1);
-  --ease-spring:cubic-bezier(.25,.9,.35,1.15);
-  --t:180ms var(--ease);
-  --t-fast:120ms var(--ease);
-
-  --dock-w:58px;
-  --num:'Inter',sans-serif;
-}
-@keyframes fadeInUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
-*{box-sizing:border-box;}
-html,body{margin:0;padding:0;scroll-behavior:smooth;}
-body{
-  font-family:'Inter',sans-serif;
-  color:var(--ink);
-  background:
-    radial-gradient(900px 520px at 0% 0%, #f9e3cf 0%, transparent 62%),
-    radial-gradient(900px 600px at 100% 100%, #dbe6d3 0%, transparent 60%),
-    #f3eee4;
-  background-attachment:fixed;
-  font-size:14px;line-height:1.55;
-  -webkit-font-smoothing:antialiased;
-}
-::-webkit-scrollbar{width:10px;height:10px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:rgba(21,21,21,.18);border-radius:20px;border:2px solid transparent;background-clip:padding-box;}
-::-webkit-scrollbar-thumb:hover{background:rgba(21,21,21,.32);background-clip:padding-box;border:2px solid transparent;}
-::selection{background:var(--yellow);color:var(--ink);}
-h1,h2,h3,h4{font-family:'Sora',sans-serif;font-weight:600;letter-spacing:-.015em;margin:0;}
-.mono{font-family:var(--num);font-variant-numeric:tabular-nums;}
-button{font-family:inherit;cursor:pointer;}
-input,select,textarea{font-family:inherit;font-size:13px;}
-input[type="number"]{font-family:var(--num);font-variant-numeric:tabular-nums;}
-a{color:inherit;}
-:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
-
-/* ---------- Shell: floating dock + masthead ---------- */
-#app{min-height:100vh;}
-.shell{min-height:100vh;display:flex;flex-direction:column;padding-left:calc(var(--dock-w) + 36px);}
-
-.sidebar{ /* the dock */
-  position:fixed;left:16px;top:50%;transform:translateY(-50%);z-index:40;
-  width:var(--dock-w);padding:12px 0;background:var(--black);border-radius:var(--pill);
-  display:flex;flex-direction:column;align-items:center;gap:4px;
-  box-shadow:0 18px 40px -14px rgba(21,21,21,.5);
-}
-.dock-btn{
-  width:38px;height:38px;border:none;border-radius:50%;background:transparent;color:#bdbbb2;
-  display:flex;align-items:center;justify-content:center;transition:background var(--t), color var(--t), transform var(--t-fast);
-}
-.dock-btn:hover{background:rgba(255,255,255,.12);color:#fff;}
-.dock-btn:active{transform:scale(.92);}
-.dock-btn.primary{background:var(--yellow);color:var(--ink);margin-bottom:6px;}
-.dock-btn.primary:hover{background:#f7d055;color:var(--ink);}
-.dock-btn:focus-visible{outline-color:#fff;}
-.dock-sep{width:22px;height:1px;background:rgba(255,255,255,.16);margin:6px 0;}
-
-.masthead{
-  display:flex;align-items:center;gap:20px;padding:20px clamp(16px,2.4vw,32px) 0 0;position:sticky;top:0;z-index:20;
-  padding-bottom:10px;
-}
-.masthead::before{ /* soft fade so content scrolls under the nav cleanly */
-  content:'';position:absolute;inset:0 0 -10px -200px;z-index:-1;pointer-events:none;
-  background:linear-gradient(180deg, rgba(243,238,228,.94) 55%, rgba(243,238,228,0));
-}
-.brand{display:flex;align-items:center;gap:10px;flex:none;}
-.brand .mark{display:flex;align-items:center;gap:10px;}
-.brand-tile{width:36px;height:36px;border-radius:12px;background:var(--black);display:flex;align-items:center;justify-content:center;flex:none;}
-.brand h1{font-size:18px;line-height:1;letter-spacing:-.02em;}
-.brand .sub{font-size:11px;color:var(--ink-soft);margin-top:3px;font-weight:500;}
-
-.nav{display:flex;gap:2px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none;padding:4px 0;}
-.nav::-webkit-scrollbar{display:none;}
-.nav-item{
-  display:flex;align-items:center;padding:8px 16px;border-radius:var(--pill);white-space:nowrap;
-  color:var(--ink-soft);font-size:13px;font-weight:500;cursor:pointer;user-select:none;
-  transition:background var(--t), color var(--t);
-}
-.nav-item svg{display:none;}
-.nav-item::before{content:none;}
-.nav-item:hover{background:var(--sidebar-hover-bg);color:var(--ink);}
-.nav-item.active{background:var(--black);color:#fff;}
-
-.sidebar-foot{ /* user chip */
-  flex:none;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft);
-}
-.who-name{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.avatar{
-  width:34px;height:34px;border-radius:50%;background:var(--yellow);color:var(--ink);
-  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none;
-  box-shadow:0 0 0 3px rgba(255,255,255,.8);
-}
-.who-out{
-  border:none;background:var(--glass-strong);color:var(--ink);padding:7px 13px;border-radius:var(--pill);
-  font-size:12px;font-weight:600;box-shadow:var(--shadow-sm);transition:background var(--t);
-}
-.who-out:hover{background:#fff;}
-
-.dept-badge{display:inline-block;padding:3px 11px;border-radius:var(--pill);background:var(--yellow);color:var(--ink);font-size:11px;font-weight:600;white-space:nowrap;}
-.dept-switch,.dept-pick{border:none;background:var(--glass-strong);color:var(--ink);padding:7px 12px;border-radius:var(--pill);font-size:12px;font-weight:600;box-shadow:var(--shadow-sm);}
-.dept-pick{min-width:150px;}
-
-.sidebar-overlay{display:none;}
-.menu-btn{display:none;}
-
-.main{flex:1;min-width:0;display:flex;flex-direction:column;}
-.topbar{ /* page head: big title + page actions */
-  display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;
-  padding:18px clamp(16px,2.4vw,32px) 0 0;
-}
-.topbar .title{font-family:'Sora',sans-serif;font-size:clamp(26px,3.2vw,36px);font-weight:600;letter-spacing:-.025em;line-height:1.05;color:var(--ink);min-width:0;}
-.topbar .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center;}
-.content{
-  flex:1;width:100%;max-width:1680px;padding:22px clamp(16px,2.4vw,32px) 48px 0;animation:fadeInUp .32s var(--ease);
-}
-
-/* ---------- Buttons ---------- */
-.btn{
-  border:1px solid transparent;background:var(--glass-strong);color:var(--ink);
-  padding:9px 18px;border-radius:var(--pill);font-size:12.5px;font-weight:600;
-  display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-sm);cursor:pointer;
-  transition:background var(--t), color var(--t), box-shadow var(--t), transform var(--t-fast);
-}
-.btn:hover{background:#fff;box-shadow:var(--shadow);}
-.btn:active{transform:scale(.97);transition:transform 60ms var(--ease);}
-.btn-primary{background:var(--black);color:#fff;box-shadow:0 8px 20px -8px rgba(21,21,21,.5);}
-.btn-primary:hover{background:#2c2c2a;box-shadow:0 10px 24px -8px rgba(21,21,21,.55);}
-.btn-primary:focus-visible{outline-color:var(--ink);outline-offset:3px;}
-.btn-amber{background:var(--yellow);color:var(--ink);}
-.btn-amber:hover{background:#f7d055;}
-.btn-ghost{background:transparent;color:var(--ink-soft);box-shadow:none;}
-.btn-ghost:hover{background:rgba(21,21,21,.06);color:var(--ink);box-shadow:none;}
-.btn-danger{background:var(--danger-soft);color:var(--danger);box-shadow:none;}
-.btn-danger:hover{background:var(--danger);color:#fff;}
-.btn-sm{padding:5px 13px;font-size:11.5px;}
-.btn[disabled]{opacity:.4;cursor:not-allowed;transform:none!important;}
-
-/* ---------- Panels ---------- */
-.card{
-  background:var(--glass);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);
-  border:1px solid var(--glass-border);border-radius:var(--radius-lg);box-shadow:var(--shadow);
-}
-.card-head{padding:18px 22px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
-.card-head h3{font-size:15px;color:var(--ink);font-weight:600;}
-.card-body{padding:6px 22px 22px;overflow-x:auto;}
-.grid{display:grid;gap:16px;}
-.g2{grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));}
-.g3{grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));}
-.g4{grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));}
-.g-wide{grid-template-columns:repeat(auto-fit,minmax(min(460px,100%),1fr));}
-
-/* ---------- Forms ---------- */
-.field{margin-bottom:14px;}
-.field label{display:block;font-size:11.5px;color:var(--ink-soft);font-weight:600;margin-bottom:6px;}
-.field input,.field select,.field textarea{
-  width:100%;padding:10px 14px;border:1px solid rgba(21,21,21,.1);border-radius:var(--radius-sm);
-  background:rgba(255,255,255,.8);color:var(--ink);
-  transition:border-color var(--t), box-shadow var(--t), background var(--t);
-}
-.field input:hover,.field select:hover,.field textarea:hover{border-color:rgba(21,21,21,.22);}
-.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(242,194,48,.45);}
-.field .hint,.hint{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
-.field-inline{display:flex;align-items:center;gap:8px;}
-.pill-row input,.pill-row select{border-radius:var(--pill)!important;border:1px solid rgba(21,21,21,.1)!important;background:rgba(255,255,255,.8);}
-.pill-row input:focus,.pill-row select:focus{outline:none;border-color:var(--ink)!important;box-shadow:0 0 0 3px rgba(242,194,48,.45);}
-
-/* ---------- Dashboard ---------- */
-.stat-row{display:flex;flex-wrap:wrap;gap:14px 36px;margin-bottom:22px;align-items:center;}
-.stat{display:flex;align-items:center;gap:12px;background:none;border:none;box-shadow:none;padding:0;}
-.stat .ico{
-  width:42px;height:42px;border-radius:50%;background:var(--glass-strong);box-shadow:var(--shadow-sm);
-  display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none;
-}
-.stat .val{font-family:'Sora',sans-serif;font-size:22px;font-weight:600;letter-spacing:-.02em;line-height:1.1;color:var(--ink);}
-.stat .lbl{font-size:12px;color:var(--ink-soft);font-weight:500;order:2;}
-.stat .txt{display:flex;flex-direction:column;}
-.chip{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:var(--pill);background:var(--green);color:#fff;font-family:'Inter',sans-serif;font-size:11px;font-weight:600;letter-spacing:0;vertical-align:middle;}
-.chip.y{background:var(--yellow);color:var(--ink);}
-
-.dash-grid{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(280px,1fr);gap:16px;align-items:start;}
-@media(max-width:1100px){.dash-grid{grid-template-columns:1fr;}}
-
-/* Signature element: quotations as status-colored cards */
-.qcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr));gap:12px;padding:0 22px 22px;}
-.qcard{
-  border-radius:var(--radius);padding:16px 16px 14px;min-height:164px;display:flex;flex-direction:column;
-  cursor:pointer;text-align:left;border:none;font:inherit;color:inherit;
-  transition:transform var(--t), box-shadow var(--t);
-}
-.qcard:hover{transform:translateY(-3px);box-shadow:0 18px 30px -16px rgba(21,21,21,.45);}
-.qcard.draft{background:var(--yellow);color:var(--ink);}
-.qcard.for_approval{background:var(--green);color:#fff;}
-.qcard.for_revision{background:var(--red);color:#fff;}
-.qcard.approved{background:var(--black);color:#fff;}
-.qcard .q-top{display:flex;justify-content:space-between;align-items:center;font-size:11px;opacity:.78;font-weight:500;}
-.qcard .q-name{font-family:'Sora',sans-serif;font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.2;margin-top:12px;}
-.qcard .q-client{font-size:12px;opacity:.78;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.qcard .q-amt{font-family:'Sora',sans-serif;font-size:20px;font-weight:600;letter-spacing:-.02em;margin-top:auto;padding-top:14px;font-variant-numeric:tabular-nums;}
-.qcard .q-state{font-size:11px;font-weight:600;opacity:.85;margin-top:2px;}
-
-/* Status mix */
-.mixbar{display:flex;height:34px;gap:4px;padding:0 22px;}
-.mixbar span{border-radius:10px;min-width:12px;}
-.mixbar .draft{background:var(--yellow);}
-.mixbar .for_approval{background:var(--green);}
-.mixbar .for_revision{background:var(--red);}
-.mixbar .approved{background:var(--black);}
-.mixlist{padding:14px 22px 20px;display:flex;flex-direction:column;gap:9px;}
-.mixrow{display:flex;align-items:center;gap:9px;font-size:12.5px;}
-.mixrow i{width:9px;height:9px;border-radius:50%;flex:none;}
-.mixrow i.draft{background:var(--yellow);}
-.mixrow i.for_approval{background:var(--green);}
-.mixrow i.for_revision{background:var(--red);}
-.mixrow i.approved{background:var(--black);}
-.mixrow .n{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;}
-.mixrow .v{color:var(--ink-soft);min-width:96px;text-align:right;font-variant-numeric:tabular-nums;}
-.quick{display:flex;flex-direction:column;gap:8px;padding:0 22px 22px;}
-.quick .btn{justify-content:flex-start;width:100%;padding:11px 18px;}
-
-/* ---------- Tables ---------- */
-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px;}
-th{text-align:left;font-size:11.5px;color:var(--ink-soft);padding:10px 12px;font-weight:600;border-bottom:1px solid var(--paper-line);}
-td{padding:11px 12px;border-bottom:1px solid var(--paper-line);vertical-align:middle;transition:background var(--t-fast);}
-tr:last-child td{border-bottom:none;}
-tbody tr:hover td{background:rgba(255,255,255,.55);}
-.tbl-input{width:100%;min-width:0;border:1px solid transparent;background:transparent;padding:6px 6px;border-radius:10px;font-size:13px;color:var(--ink);transition:border-color var(--t), background var(--t), box-shadow var(--t);}
-.tbl-input:hover{border-color:rgba(21,21,21,.12);}
-.tbl-input:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(242,194,48,.45);outline:none;}
-.tbl-input.num{text-align:right;font-family:var(--num);font-variant-numeric:tabular-nums;}
-.right{text-align:right;}
-.center{text-align:center;}
-
-.badge{display:inline-block;padding:3px 11px;border-radius:var(--pill);font-size:11px;font-weight:600;text-transform:capitalize;}
-.badge.draft{background:var(--yellow);color:var(--ink);}
-.badge.for_approval{background:var(--green);color:#fff;}
-.badge.for_revision{background:var(--red);color:#fff;}
-.badge.approved{background:var(--black);color:#fff;}
-
-.dup-error{border-color:var(--danger)!important;color:var(--danger)!important;box-shadow:0 0 0 2px var(--danger-soft)!important;}
-
-
-/* tighter cells that hold inputs so narrow columns (Qty, Unit, Markup) never clip their values */
-td:has(> .tbl-input){padding-left:6px;padding-right:6px;}
-input.tbl-input[type="number"]{-moz-appearance:textfield;appearance:textfield;}
-input.tbl-input[type="number"]::-webkit-inner-spin-button,
-input.tbl-input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
-select.tbl-input{padding-right:2px;text-overflow:ellipsis;}
-/* locked (submitted/approved) fields stay readable instead of fading out */
-.tbl-input:disabled,.field input:disabled,.field select:disabled,.field textarea:disabled{
-  color:var(--ink);-webkit-text-fill-color:var(--ink);opacity:1;cursor:default;
-}
-.tbl-input:disabled:hover{border-color:transparent;}
-.field input:disabled,.field select:disabled,.field textarea:disabled{background:rgba(255,255,255,.45);}
-
-/* materials list inside a preset component's formula panel */
-.mat-table{min-width:0;font-size:12.5px;background:rgba(255,255,255,.55);border-radius:14px;overflow:hidden;}
-.mat-table th{padding:8px 6px;font-size:11px;}
-.mat-table td{padding:5px 6px;}
-.mat-table tbody tr:hover td{background:transparent;}
-
-/* multi-select materials picker */
-.picker-overlay{position:fixed;inset:0;z-index:900;background:rgba(21,21,21,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeInUp .2s var(--ease);}
-.picker{width:min(560px,100%);max-height:min(660px,calc(100vh - 32px));display:flex;flex-direction:column;background:rgba(255,255,255,.97);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);}
-.picker-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:20px 22px 8px;}
-.picker-head h3{font-size:16px;}
-.picker-search{margin:8px 22px 6px;padding:10px 16px;border:1px solid rgba(21,21,21,.1);border-radius:var(--pill);font-size:13px;background:#fff;}
-.picker-search:focus{outline:none;border-color:var(--ink);box-shadow:0 0 0 3px rgba(242,194,48,.45);}
-.picker-list{flex:1;overflow:auto;padding:4px 14px 8px;min-height:120px;}
-.picker-group{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);padding:12px 8px 4px;}
-.picker-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;cursor:pointer;font-size:13px;}
-.picker-item:hover{background:rgba(21,21,21,.05);}
-.picker-item input{width:16px;height:16px;accent-color:var(--black);flex:none;}
-.picker-item .nm{flex:1;min-width:0;}
-.picker-item .nm em{font-style:normal;color:var(--ink-faint);font-size:12px;}
-.picker-item .pr{color:var(--ink-soft);font-variant-numeric:tabular-nums;font-size:12px;}
-.picker-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px 18px;border-top:1px solid var(--paper-line);}
-.picker-count{font-size:12px;color:var(--ink-soft);}
-
-/* compact inputs in the editor side panel (overhead / contingency / margin / VAT / discount) */
-.side-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);}
-.side-row label{min-width:96px;font-weight:500;}
-.side-row span{color:var(--ink-faint);}
-.side-input{width:84px;padding:7px 12px;border:1px solid rgba(21,21,21,.1);border-radius:var(--pill);background:rgba(255,255,255,.85);color:var(--ink);font-size:13px;font-variant-numeric:tabular-nums;transition:border-color var(--t), box-shadow var(--t), background var(--t);}
-.side-input:hover{border-color:rgba(21,21,21,.22);}
-.side-input:focus{outline:none;border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(242,194,48,.45);}
-.side-input:disabled{opacity:1;color:var(--ink);-webkit-text-fill-color:var(--ink);background:rgba(255,255,255,.45);cursor:default;}
-
-/* ---------- Tabs (editor) ---------- */
-.tabs{display:flex;gap:2px;margin-bottom:18px;flex-wrap:wrap;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-border);border-radius:var(--pill);padding:5px;box-shadow:var(--shadow-sm);width:fit-content;max-width:100%;}
-.tab{padding:8px 16px;font-size:12.5px;font-weight:600;color:var(--ink-soft);border-radius:var(--pill);cursor:pointer;display:flex;align-items:center;gap:6px;transition:background var(--t), color var(--t);}
-.tab .n{display:none;}
-.tab:hover{background:var(--sidebar-hover-bg);color:var(--ink);}
-.tab.active{background:var(--black);color:#fff;}
-.tabpane{display:none;}
-.tabpane.active{display:block;}
-
-/* ---------- Editor layout ---------- */
-.editor-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,330px);gap:18px;align-items:start;}
-@media(max-width:1000px){.editor-grid{grid-template-columns:1fr;}}
-.summary-panel{position:sticky;top:92px;}
-@media(max-width:1000px){.summary-panel{position:static;}}
-.sum-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--paper-line);font-size:12.5px;}
-.sum-row .k{color:var(--ink-soft);}
-.sum-row .v{font-family:var(--num);font-variant-numeric:tabular-nums;font-weight:600;}
-.sum-total{display:flex;justify-content:space-between;align-items:baseline;padding:16px 0 4px;margin-top:6px;border-top:2px solid var(--ink);}
-.sum-total .k{font-family:'Sora',sans-serif;font-size:14px;font-weight:600;}
-.sum-total .v{font-family:'Sora',sans-serif;font-size:21px;font-weight:600;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;}
-
-.spec-plate{background:var(--yellow);color:var(--ink);border-radius:var(--radius);padding:18px 22px;margin-bottom:18px;}
-.spec-plate .row{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px 24px;}
-.spec-plate .cell{min-width:80px;}
-.spec-plate .cell .l{font-size:11px;color:rgba(21,21,21,.65);font-weight:500;}
-.spec-plate .cell .v{font-family:'Sora',sans-serif;font-size:16px;color:var(--ink);margin-top:2px;font-weight:600;font-variant-numeric:tabular-nums;}
-
-.acc-cat{margin-bottom:16px;}
-.acc-cat-head{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid var(--paper-line);margin-bottom:4px;}
-.acc-cat-head h4{font-size:13px;color:var(--ink);font-weight:600;}
-
-/* ---------- Quotation document / print — clean, minimal, modern ---------- */
-:root{
-  --doc-ink:#14181f;
-  --doc-ink-soft:#374151;
-  --doc-ink-faint:#4b5563;
-  --doc-line:#e6e8ec;
-  --doc-accent:#0d9488;
-  --doc-accent-dark:#0f766e;
-  --doc-accent-soft:#f0faf8;
-  --doc-tint:#f7f8fa;
-}
-.doc-wrap{background:#eef0f3;padding:40px 24px;border-radius:var(--radius);overflow-x:auto;}
-.doc{
-  background:#fff;width:100%;max-width:188mm;margin:0 auto;padding:0;
-  box-shadow:0 1px 2px rgba(15,23,42,.04), 0 24px 48px -24px rgba(15,23,42,.16);
-  color:var(--doc-ink);font-size:10.5px;line-height:1.42;border-radius:6px;
-  -webkit-font-smoothing:antialiased;
-  zoom:1; /* Keep preview and print at the same scale to avoid reflow differences. */
-}
-.doc h1,.doc h2,.doc h3{font-family:'Sora',sans-serif;letter-spacing:-.01em;}
-.doc table{font-size:12px;border-collapse:collapse;width:100%;}
-.doc .grand{font-weight:700;font-size:13.5px;background:var(--doc-accent-soft);}
-.doc-terms{font-size:10.8px;color:var(--doc-ink-soft);line-height:1.7;}
-.doc-terms ol{padding-left:16px;}
-.doc-terms li{margin-bottom:4px;}
-
-/* Quotation header arranged like a formal company document:
-   company name/tagline upper-left, logo upper-right; below that,
-   unboxed title left, one info column (address, TIN, ref, dates) at the far right. */
-.doc-header-top{
-  position:relative;display:flex;align-items:center;justify-content:space-between;gap:20px;
-  min-height:0;padding:2px 0 18px;margin-bottom:12px;border-bottom:0;
-}
-.doc-header-top .co{flex:1 1 auto;min-width:0;}
-.doc-header-top .co h2{font-size:16px;color:var(--doc-ink);font-weight:700;margin-bottom:4px;letter-spacing:-.01em;}
-.doc-header-top .co .tag{font-size:10.5px;letter-spacing:.01em;color:var(--doc-ink-soft);font-style:italic;}
-
-/* Second header row: title / company details / reference and dates. */
-.doc-header-row{
-  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
-  align-items:center;column-gap:12px;margin-top:0;
-}
-.doc-header-left{min-width:0;display:flex;align-items:center;justify-content:center;text-align:center;}
-.doc-header-right{min-width:0;justify-self:end;width:100%;max-width:320px;}
-.doc-titlebar{
-  font-family:'Sora',sans-serif;font-size:30px;line-height:1.18;font-weight:700;
-  letter-spacing:0;color:var(--doc-ink);background:transparent;border:0;padding:0;
-}
-@media(max-width:700px){
-  .doc-header-row{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:12px;}
-  .doc-header-left{grid-column:1;grid-row:1;}
-  .doc-header-right{grid-column:2;grid-row:1;}
-  .doc-titlebar{font-size:25px;}
-}
-
-/* Right-side info table: fixed label column so every value starts at the
-   same horizontal position; rows all share equal height/spacing; wrapped
-   values (e.g. Address) stay aligned to the value column, not the label. */
-.doc-info-table{width:100%;border-collapse:collapse;table-layout:fixed;}
-.doc-info-table td{padding:3px 0;vertical-align:middle;line-height:1.5;}
-.doc-info-table td.lbl{width:80px;color:var(--doc-ink-faint);font-size:9px;font-weight:700;letter-spacing:.02em;white-space:nowrap;padding-right:10px;}
-.doc-info-table td.val{color:var(--doc-ink);font-size:9.3px;font-weight:600;word-break:break-word;width:auto;}
-
-/* Bold divider separating the whole header from the quotation content below */
-.doc-header-divider{border-bottom:1px solid var(--doc-line);margin:14px 0 14px;}
-
-/* Draggable / resizable logo */
-.doc-logo-wrap{position:relative;flex:none;cursor:move;user-select:none;}
-.doc-logo-wrap img{width:100%;display:block;pointer-events:none;}
-.doc-logo-wrap .logo-placeholder{
-  width:100%;min-width:90px;height:64px;border:1px dashed var(--doc-ink-faint);border-radius:8px;
-  display:flex;align-items:center;justify-content:center;font-size:9.5px;color:var(--doc-ink-faint);text-align:center;padding:4px;
-}
-.doc-logo-wrap .logo-resize-handle{
-  position:absolute;right:-5px;bottom:-5px;width:11px;height:11px;background:var(--doc-accent);
-  border:2px solid #fff;border-radius:2px;cursor:nwse-resize;display:none;box-shadow:0 1px 3px rgba(0,0,0,.3);
-}
-.doc-logo-wrap:hover .logo-resize-handle{display:block;}
-.doc-logo-wrap:hover{outline:1px dashed var(--doc-accent);outline-offset:4px;}
-@media print{
-  .logo-resize-handle{display:none!important;}
-  .doc-logo-wrap:hover{outline:none!important;}
-}
-
-/* Client Information | Contract Value Summary — quiet columns, no solid color blocks */
-.doc-band-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:0 0 10px;margin-bottom:10px;border-bottom:1px solid var(--doc-line);}
-.doc-band-row .col{position:relative;}
-.doc-band-row .col:first-child::after{
-  content:'';position:absolute;top:2px;bottom:2px;right:-20px;width:1px;background:var(--doc-line);
-}
-.doc-band-head{
-  font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--doc-accent-dark);margin-bottom:12px;
-}
-.doc-band-body{}
-.doc-kv-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--doc-line);font-size:11.3px;}
-.doc-kv-row:last-child{border-bottom:none;}
-.doc-kv-row .k{color:var(--doc-ink-soft);}
-.doc-kv-row .v{font-weight:600;text-align:right;color:var(--doc-ink);}
-.doc-kv-row.hi{margin-top:6px;padding-top:12px;border-top:1px solid var(--doc-ink);border-bottom:none;}
-.doc-kv-row.hi .v{color:var(--doc-accent-dark);font-size:14.5px;}
-.doc-kv-row .v.doc-na{color:var(--doc-ink-faint);font-style:italic;font-weight:500;}
-
-/* Centered project statement — quiet rule above/below instead of a bold block */
-.doc-project-bar{
-  text-align:center;font-weight:600;font-size:12px;letter-spacing:.005em;
-  padding:7px 0;margin:0 0 12px;color:var(--doc-ink);
-  border-top:1px solid var(--doc-line);border-bottom:1px solid var(--doc-line);
-}
-.doc-project-note{
-  text-align:center;font-size:11px;color:var(--doc-ink-soft);
-  padding:6px 24px 0;margin:0 0 12px;line-height:1.6;
-}
-
-/* Logo manager card (editing UI, hidden on print) */
-.logocard{border:1px solid var(--paper-line);border-radius:var(--radius-sm);padding:12px;background:var(--surface);display:flex;gap:14px;flex-wrap:wrap;align-items:center;}
-.logocard .prev{width:90px;height:64px;display:flex;align-items:center;justify-content:center;background:var(--paper);border-radius:6px;overflow:hidden;flex:none;}
-.logocard .prev img{max-width:100%;max-height:100%;object-fit:contain;}
-.logocard .prev.empty{color:var(--ink-faint);font-size:10px;text-align:center;}
-.logocard .controls{flex:1;min-width:240px;display:flex;flex-direction:column;gap:6px;}
-.logocard .row2{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
-.logocard input[type="text"]{flex:1;min-width:160px;padding:6px 8px;border:1px solid var(--paper-line);border-radius:6px;font-size:12px;}
-
-
-/* Section labels: small accent tab + quiet uppercase text, not a solid color bar */
-.doc-section-title{
-  font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--doc-ink);margin:12px 0 7px;padding-left:13px;position:relative;
-}
-.doc-section-title::before{
-  content:'';position:absolute;left:0;top:1px;bottom:1px;width:3px;border-radius:2px;background:var(--doc-accent);
-}
-
-/* Item / cost tables — hairline rules, quiet uppercase headers, no filled bars */
-.doc-item-table thead th{
-  background:transparent;color:var(--doc-ink-soft);font-size:9.5px;font-weight:700;
-  text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--doc-ink);padding:8px 6px;
-}
-.doc-item-table td{border-bottom:1px solid var(--doc-line);padding:8px 6px;}
-.doc-item-table tr:last-child td{border-bottom:1px solid var(--doc-line);}
-.doc th{border-bottom:1px solid var(--doc-ink);background:transparent;color:var(--doc-ink-soft);font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:8px 6px;}
-.doc td{border-bottom:1px solid var(--doc-line);padding:4px 6px;}
-
-/* Amount-in-words + totals card */
-/* Cost Summary — compact 2-column grid instead of one long list */
-.doc-cost-grid{display:grid;grid-template-columns:1fr 1fr;column-gap:28px;row-gap:0;}
-.doc-cost-row{display:flex;justify-content:space-between;gap:10px;padding:3.5px 0;border-bottom:1px solid var(--doc-line);font-size:10.3px;}
-.doc-cost-row span:first-child{color:var(--doc-ink-soft);}
-.doc-cost-row span:last-child{font-weight:600;color:var(--doc-ink);white-space:nowrap;}
-
-.doc-words-row{display:grid;grid-template-columns:1fr 280px;gap:20px;margin-top:4px;align-items:stretch;}
-.doc-words-box{
-  border:1px solid var(--doc-line);border-radius:8px;background:var(--doc-tint);
-  padding:10px 12px;font-size:11px;font-style:italic;color:var(--doc-ink-soft);
-  display:flex;align-items:center;text-align:left;
-}
-.doc-totalsbox{border:1px solid var(--doc-line);border-radius:8px;overflow:hidden;align-self:start;}
-.doc-totalsbox .row{display:flex;justify-content:space-between;padding:5px 14px;border-bottom:1px solid var(--doc-line);font-size:11.3px;}
-.doc-totalsbox .row:last-child{border-bottom:none;}
-.doc-totalsbox .row.vat{background:var(--doc-tint);}
-.doc-totalsbox .row.discount{color:var(--danger);}
-.doc-totalsbox .row.total{background:var(--doc-ink);color:#fff;font-weight:700;font-size:13px;padding:7px 14px;}
-
-/* MARINA Documents box — bulleted list on the left, price vertically centered on the right */
-.marina-box{border-top:1px solid var(--doc-ink);border-bottom:1px solid var(--doc-ink);padding:14px 0;margin:8px 0 18px;}
-.marina-title{font-weight:700;font-size:11px;letter-spacing:.03em;margin-bottom:10px;}
-.doc-subcat-title{font-weight:700;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--doc-ink);margin:16px 0 6px;}
-.doc-subcat-title:first-child{margin-top:0;}
-.doc-na-block{color:var(--doc-ink-faint);font-style:italic;font-size:11.5px;padding:2px 0 10px;}
-.marina-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:24px;}
-.marina-list{margin:0;padding-left:16px;line-height:1.85;font-size:11px;list-style:none;}
-.marina-list li{position:relative;}
-.marina-list li::before{content:"-";position:absolute;left:-14px;}
-.marina-price{font-family:'Consolas',monospace;font-size:12.5px;white-space:nowrap;padding-right:8px;}
-
-/* Payment schedule */
-.doc-paysched-total{background:var(--doc-accent-soft);font-weight:700;}
-
-/* Bank details — quiet bordered cards instead of a plain row */
-.doc-bank-row{display:flex;justify-content:flex-start;gap:16px;flex-wrap:wrap;padding:0;}
-.doc-bank-row .acct{
-  min-width:200px;flex:1;border:1px solid var(--doc-line);border-radius:8px;padding:7px 10px;font-size:10.8px;
-}
-.doc-bank-row .acct .bn{font-weight:700;margin-bottom:6px;color:var(--doc-ink);font-size:11.5px;}
-.doc-bank-row .acct div{color:var(--doc-ink-soft);line-height:1.75;}
-
-/* Signature row */
-.doc-sign{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:28px;margin-top:44px;font-size:10.5px;text-align:center;}
-.doc-sign .imgslot{height:46px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px;}
-.doc-sign .imgslot img{max-height:44px;max-width:150px;object-fit:contain;}
-.doc-sign .ln{border-top:1px solid var(--doc-ink);padding-top:8px;}
-.doc-sign .nm{font-weight:700;color:var(--doc-ink);}
-.doc-sign .role{color:var(--doc-ink-faint);text-transform:uppercase;font-size:8.8px;letter-spacing:.06em;margin-bottom:22px;}
-
-/* Signature manager (editing UI, hidden on print) */
-.siggrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px;}
-.sigcard{border:1px solid var(--paper-line);border-radius:var(--radius-sm);padding:12px;background:var(--surface);}
-.sigcard .role{font-size:10.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px;}
-.sigcard .prev{height:52px;display:flex;align-items:center;justify-content:center;background:var(--paper);border-radius:6px;margin-bottom:8px;overflow:hidden;}
-.sigcard .prev img{max-height:48px;max-width:100%;object-fit:contain;}
-.sigcard .prev.empty{color:var(--ink-faint);font-size:11px;}
-.sigcard input[type="text"]{width:100%;padding:6px 8px;border:1px solid var(--paper-line);border-radius:6px;font-size:12px;margin-bottom:6px;}
-.sigcard .row2{display:flex;gap:6px;}
-
-/* Page-break markers between Front Page / Terms & Signatories / Item Details.
-   The dashed line + label are only a visual guide while editing on screen;
-   the actual page break (break-before) is what matters when printing. */
-.doc-pagebreak{
-  break-before:page;page-break-before:always;
-  margin:34px 0;padding-top:16px;border-top:2px dashed var(--doc-line);position:relative;
-}
-.doc-pagebreak .lbl{
-  position:absolute;top:-8px;left:0;background:#fff;padding-right:10px;
-  font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--doc-ink-faint);
-}
-@media print{
-  .doc-pagebreak{margin:0;padding:0;border:none;}
-  .doc-pagebreak .lbl{display:none;}
-}
-
-@page{ margin:11mm 11mm; }
-@media print{
-  body *{visibility:hidden;}
-  .doc-wrap,.doc-wrap *{visibility:visible;}
-  html,body{margin:0!important;padding:0!important;background:#fff!important;}
-  .doc{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-  .doc-wrap{position:absolute;left:0;top:0;padding:0;background:#fff;width:100%;overflow:visible;container-type:normal;}
-  /* Reset the screen-only enlargement so print renders at true 100% size —
-     every font-size/padding/margin below this point is otherwise now
-     identical between screen and print, so what you see in the app's
-     Quotation Output tab is what actually prints. */
-  .doc{box-shadow:none;margin:0;width:100%;max-width:188mm;border-radius:0;zoom:1;break-inside:auto;}
-  .no-print{display:none!important;}
-  .doc-section-title{page-break-after:avoid;break-after:avoid;}
-  .doc-band-row,.doc-words-row,.doc-sign,.doc-item-table tr,.doc-bank-row .acct,.doc-cost-row{
-    page-break-inside:avoid;break-inside:avoid;
-  }
-}
-
-
-
-/* The on-screen document is enlarged only when its container is wide enough to hold it;
-   otherwise it renders at true size so the right edge is never clipped. */
-.doc-wrap{container-type:inline-size;}
-@container (max-width:1010px){ .doc{zoom:1;} }
-/* the global table min-width is for app tables; the document's small header tables must be free to shrink */
-.doc table{min-width:0;}
-
-/* empty state */
-.empty{padding:48px 20px;text-align:center;color:var(--ink-faint);font-size:13px;}
-.empty svg{opacity:.3;margin-bottom:12px;}
-
-/* toast: black pill, bottom centre */
-#toast{
-  position:fixed;bottom:24px;left:50%;background:var(--black);color:#fff;padding:11px 20px;border-radius:var(--pill);
-  font-size:12.5px;font-weight:500;box-shadow:var(--shadow-lg);z-index:999;opacity:0;pointer-events:none;
-  transform:translate(-50%,12px);transition:opacity var(--t), transform var(--t);
-}
-#toast.show{opacity:1;transform:translate(-50%,0);}
-
-.section-lead{font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;max-width:560px;}
-.pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
-.search{position:relative;}
-.search input{padding-left:32px;}
-.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.4;}
-
-@keyframes bootspin{to{transform:rotate(360deg);}}
-
-/* ---------- Login ---------- */
-#loginScreen{
-  position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:1000;
-  background:radial-gradient(900px 520px at 0% 0%, #f9e3cf 0%, transparent 62%),radial-gradient(900px 600px at 100% 100%, #dbe6d3 0%, transparent 60%),#f3eee4;
-}
-#loginForm{
-  width:min(360px,calc(100vw - 32px));background:var(--glass-strong);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);
-  border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:32px 28px;box-shadow:var(--shadow-lg);animation:fadeInUp .4s var(--ease);
-}
-#loginForm h1{font-size:20px;margin:14px 0 4px;}
-#loginForm .login-sub{font-size:12.5px;color:var(--ink-soft);margin-bottom:22px;}
-#loginForm .brand-tile{width:42px;height:42px;}
-#loginError{display:none;color:var(--danger);font-size:12px;margin-bottom:12px;}
-#loginSubmit{width:100%;justify-content:center;padding:12px 18px;}
-#bootScreen{position:fixed;inset:0;background:#f3eee4;display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:12px;font-family:'Inter',sans-serif;}
-#bootScreen .spin{width:34px;height:34px;border:3px solid rgba(21,21,21,.1);border-top-color:var(--ink);border-radius:50%;animation:bootspin .8s linear infinite;}
-#bootScreen .msg{color:var(--ink-soft);font-size:13px;}
-
-/* ---------- Responsive ---------- */
-img, svg { max-width: 100%; }
-button, .btn { touch-action: manipulation; }
-input, select, textarea { max-width: 100%; }
-
-@media(max-width:900px){
-  .shell{padding-left:0;padding-bottom:84px;}
-  .masthead{flex-wrap:wrap;padding:14px 14px 6px;gap:10px 12px;}
-  .masthead::before{inset:0 0 -10px 0;}
-  .brand{order:1;}
-  .sidebar-foot{order:2;margin-left:auto;}
-  .nav{order:3;flex-basis:100%;}
-  .who-name{display:none;}
-  .topbar{padding:10px 14px 0;}
-  .content{padding:16px 14px 40px;}
-  .sidebar{ /* dock moves to the bottom edge */
-    left:50%;top:auto;bottom:14px;transform:translateX(-50%);width:auto;height:var(--dock-w);
-    padding:0 12px;flex-direction:row;
-  }
-  .dock-btn.primary{margin:0 6px 0 0;}
-  .dock-sep{width:1px;height:22px;margin:0 6px;}
-  #toast{bottom:90px;}
-}
-@media (max-width: 600px) {
-  .topbar .actions .btn{padding:8px 13px;font-size:11.5px;}
-  .card-head{padding:14px 16px 10px;}
-  .card-body{padding:4px 16px 16px;}
-  .qcards{padding:0 16px 16px;}
-  .mixbar,.mixlist,.quick{padding-left:16px;padding-right:16px;}
-  .doc-wrap { padding: 16px 8px; }
-  .doc { zoom: 1; }
-  .stat .val{font-size:19px;}
-  .stat-row{display:grid;grid-template-columns:1fr;gap:14px;}
-  .qcard{min-height:150px;}
-}
-@media print{
-  .sidebar,.masthead,.topbar,#toast{display:none!important;}
-  .shell{padding:0!important;}
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    scroll-behavior: auto !important;
-    animation-duration: .01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
-  }
-}
-
-/* =====================================================================
+/* ============================================================
    SALES TRACKER
-   Status colours: approved = green, pending = yellow, not approved = a
-   quiet stone so the deals that matter stand out.
-   ===================================================================== */
-:root{ --sl-won:#2f5d4d; --sl-open:#f2c230; --sl-lost:#d3cdbf; }
-.sl-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px;}
-.sl-filters select,.sl-filters input{padding:8px 14px;border:1px solid rgba(21,21,21,.1);border-radius:var(--pill);background:rgba(255,255,255,.8);color:var(--ink);font-size:12.5px;max-width:190px;}
-.sl-filters select:focus,.sl-filters input:focus{outline:none;border-color:var(--ink);box-shadow:0 0 0 3px rgba(242,194,48,.45);}
-.sl-search input{width:240px;max-width:none;padding-left:34px;}
+   Replaces the Google Sheet / Excel boat-sales log. Records live in
+   the global SALES array (see app.js), are saved with
+   save(DB_KEYS.sales, SALES) and therefore sync through Supabase
+   like every other list. Loaded BEFORE app.js; it only touches
+   app.js globals at call-time, never at load-time.
+   ============================================================ */
+const SALES_STATUSES = ['Pending','Approved','Not Approved'];
+const SALES_CLIENT_TYPES = ['Government','Private - Commercial','Private - Personal'];
+const SALES_BUILD_TYPES = ['Standard Build','Custom Build','Reconstruction'];
+const SALES_UI = { status:'', incharge:'', model:'', clientType:'', month:'', term:'', metric:'value' };
 
-.sl-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:16px;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
-.sl-kpi{padding:18px 20px 16px;border-left:1px solid var(--paper-line);position:relative;min-width:0;}
-.sl-kpi:first-child{border-left:none;}
-.sl-kpi.won::before,.sl-kpi.open::before{content:"";position:absolute;left:0;right:0;top:0;height:4px;}
-.sl-kpi.won::before{background:var(--sl-won);} .sl-kpi.open::before{background:var(--sl-open);}
-.sl-k-val{font-family:'Sora',sans-serif;font-size:26px;font-weight:600;letter-spacing:-.025em;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap;}
-.sl-k-val small{font-family:'Inter',sans-serif;font-size:12px;font-weight:500;color:var(--ink-soft);letter-spacing:0;}
-.sl-k-lbl{margin-top:6px;font-size:12.5px;font-weight:600;color:var(--ink);}
-.sl-k-sub{margin-top:2px;font-size:11.5px;color:var(--ink-soft);}
+/* Historical data imported once from BOAT_SALES_ANALYTICS_REPORT_2026.xlsx */
+function salesSeed(){
+  return [{"id":"s_001","refNo":"Q26-05 rev05","inquiryDate":"2026-02-18","draftDate":"2026-02-18","submitDate":"2026-02-18","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":28.0,"boatModel":"Apple Series","application":"Pleasure Boat","project":"","client":"DDC Land","location":"","clientType":"Private - Commercial","boats":1,"value":3430399.84,"status":"Approved","notes":""},{"id":"s_002","refNo":"Q26-17","inquiryDate":"2026-01-26","draftDate":"2026-01-26","submitDate":"2026-01-26","incharge":"Sales Team","buildType":"Custom Build","loa":40.0,"boatModel":"Custom Boat","application":"Passenger Boat","project":"","client":"City of Isabela, Basilan","location":"","clientType":"Government","boats":1,"value":10800000.0,"status":"Approved","notes":""},{"id":"s_003","refNo":"Q26-18","inquiryDate":"2026-02-20","draftDate":"2026-02-20","submitDate":"2026-02-20","incharge":"Sales Team","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Dive Boat","project":"","client":"Asia Divers","location":"","clientType":"Private - Commercial","boats":1,"value":1248487.0,"status":"Approved","notes":""},{"id":"s_004","refNo":"Q26-26","inquiryDate":"2026-02-24","draftDate":"2026-02-24","submitDate":"2026-02-24","incharge":"Sales Team","buildType":"Standard Build","loa":40.0,"boatModel":"Apple Series","application":"Pleasure Boat","project":"","client":"Gallo","location":"","clientType":"Private - Personal","boats":1,"value":2173741.0,"status":"Not Approved","notes":""},{"id":"s_005","refNo":"Q26-30","inquiryDate":"2026-03-06","draftDate":"2026-03-06","submitDate":"2026-03-06","incharge":"Sales Team","buildType":"Standard Build","loa":30.0,"boatModel":"Embassy Series","application":"Patrol Boat","project":"","client":"PNP SAF","location":"","clientType":"Government","boats":1,"value":17280000.0,"status":"Not Approved","notes":""},{"id":"s_006","refNo":"Q26-43","inquiryDate":"2026-04-16","draftDate":"2026-04-16","submitDate":"2026-04-16","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Dive Boat","project":"","client":"ML Puerto Galera","location":"","clientType":"Private - Commercial","boats":1,"value":1242360.0,"status":"Approved","notes":""},{"id":"s_007","refNo":"Q26-45","inquiryDate":"2026-04-20","draftDate":"2026-04-20","submitDate":"2026-04-20","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Dive Boat","project":"30-Footer Dive Boat - APPLE WIDE","client":"Mr.Ivan YJ","location":"Puerto Galera","clientType":"Private - Commercial","boats":1,"value":2353721.44,"status":"Not Approved","notes":""},{"id":"s_008","refNo":"Q26-46","inquiryDate":"2026-04-20","draftDate":"2026-04-20","submitDate":"2026-04-20","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":27.0,"boatModel":"Apple Series","application":"Dive Boat","project":"27-Footer Dive Boat - APPLE NARROW","client":"Mr.Ivan YJ","location":"Puerto Galera","clientType":"Private - Commercial","boats":1,"value":1542632.0,"status":"Not Approved","notes":""},{"id":"s_009","refNo":"Q26-47","inquiryDate":"2026-04-20","draftDate":"2026-04-20","submitDate":"2026-04-20","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":28.0,"boatModel":"Apple Series","application":"Dive Boat","project":"28 Footer Tour/Dive Boat - Apple Wide","client":"Mr.Ivan YJ","location":"Puerto Galera","clientType":"Private - Commercial","boats":1,"value":3377824.8,"status":"Not Approved","notes":""},{"id":"s_010","refNo":"Q26-48","inquiryDate":"2026-04-20","draftDate":"2026-04-20","submitDate":"2026-04-23","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Dive Boat","project":"30-Footer Dive Boat - APPLE WIDE","client":"Mr.Ivan YJ","location":"Puerto Galera","clientType":"Private - Commercial","boats":1,"value":1790152.0,"status":"Not Approved","notes":""},{"id":"s_011","refNo":"Q26-51","inquiryDate":"2026-04-24","draftDate":"2026-04-24","submitDate":"2026-04-24","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":52.0,"boatModel":"Catamaran Series","application":"Restaurant Boat","project":"52ft Catamaran Restaurant Boat","client":"Mayor Hajiri","location":"Lugus, Sulu","clientType":"Private - Commercial","boats":1,"value":28048428.57,"status":"Not Approved","notes":""},{"id":"s_012","refNo":"Q26-55","inquiryDate":"2026-05-10","draftDate":"2026-05-10","submitDate":"2026-05-10","incharge":"Sales Team","buildType":"Custom Build","loa":26.0,"boatModel":"Custom Boat","application":"Sea Ambulance","project":"","client":"Mr. Efren Palmiery","location":"","clientType":"Private - Commercial","boats":1,"value":3240135.0,"status":"Not Approved","notes":""},{"id":"s_013","refNo":"Q26-59","inquiryDate":"2026-05-15","draftDate":"2026-05-15","submitDate":"2026-05-15","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":40.0,"boatModel":"Embassy Series","application":"Passenger Boat","project":"40Ft Passenger Boat - E SERIES no engine","client":"The Lind Hotels","location":"","clientType":"Private - Commercial","boats":1,"value":0,"status":"Not Approved","notes":""},{"id":"s_014","refNo":"Q26-61","inquiryDate":"2026-05-15","draftDate":"2026-05-16","submitDate":"2026-05-16","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":40.0,"boatModel":"Embassy Series","application":"Passenger Boat","project":"40Ft Passenger Boat - E SERIES no engine","client":"Ms. Josephine Balita","location":"","clientType":"Private - Commercial","boats":1,"value":0,"status":"Not Approved","notes":""},{"id":"s_015","refNo":"Q26-63","inquiryDate":"2026-05-16","draftDate":"2026-05-16","submitDate":"2026-05-18","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Dive Boat","project":"30ft   Dive Boat Reef runner series With single 250hp SUZUKI OBM","client":"Mr. Sean Clubmir","location":"","clientType":"Private - Commercial","boats":1,"value":4459134.4,"status":"Not Approved","notes":""},{"id":"s_016","refNo":"Q26-64","inquiryDate":"2026-05-16","draftDate":"2026-05-16","submitDate":"2026-05-18","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Dive Boat","project":"30ft Dive Boat Apple Series With single 150hp SUZUKI OBM","client":"Mr. Sean Clubmir","location":"","clientType":"Private - Commercial","boats":1,"value":3102148.0,"status":"Not Approved","notes":""},{"id":"s_017","refNo":"Q26-64.2","inquiryDate":"2026-05-16","draftDate":"2026-05-16","submitDate":"2026-05-18","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Dive Boat","project":"30ft Dive Boat Apple Series With single 150hp SUZUKI OBM","client":"Mr. Sean Clubmir","location":"","clientType":"Private - Commercial","boats":1,"value":2736843.6,"status":"Not Approved","notes":""},{"id":"s_018","refNo":"Q26-65","inquiryDate":"2026-05-05","draftDate":"2026-05-21","submitDate":"2026-05-22","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Dive Boat","project":"30ft Dive Boat Reef runner series With single 250hp Mercury OBM","client":"Mr. Jhong Queron","location":"","clientType":"Private - Commercial","boats":1,"value":3712304.0,"status":"Not Approved","notes":""},{"id":"s_019","refNo":"Q26-66","inquiryDate":"2026-05-29","draftDate":"2026-05-29","submitDate":"2026-05-29","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Sea Ambulance","project":"30ft Sea Ambulance with dual 150hp Mercury OBM","client":"Ronald Maghanoy","location":"","clientType":"Government","boats":1,"value":8261118.0,"status":"Not Approved","notes":""},{"id":"s_020","refNo":"Q26-60BFAR","inquiryDate":"2026-06-02","draftDate":"2026-06-02","submitDate":"2026-06-02","incharge":"Sales Team","buildType":"Standard Build","loa":55.0,"boatModel":"Outrigger Boat","application":"Patrol Boat","project":"","client":"BFAR-FISHCORE","location":"","clientType":"Government","boats":6,"value":42004000.0,"status":"Not Approved","notes":""},{"id":"s_021","refNo":"Q26-67","inquiryDate":"2026-06-02","draftDate":"2026-06-02","submitDate":"2026-06-02","incharge":"Corazon Bobadilla","buildType":"Reconstruction","loa":40.0,"boatModel":"Custom Boat","application":"","project":"40Ft Passenger ES dual 350hp OBM","client":"Mr. Qieng Feng","location":"Puerto Galera","clientType":"Private - Commercial","boats":1,"value":4132764.0,"status":"Not Approved","notes":""},{"id":"s_022","refNo":"Q26-68","inquiryDate":"2026-06-02","draftDate":"2026-06-02","submitDate":"2026-06-02","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Sea Ambulance","project":"30ft Sea Ambulance with dual 150hp Mercury OBM","client":"Felix - Scan Marine","location":"","clientType":"Private - Commercial","boats":1,"value":8061118.0,"status":"Not Approved","notes":""},{"id":"s_023","refNo":"Q26-69","inquiryDate":"2026-06-05","draftDate":"2026-06-05","submitDate":"2026-06-05","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":"","boatModel":"Embassy Series","application":"","project":"","client":"South West","location":"","clientType":"Private - Commercial","boats":1,"value":9075000.0,"status":"Not Approved","notes":""},{"id":"s_024","refNo":"Q26-70","inquiryDate":"2026-06-06","draftDate":"2026-06-06","submitDate":"2026-06-06","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":24.0,"boatModel":"Apple Series","application":"Speed Boat","project":"24Ft Center Console with single 200hp Yamaha OBM","client":"Toea Chan","location":"Papua New Guinea","clientType":"Private - Personal","boats":1,"value":4618000.0,"status":"Pending","notes":""},{"id":"s_025","refNo":"Q26-71","inquiryDate":"2026-06-09","draftDate":"2026-06-09","submitDate":"2026-06-09","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":35.0,"boatModel":"Navigator Series","application":"Passenger Boat","project":"35Ft Navigator Series with dual 300hp Yamaha OBM , dual 350hp Yamaha","client":"Toea Chan","location":"Papua New Guinea","clientType":"Private - Personal","boats":1,"value":15045000.0,"status":"Pending","notes":""},{"id":"s_026","refNo":"Q26-72","inquiryDate":"2026-06-09","draftDate":"2026-06-09","submitDate":"2026-06-09","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Passenger Boat","project":"30Ft. Passenger 16 pax Reef Runner with dual 150Hp Yamaha OBM","client":"Toea Chan","location":"Papua New Guinea","clientType":"Private - Personal","boats":1,"value":8109500.0,"status":"Pending","notes":""},{"id":"s_027","refNo":"Q26-70Trailer","inquiryDate":"2026-06-09","draftDate":"2026-06-09","submitDate":"2026-06-09","incharge":"Corazon Bobadilla","buildType":"Custom Build","loa":"","boatModel":"Custom Boat","application":"","project":"Trailer","client":"","location":"","clientType":"Private - Commercial","boats":1,"value":375000.0,"status":"Approved","notes":""},{"id":"s_028","refNo":"Q26-75","inquiryDate":"2026-06-19","draftDate":"2026-06-19","submitDate":"2026-06-24","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":40.0,"boatModel":"Embassy Series","application":"Passenger Boat","project":"40Ft. Passenger Embassy Series","client":"Joey Uy","location":"","clientType":"Private - Commercial","boats":1,"value":9833600.0,"status":"Not Approved","notes":""},{"id":"s_029","refNo":"Q26-76","inquiryDate":"2026-06-19","draftDate":"2026-06-19","submitDate":"2026-06-24","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Passenger Boat","project":"30Ft. Transfer Boat Apple","client":"Joey Uy","location":"","clientType":"Private - Commercial","boats":1,"value":2458000.0,"status":"Not Approved","notes":""},{"id":"s_030","refNo":"Q26-77","inquiryDate":"2026-06-19","draftDate":"2026-06-19","submitDate":"2026-06-24","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Passenger Boat","project":"30Ft. Passenger Reef Runner","client":"Joey Uy","location":"","clientType":"Private - Commercial","boats":1,"value":3015040.0,"status":"Not Approved","notes":""},{"id":"s_031","refNo":"Q26-78","inquiryDate":"2026-06-19","draftDate":"2026-06-19","submitDate":"2026-06-24","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":50.0,"boatModel":"Outrigger Boat","application":"Passenger Boat","project":"50ft Passenger Outrigger Boat","client":"Joey Uy","location":"","clientType":"Private - Commercial","boats":1,"value":3771040.0,"status":"Not Approved","notes":""},{"id":"s_032","refNo":"Q26-79","inquiryDate":"2026-06-19","draftDate":"2026-06-19","submitDate":"2026-06-24","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":26.0,"boatModel":"Reef Runner Series","application":"Passenger Boat","project":"26Ft. Passenger 16 Reef Runner","client":"Joey Uy","location":"","clientType":"Private - Commercial","boats":1,"value":2662240.0,"status":"Not Approved","notes":""},{"id":"s_033","refNo":"Q26-80","inquiryDate":"2026-06-26","draftDate":"2026-06-26","submitDate":"2026-06-26","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":40.0,"boatModel":"Reef Runner Series","application":"Passenger Boat","project":"40 Footer Sea Ambulance Boat - ES Series","client":"Mr. Efren P. Palmiery","location":"Makati City","clientType":"Private - Commercial","boats":1,"value":9329600.0,"status":"Not Approved","notes":""},{"id":"s_034","refNo":"Q26-82","inquiryDate":"2026-07-03","draftDate":"2026-07-03","submitDate":"2026-07-03","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Reef Runner Series","application":"Passenger Boat","project":"30 Footer Passenger - Reef Runner Boat for Lake Use","client":"Ms. Kimverly Agua","location":"170 Salcedo St., Makati City","clientType":"Private - Commercial","boats":1,"value":5082560.0,"status":"Not Approved","notes":""},{"id":"s_035","refNo":"Q26-83","inquiryDate":"2026-07-03","draftDate":"2026-07-03","submitDate":"2026-07-03","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":40.0,"boatModel":"Reef Runner Series","application":"Passenger Boat","project":"40 Footer Passenger boat - Embassy Series Offshore/Interisland","client":"Ms. Kimverly Agua","location":"170 Salcedo St., Makati City","clientType":"Private - Commercial","boats":1,"value":12826576.0,"status":"Not Approved","notes":""},{"id":"s_036","refNo":"Q26-84","inquiryDate":"","draftDate":"","submitDate":"","incharge":"Corazon Bobadilla","buildType":"Standard Build","loa":40.0,"boatModel":"Apple Series","application":"Ambulance Boat","project":"","client":"Scan Marine","location":"","clientType":"Private - Commercial","boats":1,"value":6944000.0,"status":"Pending","notes":""},{"id":"s_037","refNo":"Q26-85","inquiryDate":"2026-07-15","draftDate":"2026-07-15","submitDate":"2026-07-15","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Patrol Boat","project":"","client":"BFAR Reg. 4B","location":"MIMAROPA","clientType":"Government","boats":1,"value":3685000,"status":"Pending","notes":""},{"id":"s_038","refNo":"Q26-86","inquiryDate":"2026-07-15","draftDate":"2026-07-15","submitDate":"2026-07-17","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":28.0,"boatModel":"Apple Series","application":"Dive Boat","project":"28 Footer Tour/Dive Boat - Reef Runner","client":"Crimson Hotel & Spa Mactan","location":"Crimson Hotel","clientType":"Private - Commercial","boats":1,"value":3992800.0,"status":"Not Approved","notes":""},{"id":"s_039","refNo":"Q26-00","inquiryDate":"2026-07-24","draftDate":"2026-07-24","submitDate":"2026-07-24","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":"","boatModel":"Apple Series","application":"Rescue Boat","project":"","client":"","location":"","clientType":"Private - Commercial","boats":1,"value":1500000.0,"status":"Pending","notes":""},{"id":"s_040","refNo":"Q26-88","inquiryDate":"2026-07-24","draftDate":"2026-07-24","submitDate":"2026-07-24","incharge":"Psyche Pilapil","buildType":"Custom Build","loa":32.0,"boatModel":"Custom Boat","application":"Center Console","project":"32 Footer Center onsole Boat","client":"Arnold Lamusao","location":"Arnold Lamusao","clientType":"Private - Commercial","boats":1,"value":4765000.0,"status":"Not Approved","notes":""},{"id":"s_041","refNo":"Q26-89","inquiryDate":"2026-07-25","draftDate":"2026-07-25","submitDate":"2026-07-27","incharge":"Psyche Pilapil","buildType":"Standard Build","loa":30.0,"boatModel":"Apple Series","application":"Dive Boat","project":"30 Footer Tour/Dive Boat - Reef Runner","client":"Crimson Hotel & Spa Mactan","location":"Mactan, Cebu","clientType":"Private - Commercial","boats":1,"value":4300856.0,"status":"Not Approved","notes":""}];
+}
 
-.sl-grid{display:grid;gap:16px;margin-bottom:16px;align-items:start;}
-.sl-grid>.card{min-width:0;}
-.sl-g-main{grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);}
-.sl-g-three{grid-template-columns:repeat(3,minmax(0,1fr));}
+/* ---------- small helpers ---------- */
+function slEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function slShort(n){
+  n = Number(n)||0;
+  if(Math.abs(n)>=1e9) return '₱'+(n/1e9).toFixed(2)+'B';
+  if(Math.abs(n)>=1e6) return '₱'+(n/1e6).toFixed(1)+'M';
+  if(Math.abs(n)>=1e3) return '₱'+Math.round(n/1e3).toLocaleString('en-PH')+'K';
+  return '₱'+Math.round(n).toLocaleString('en-PH');
+}
+function slPct(a,b){ return b>0 ? (a/b*100) : 0; }
+function slPctTxt(a,b){ return b>0 ? (Math.round(a/b*1000)/10)+'%' : '—'; }
+function slDay(iso){ if(!iso) return null; const p=String(iso).split('-').map(Number); if(p.length<3||p.some(isNaN)) return null; return Math.round(Date.UTC(p[0],p[1]-1,p[2])/86400000); }
+function slTurnaround(s){ const a=slDay(s.inquiryDate), b=slDay(s.submitDate); return (a==null||b==null||b<a) ? null : b-a; }
+function slMonthKey(iso){ return iso ? String(iso).slice(0,7) : ''; }
+const SL_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function slMonthLabel(key, withYear){ const [y,m]=key.split('-').map(Number); return SL_MON[m-1]+(withYear?' '+y:''); }
+function slDateTxt(iso){ if(!iso) return '—'; const [y,m,d]=iso.split('-').map(Number); return SL_MON[m-1]+' '+d+', '+y; }
+function slStatusClass(st){ return st==='Approved'?'won':(st==='Pending'?'open':'lost'); }
+function slSum(list, f){ return list.reduce((s,x)=>s+(Number(f?f(x):x)||0),0); }
+function slGroup(list, keyFn){
+  const m = new Map();
+  list.forEach(s=>{
+    const k = keyFn(s) || '—';
+    if(!m.has(k)) m.set(k, { label:k, n:0, total:0, won:0, wonN:0, openN:0, open:0, days:[] });
+    const g = m.get(k), v = Number(s.value)||0;
+    g.n++; g.total+=v;
+    if(s.status==='Approved'){ g.won+=v; g.wonN++; }
+    if(s.status==='Pending'){ g.open+=v; g.openN++; }
+    const t = slTurnaround(s); if(t!=null) g.days.push(t);
+  });
+  return Array.from(m.values()).sort((a,b)=>b.total-a.total);
+}
+function slAvg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
 
-.sl-seg{display:flex;background:rgba(21,21,21,.06);border-radius:var(--pill);padding:3px;}
-.sl-seg button{border:none;background:transparent;font:600 11.5px 'Inter',sans-serif;color:var(--ink-soft);padding:5px 13px;border-radius:var(--pill);cursor:pointer;}
-.sl-seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow-sm);}
+function slFiltered(){
+  const u = SALES_UI, term = u.term.trim().toLowerCase();
+  return SALES.filter(s=>{
+    if(u.status && s.status!==u.status) return false;
+    if(u.incharge && s.incharge!==u.incharge) return false;
+    if(u.model && s.boatModel!==u.model) return false;
+    if(u.clientType && s.clientType!==u.clientType) return false;
+    if(u.month && slMonthKey(s.inquiryDate)!==u.month) return false;
+    if(term){
+      const hay = [s.refNo,s.client,s.project,s.location,s.boatModel,s.application,s.incharge,s.notes].join(' ').toLowerCase();
+      if(!hay.includes(term)) return false;
+    }
+    return true;
+  });
+}
 
-.sl-months{display:flex;gap:6px;align-items:flex-end;min-width:360px;}
-.sl-mcol{flex:1;min-width:0;border:none;background:transparent;padding:4px 0 0;cursor:pointer;font-family:inherit;border-radius:12px;display:flex;flex-direction:column;align-items:stretch;text-align:center;transition:background var(--t-fast);}
-.sl-mcol:hover{background:rgba(21,21,21,.045);}
-.sl-mval{font-size:10.5px;font-weight:600;color:var(--ink-soft);height:16px;white-space:nowrap;font-variant-numeric:tabular-nums;}
-.sl-mbar{height:170px;display:flex;flex-direction:column-reverse;align-items:center;border-bottom:1.5px solid var(--ink);}
-.sl-mbar i{display:block;width:70%;max-width:42px;min-height:2px;}
-.sl-mbar i:first-child{border-radius:0;}
-.sl-mbar .won,.sl-legend .won,.sl-split .won,.sl-srow .won{background:var(--sl-won);}
-.sl-mbar .open,.sl-legend .open,.sl-split .open,.sl-srow .open{background:var(--sl-open);}
-.sl-mbar .lost,.sl-legend .lost,.sl-split .lost,.sl-srow .lost{background:var(--sl-lost);}
-.sl-mlbl{font-size:11.5px;font-weight:600;margin-top:6px;}
-.sl-mcnt{font-size:10.5px;color:var(--ink-faint);}
-.sl-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--ink-soft);}
-.sl-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;}
+/* ============================================================
+   PAGE
+   ============================================================ */
+function renderSales(content, actions){
+  actions.innerHTML = `
+    <button class="btn" id="slImportBtn" title="Import rows from an Excel or CSV file">Import</button>
+    <button class="btn" id="slExportBtn" title="Download every sale as a CSV file">Export</button>
+    <button class="btn btn-primary" id="slAddBtn">${icon('plus')} Log a sale</button>`;
 
-.sl-split{display:flex;height:18px;border-radius:var(--pill);overflow:hidden;gap:2px;background:rgba(21,21,21,.05);margin-bottom:14px;}
-.sl-split span{display:block;min-width:4px;}
-.sl-srow{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;padding:9px 8px;border-radius:12px;font:500 13px 'Inter',sans-serif;color:var(--ink);cursor:pointer;text-align:left;}
-.sl-srow:hover{background:rgba(21,21,21,.05);}
-.sl-srow i{width:10px;height:10px;border-radius:3px;flex:none;}
-.sl-srow .n{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;}
-.sl-srow .v{min-width:70px;text-align:right;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
-.sl-srow .p{min-width:46px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;}
-.sl-note{font-size:11.5px;color:var(--ink-faint);margin-top:10px;}
-.sl-sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 5px 0 0;vertical-align:-1px;}
-.sl-sw.all,.sl-bt .all{background:var(--sl-lost);} .sl-sw.win,.sl-bt .win{background:var(--sl-won);}
-.sl-sw.win{margin-left:12px;}
+  const uniq = f => Array.from(new Set(SALES.map(f).filter(Boolean)));
+  const monthKeys = uniq(s=>slMonthKey(s.inquiryDate)).sort();
+  const opt = (arr, cur, fmtFn) => arr.map(v=>`<option value="${slEsc(v)}" ${v===cur?'selected':''}>${slEsc(fmtFn?fmtFn(v):v)}</option>`).join('');
 
-.sl-bars{display:flex;flex-direction:column;gap:13px;}
-.sl-bl{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;font-weight:600;}
-.sl-bl .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.sl-bl .v{font-variant-numeric:tabular-nums;color:var(--ink-soft);font-weight:500;flex:none;}
-.sl-bt{position:relative;height:9px;border-radius:var(--pill);background:rgba(21,21,21,.05);margin:6px 0 4px;overflow:hidden;}
-.sl-bt i{position:absolute;left:0;top:0;bottom:0;border-radius:var(--pill);}
-.sl-bt .win{z-index:1;}
-.sl-bs{font-size:11px;color:var(--ink-faint);}
+  content.innerHTML = `
+    <div class="sl-filters">
+      <div class="search sl-search"><span>${icon('search')}</span><input id="slTerm" placeholder="Search ref no., client, project…" value="${slEsc(SALES_UI.term)}"></div>
+      <select id="slFStatus"><option value="">All statuses</option>${opt(SALES_STATUSES,SALES_UI.status)}</select>
+      <select id="slFIncharge"><option value="">All in-charge</option>${opt(uniq(s=>s.incharge).sort(),SALES_UI.incharge)}</select>
+      <select id="slFModel"><option value="">All boat models</option>${opt(uniq(s=>s.boatModel).sort(),SALES_UI.model)}</select>
+      <select id="slFType"><option value="">All client types</option>${opt(uniq(s=>s.clientType).sort(),SALES_UI.clientType)}</select>
+      <select id="slFMonth"><option value="">All months</option>${opt(monthKeys,SALES_UI.month,k=>slMonthLabel(k,true))}</select>
+      <button class="btn btn-ghost btn-sm" id="slReset">Clear filters</button>
+    </div>
+    <div id="slBody"></div>`;
 
-.sl-mini{min-width:520px;}
-.sl-link{border:none;background:none;padding:0;font:600 13px 'Inter',sans-serif;color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(21,21,21,.25);text-underline-offset:3px;}
-.sl-link:hover{text-decoration-color:var(--ink);}
+  const bind = (id, key, ev) => { document.getElementById(id).addEventListener(ev||'change', e=>{ SALES_UI[key]=e.target.value; drawSales(); }); };
+  bind('slTerm','term','input'); bind('slFStatus','status'); bind('slFIncharge','incharge');
+  bind('slFModel','model'); bind('slFType','clientType'); bind('slFMonth','month');
+  document.getElementById('slReset').onclick = ()=>{ Object.assign(SALES_UI,{status:'',incharge:'',model:'',clientType:'',month:'',term:''}); renderAll(); };
+  document.getElementById('slAddBtn').onclick = ()=>slOpenEditor(null);
+  document.getElementById('slExportBtn').onclick = slExportCSV;
+  document.getElementById('slImportBtn').onclick = slOpenImport;
+  drawSales();
+}
 
-.sl-ins{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;}
-.sl-ins li{padding:0 0 0 14px;border-left:3px solid var(--sl-lost);display:flex;flex-direction:column;gap:2px;font-size:12.5px;line-height:1.5;color:var(--ink-soft);}
-.sl-ins li b{color:var(--ink);font-size:13px;}
-.sl-ins li.warn{border-left-color:var(--red);} .sl-ins li.open{border-left-color:var(--sl-open);}
+function drawSales(){
+  const body = document.getElementById('slBody');
+  if(!body) return;
+  const rows = slFiltered();
+  const total = slSum(rows, s=>s.value);
+  const won = rows.filter(s=>s.status==='Approved');
+  const open = rows.filter(s=>s.status==='Pending');
+  const lost = rows.filter(s=>s.status==='Not Approved');
+  const wonV = slSum(won, s=>s.value), openV = slSum(open, s=>s.value);
+  const turn = rows.map(slTurnaround).filter(x=>x!=null);
+  const avgTurn = slAvg(turn);
+  const winRate = slPct(won.length, rows.length);
+  const decided = won.length + lost.length;
 
-.sl-table{min-width:900px;}
-.sl-cl{font-weight:600;max-width:260px;} .sl-sub{font-size:11.5px;color:var(--ink-faint);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.sl-faint{color:var(--ink-faint);} .sl-slow{color:var(--red);font-weight:700;}
-.sl-status{appearance:none;-webkit-appearance:none;border:none;border-radius:var(--pill);padding:4px 24px 4px 11px;font:600 11.5px 'Inter',sans-serif;cursor:pointer;background-repeat:no-repeat;background-position:right 9px center;background-size:8px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23151515' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");}
-.sl-status.won{background-color:var(--sl-won);color:#fff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23ffffff' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");}
-.sl-status.open{background-color:var(--sl-open);color:var(--ink);}
-.sl-status.lost{background-color:var(--sl-lost);color:var(--ink);}
-.sl-status:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
+  if(!SALES.length){
+    body.innerHTML = `<div class="card"><div class="empty">No sales logged yet. Use “Log a sale”, import your Excel file, or pull in your existing quotations.
+      <div style="margin-top:14px;"><button class="btn" id="slFromQ">Add from quotations</button></div></div></div>`;
+    const b = document.getElementById('slFromQ'); if(b) b.onclick = slImportFromQuotes;
+    return;
+  }
 
-.sl-modal{width:min(720px,100%);max-height:min(760px,calc(100vh - 32px));}
-.sl-form{flex:1;overflow:auto;padding:8px 22px 6px;display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
-.sl-form .field.wide{grid-column:1 / -1;}
-.sl-form .field input,.sl-form .field select,.sl-form .field textarea{width:100%;}
+  body.innerHTML = `
+    <div class="sl-kpis">
+      <div class="sl-kpi"><div class="sl-k-val">${slShort(total)}</div><div class="sl-k-lbl">Total quoted</div><div class="sl-k-sub">${rows.length} quotations · ${slSum(rows,s=>s.boats)} boats</div></div>
+      <div class="sl-kpi won"><div class="sl-k-val">${slShort(wonV)}</div><div class="sl-k-lbl">Won (approved)</div><div class="sl-k-sub">${won.length} deals · ${slPctTxt(wonV,total)} of value</div></div>
+      <div class="sl-kpi open"><div class="sl-k-val">${slShort(openV)}</div><div class="sl-k-lbl">Open pipeline</div><div class="sl-k-sub">${open.length} pending quotations</div></div>
+      <div class="sl-kpi"><div class="sl-k-val">${slPctTxt(won.length, rows.length)}</div><div class="sl-k-lbl">Win rate</div><div class="sl-k-sub">${won.length} of ${rows.length} quotes · ${decided?slPctTxt(won.length,decided):'—'} of decided</div></div>
+      <div class="sl-kpi"><div class="sl-k-val">${avgTurn==null?'—':avgTurn.toFixed(1)}<small> days</small></div><div class="sl-k-lbl">Avg turnaround</div><div class="sl-k-sub">${turn.length?`fastest ${Math.min(...turn)} · slowest ${Math.max(...turn)} days`:'inquiry to submission'}</div></div>
+    </div>
 
-@media(max-width:1100px){ .sl-g-main{grid-template-columns:minmax(0,1fr);} .sl-g-three{grid-template-columns:repeat(2,minmax(0,1fr));} .sl-kpis{grid-template-columns:repeat(3,minmax(0,1fr));} .sl-kpi:nth-child(4){border-left:none;} .sl-kpi:nth-child(n+4){border-top:1px solid var(--paper-line);} }
-@media(max-width:700px){ .sl-g-three{grid-template-columns:minmax(0,1fr);} .sl-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} .sl-kpi:last-child{grid-column:1 / -1;border-left:none!important;} .sl-kpi{border-left:none!important;border-top:1px solid var(--paper-line);} .sl-kpi:nth-child(-n+2){border-top:none;} .sl-kpi:nth-child(even){border-left:1px solid var(--paper-line)!important;} .sl-k-val{font-size:22px;} .sl-form{grid-template-columns:1fr;} .sl-search input{width:100%;} .sl-search{flex:1 1 100%;} .sl-filters select{flex:1 1 45%;max-width:none;} }
-@media print{ .sl-filters{display:none;} }
+    <div class="sl-grid sl-g-main">
+      <div class="card"><div class="card-head"><h3>Quotations by month</h3>
+        <div class="sl-seg" role="tablist"><button data-metric="value" class="${SALES_UI.metric==='value'?'on':''}">Value</button><button data-metric="count" class="${SALES_UI.metric==='count'?'on':''}">Count</button></div></div>
+        <div class="card-body">${slMonthlyChart(rows)}
+          <div class="sl-legend"><span><i class="won"></i>Approved</span><span><i class="open"></i>Pending</span><span><i class="lost"></i>Not approved</span></div></div></div>
+      <div class="card"><div class="card-head"><h3>Where the value stands</h3><span class="hint" style="margin:0;">${slShort(total)}</span></div>
+        <div class="card-body">${slStatusSplit(rows)}</div></div>
+    </div>
 
-/* Quotation master data table (mirrors the old sheet's columns) */
-.sl-scroll{overflow:auto;max-height:72vh;border-radius:0 0 var(--radius) var(--radius);}
-.sl-master{min-width:3000px;font-size:12.5px;border-collapse:separate;border-spacing:0;}
-.sl-master th{position:sticky;top:0;z-index:3;background:#f7f3ea;white-space:nowrap;font-size:11px;padding:9px 10px;border-bottom:1px solid var(--paper-line);}
-.sl-master tr.sl-grp th{top:0;text-align:center;font-weight:700;color:var(--ink);background:#efe9db;border-bottom:1px solid var(--paper-line);border-left:1px solid var(--paper-line);}
-.sl-master tr:nth-child(2) th{top:33px;}
-.sl-master td{padding:9px 10px;white-space:nowrap;background:rgba(255,255,255,.72);}
-.sl-master tbody tr:hover td{background:#fffdf5;}
-.sl-master .sl-stick{position:sticky;left:0;z-index:2;box-shadow:1px 0 0 var(--paper-line);background:#fbf8f1;}
-.sl-master th.sl-stick{z-index:5;background:#f7f3ea;}
-.sl-master tbody tr:hover td.sl-stick{background:#fffdf5;}
-.sl-master .sl-stickr{position:sticky;right:0;z-index:2;box-shadow:-1px 0 0 var(--paper-line);background:#fbf8f1;}
-.sl-master th.sl-stickr{z-index:5;background:#f7f3ea;}
-.sl-master td.sl-wrap{white-space:normal;min-width:200px;max-width:280px;line-height:1.35;}
-.sl-bold{font-weight:600;}
-.sl-tag{display:inline-block;padding:2px 10px;border-radius:var(--pill);font-size:11px;font-weight:600;}
-.sl-tag.t-fast{background:var(--teal-soft);color:var(--teal-dark);} .sl-tag.t-normal{background:var(--amber-soft);color:var(--amber-dark);} .sl-tag.t-slow{background:var(--danger-soft);color:var(--danger);}
+    <div class="sl-grid sl-g-three">
+      <div class="card"><div class="card-head"><h3>By boat model</h3></div><div class="card-body">${slBars(slGroup(rows,s=>s.boatModel||'Not specified'),total)}</div></div>
+      <div class="card"><div class="card-head"><h3>By application</h3></div><div class="card-body">${slBars(slGroup(rows,s=>s.application||'Not specified'),total)}</div></div>
+      <div class="card"><div class="card-head"><h3>By client type</h3></div><div class="card-body">${slBars(slGroup(rows,s=>s.clientType||'Not specified'),total)}</div></div>
+    </div>
 
-/* Live Total: editable rows (Overhead / Contingency / Margin / Discount / VAT) */
-.sum-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 6px;}
-.sum-row.sum-edit{align-items:center;gap:8px;}
-.sum-row.sum-edit .k{min-width:84px;}
-.sum-ctl{display:flex;align-items:center;gap:6px;margin-left:auto;}
-.sum-ctl .unit{color:var(--ink-faint);font-size:12px;}
-.sum-input{width:64px;padding:5px 10px;}
-.sum-select{width:auto;padding:5px 8px;}
-.sum-row.sum-edit .v{min-width:92px;text-align:right;}
-.sum-total.sum-total-contract{border-top:2px solid var(--ink);margin-top:10px;}
+    <div class="sl-grid sl-g-main">
+      <div class="card"><div class="card-head"><h3>Quotation in-charge</h3></div><div class="card-body" style="padding:0 8px 14px;">${slInchargeTable(rows)}</div></div>
+      <div class="card"><div class="card-head"><h3>What needs attention</h3></div><div class="card-body">${slInsights(rows,total,openV,winRate)}</div></div>
+    </div>
 
-/* Discount: optional reason + hint under the Discount row in the Live Total */
-.sum-sub{padding:0 0 9px;border-bottom:1px solid var(--paper-line);}
-.sum-sub input[type=text]{width:100%;padding:5px 10px;font-size:12px;}
-.sum-hint{font-size:11px;color:var(--ink-faint);margin-top:4px;min-height:14px;}
-.sum-hint.warn{color:var(--danger);font-weight:600;}
-.doc-totalsbox .row.net{font-weight:600;}
+    <div class="card sl-tablecard"><div class="card-head"><h3>Quotation master data</h3><span class="hint" style="margin:0;">${rows.length} shown${rows.length!==SALES.length?` of ${SALES.length}`:''} · ${fmt(total)}</span></div>
+      <div class="card-body" style="padding:0;">${slTable(rows)}</div></div>
+  `;
+
+  body.querySelectorAll('[data-metric]').forEach(b=>b.onclick=()=>{ SALES_UI.metric=b.dataset.metric; drawSales(); });
+  body.querySelectorAll('[data-slstatus]').forEach(sel=>sel.onchange=()=>{
+    const s = SALES.find(x=>x.id===sel.dataset.slstatus); if(!s) return;
+    s.status = sel.value; s.updatedAt = Date.now(); save(DB_KEYS.sales, SALES); toast('Status updated'); drawSales();
+  });
+  body.querySelectorAll('[data-sledit]').forEach(b=>b.onclick=()=>slOpenEditor(b.dataset.sledit));
+  body.querySelectorAll('[data-sldel]').forEach(b=>b.onclick=()=>{
+    const s = SALES.find(x=>x.id===b.dataset.sldel); if(!s) return;
+    if(confirm(`Delete ${s.refNo} (${s.client||'no client'})? This cannot be undone.`)){
+      SALES.splice(SALES.indexOf(s),1); save(DB_KEYS.sales, SALES); toast('Sale deleted'); renderAll();
+    }
+  });
+  body.querySelectorAll('[data-slfilter]').forEach(b=>b.onclick=()=>{ const [k,v]=b.dataset.slfilter.split('|'); SALES_UI[k]=v; renderAll(); });
+}
+
+/* ---------- charts (plain HTML/CSS, no library) ---------- */
+function slMonthlyChart(rows){
+  const dated = rows.filter(s=>s.inquiryDate);
+  if(!dated.length) return `<div class="empty" style="padding:30px;">No dated quotations to chart.</div>`;
+  const keys = dated.map(s=>slMonthKey(s.inquiryDate)).sort();
+  let [y,m] = keys[0].split('-').map(Number);
+  const last = keys[keys.length-1];
+  const now = todayISO().slice(0,7);
+  const endKey = now>last ? now : last;
+  const months = [];
+  while(true){
+    const k = y+'-'+String(m).padStart(2,'0');
+    months.push(k); if(k>=endKey || months.length>36) break;
+    m++; if(m>12){ m=1; y++; }
+  }
+  const useVal = SALES_UI.metric==='value';
+  const data = months.map(k=>{
+    const list = dated.filter(s=>slMonthKey(s.inquiryDate)===k);
+    const pick = st => { const l=list.filter(s=>s.status===st); return useVal ? slSum(l,s=>s.value) : l.length; };
+    const won=pick('Approved'), open=pick('Pending'), lost=pick('Not Approved');
+    return { k, won, open, lost, tot:won+open+lost, n:list.length };
+  });
+  const max = Math.max(1, ...data.map(d=>d.tot));
+  const multiYear = months[0].slice(0,4)!==months[months.length-1].slice(0,4);
+  return `<div class="sl-months">${data.map(d=>`
+    <button type="button" class="sl-mcol" data-slfilter="month|${d.k}" title="${slMonthLabel(d.k,true)}: ${d.n} quotations — click to filter">
+      <div class="sl-mval">${d.tot? (useVal?slShort(d.tot):d.tot) : ''}</div>
+      <div class="sl-mbar">
+        ${d.lost?`<i class="lost" style="height:${d.lost/max*100}%"></i>`:''}
+        ${d.open?`<i class="open" style="height:${d.open/max*100}%"></i>`:''}
+        ${d.won?`<i class="won" style="height:${d.won/max*100}%"></i>`:''}
+      </div>
+      <div class="sl-mlbl">${slMonthLabel(d.k, multiYear)}</div>
+      <div class="sl-mcnt">${d.n||'·'}</div>
+    </button>`).join('')}</div>`;
+}
+
+function slStatusSplit(rows){
+  const tot = slSum(rows,s=>s.value);
+  const parts = SALES_STATUSES.map(st=>{
+    const l = rows.filter(s=>s.status===st);
+    return { st, n:l.length, v:slSum(l,s=>s.value), cls:slStatusClass(st) };
+  });
+  return `
+    <div class="sl-split">${parts.filter(p=>p.v>0).map(p=>`<span class="${p.cls}" style="flex:${p.v};" title="${p.st}: ${slShort(p.v)}"></span>`).join('')}</div>
+    <div class="sl-splitlist">${parts.map(p=>`
+      <button type="button" class="sl-srow" data-slfilter="status|${p.st}">
+        <i class="${p.cls}"></i><span>${p.st}</span><span class="n">${p.n}</span><span class="v">${slShort(p.v)}</span><span class="p">${slPctTxt(p.v,tot)}</span>
+      </button>`).join('')}</div>
+    <div class="sl-note">Percent is share of quoted value. Click a status to filter.</div>`;
+}
+
+function slBars(groups, total){
+  if(!groups.length) return `<div class="empty" style="padding:24px;">No data</div>`;
+  const max = Math.max(1, ...groups.map(g=>g.total));
+  return `<div class="sl-bars">${groups.slice(0,8).map(g=>`
+    <div class="sl-brow" title="${slEsc(g.label)}: ${g.n} quotes, ${slShort(g.total)} quoted, ${slShort(g.won)} won">
+      <div class="sl-bl"><span class="nm">${slEsc(g.label)}</span><span class="v">${slShort(g.total)}</span></div>
+      <div class="sl-bt"><i class="all" style="width:${g.total/max*100}%"></i><i class="win" style="width:${g.won/max*100}%"></i></div>
+      <div class="sl-bs">${g.n} quote${g.n===1?'':'s'}${g.wonN?` · ${g.wonN} won`:''} · ${slPctTxt(g.total,total)}</div>
+    </div>`).join('')}
+    ${groups.length>8?`<div class="sl-note">+${groups.length-8} more not shown</div>`:''}
+    <div class="sl-note"><i class="sl-sw all"></i>quoted <i class="sl-sw win"></i>won</div></div>`;
+}
+
+function slInchargeTable(rows){
+  const g = slGroup(rows, s=>s.incharge||'Unassigned');
+  if(!g.length) return `<div class="empty" style="padding:24px;">No data</div>`;
+  return `<table class="sl-mini"><thead><tr><th>Name</th><th class="right">Quotes</th><th class="right">Won</th><th class="right">Pending</th><th class="right">Win rate</th><th class="right">Quoted value</th><th class="right">Avg days</th></tr></thead><tbody>
+    ${g.map(x=>{ const a=slAvg(x.days); return `<tr>
+      <td><button type="button" class="sl-link" data-slfilter="incharge|${slEsc(x.label)}">${slEsc(x.label)}</button></td>
+      <td class="right">${x.n}</td><td class="right">${x.wonN}</td><td class="right">${x.openN}</td>
+      <td class="right">${slPctTxt(x.wonN,x.n)}</td><td class="right mono">${slShort(x.total)}</td><td class="right">${a==null?'—':a.toFixed(1)}</td></tr>`; }).join('')}
+  </tbody></table>`;
+}
+
+function slInsights(rows,total,openV,winRate){
+  const items = [];
+  if(!rows.length) return `<div class="empty" style="padding:24px;">Nothing to analyse with these filters.</div>`;
+  const clients = slGroup(rows, s=>s.client||'No client name');
+  const top = clients[0];
+  if(top && total>0){
+    const share = slPct(top.total,total);
+    items.push({ tone: share>=25?'warn':'info', t:'Client concentration', d:`${slEsc(top.label)} is ${share.toFixed(1)}% of quoted value (${slShort(top.total)}). Top 5 clients: ${slPct(slSum(clients.slice(0,5),c=>c.total),total).toFixed(1)}%.` });
+  }
+  const gov = slSum(rows.filter(s=>s.clientType==='Government'),s=>s.value);
+  if(total>0 && gov>0) items.push({ tone:'info', t:'Government vs private', d:`${slPct(gov,total).toFixed(1)}% of quoted value is Government, ${(100-slPct(gov,total)).toFixed(1)}% Private.` });
+  const pend = rows.filter(s=>s.status==='Pending').sort((a,b)=>b.value-a.value);
+  if(pend.length){
+    const rate = rows.length ? rows.filter(s=>s.status==='Approved').length/rows.length : 0;
+    items.push({ tone:'open', t:'Open pipeline', d:`${pend.length} pending worth ${slShort(openV)}. Biggest: ${slEsc(pend[0].refNo)} for ${slEsc(pend[0].client||'—')} (${slShort(pend[0].value)}). At the current ${(rate*100).toFixed(1)}% win rate, expect about ${slShort(openV*rate)}.` });
+  }
+  const slow = rows.filter(s=>{ const t=slTurnaround(s); return t!=null && t>3; });
+  if(slow.length) items.push({ tone:'warn', t:'Slow quotations', d:`${slow.length} took more than 3 days to submit (${slShort(slSum(slow,s=>s.value))} of value): ${slow.slice(0,4).map(s=>slEsc(s.refNo)).join(', ')}${slow.length>4?'…':''}.` });
+  const big = [...rows].sort((a,b)=>b.value-a.value)[0];
+  if(big && big.value>0) items.push({ tone:'info', t:'Largest quotation', d:`${slEsc(big.refNo)} — ${slEsc(big.client||'—')}, ${big.boats>1?big.boats+' × ':''}${slEsc(big.boatModel||'boat')} (${slShort(big.value)}), ${slEsc(big.status).toLowerCase()}.` });
+  const noVal = rows.filter(s=>!(Number(s.value)>0));
+  const noDate = rows.filter(s=>!s.inquiryDate);
+  if(noVal.length||noDate.length) items.push({ tone:'warn', t:'Missing information', d:[noVal.length?`${noVal.length} without a value (${noVal.map(s=>slEsc(s.refNo)).join(', ')})`:'', noDate.length?`${noDate.length} without an inquiry date (${noDate.map(s=>slEsc(s.refNo)).join(', ')})`:''].filter(Boolean).join('; ')+'.' });
+  return `<ul class="sl-ins">${items.map(i=>`<li class="${i.tone}"><b>${i.t}</b><span>${i.d}</span></li>`).join('')}</ul>`;
+}
+
+/* Derived columns, same logic as the old sheet (Total days -> Interpretation / Speed / % output) */
+const SL_MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function slParts(iso){ if(!iso) return {m:'',d:'',y:''}; const [y,m,d]=String(iso).split('-').map(Number); return {m:SL_MONTHS_FULL[m-1]||'', d:d||'', y:y||''}; }
+function slDerived(s){
+  const a=slDay(s.inquiryDate), b=slDay(s.draftDate), c=slDay(s.submitDate);
+  const d1 = (a!=null&&b!=null) ? b-a : null;
+  const d2 = (b!=null&&c!=null) ? c-b : null;
+  const tot = (a!=null&&c!=null) ? c-a : null;
+  let interp='', speed='', pct=null;
+  if(tot!=null && tot>=0){
+    interp = tot<=3 ? 'Fast' : (tot<=7 ? 'Normal' : 'Slow');
+    speed = tot===0 ? 'Instant' : tot===1 ? 'Extremely Fast' : tot===2 ? 'Fast' : tot===3 ? 'Moderate' : tot<=7 ? 'Slow' : 'Extremely Slow';
+    pct = tot<=3 ? 1 : 3/tot;
+  }
+  return { d1, d2, tot, interp, speed, pct };
+}
+
+function slTable(rows){
+  if(!rows.length) return `<div class="empty">No quotations match these filters.</div>`;
+  const sorted = [...rows].sort((a,b)=> (a.refNo||'').localeCompare(b.refNo||'',undefined,{numeric:true}));
+  const n = v => (v===''||v==null) ? '<span class="sl-faint">—</span>' : slEsc(v);
+  const dash = '<span class="sl-faint">—</span>';
+  return `<div class="sl-scroll"><table class="sl-master"><thead>
+    <tr class="sl-grp">
+      <th class="sl-stick"></th>
+      <th colspan="3">Date of Inquiry</th><th colspan="3">Drafting of Quotation</th><th colspan="3">Submission of Quotation</th><th colspan="3">Number of Days</th>
+      <th colspan="3">Turnaround</th><th colspan="12"></th><th class="sl-stickr"></th>
+    </tr>
+    <tr>
+      <th class="sl-stick">Sequence No.</th>
+      <th>Month</th><th>Day</th><th>Year</th>
+      <th>Month</th><th>Day</th><th>Year</th>
+      <th>Month</th><th>Day</th><th>Year</th>
+      <th class="right">Inquiry to Drafting</th><th class="right">Drafting to Submission</th><th class="right">Total</th>
+      <th>Interpretation</th><th>Processing Speed</th><th class="right">Percentage Output</th>
+      <th>Quotation In-charge</th><th>Type of Project</th><th class="right">Length Over-All (ft)</th><th>Boat Model</th><th>Boat Application</th>
+      <th>Project Title</th><th>Client</th><th>Location</th><th>Client Type</th><th class="right">Number of Boats</th><th class="right">Potential Value</th><th>Status</th>
+      <th class="sl-stickr"></th>
+    </tr></thead><tbody>
+    ${sorted.map(s=>{
+      const a=slParts(s.inquiryDate), b=slParts(s.draftDate), c=slParts(s.submitDate), d=slDerived(s);
+      const dn = v => v==null ? dash : v;
+      return `<tr>
+        <td class="sl-stick mono"><b>${slEsc(s.refNo)}</b></td>
+        <td>${n(a.m)}</td><td>${n(a.d)}</td><td>${n(a.y)}</td>
+        <td>${n(b.m)}</td><td>${n(b.d)}</td><td>${n(b.y)}</td>
+        <td>${n(c.m)}</td><td>${n(c.d)}</td><td>${n(c.y)}</td>
+        <td class="right">${dn(d.d1)}</td><td class="right">${dn(d.d2)}</td><td class="right ${d.tot!=null&&d.tot>3?'sl-slow':''}">${dn(d.tot)}</td>
+        <td>${d.interp?`<span class="sl-tag t-${d.interp.toLowerCase()}">${d.interp}</span>`:dash}</td>
+        <td>${d.speed?slEsc(d.speed):dash}</td>
+        <td class="right">${d.pct==null?dash:Math.round(d.pct*1000)/10+'%'}</td>
+        <td>${n(s.incharge)}</td><td>${n(s.buildType)}</td><td class="right">${n(s.loa)}</td><td>${n(s.boatModel)}</td><td>${n(s.application)}</td>
+        <td class="sl-wrap" title="${slEsc(s.project)}">${n(s.project)}</td>
+        <td class="sl-wrap sl-bold" title="${slEsc(s.client)}">${n(s.client)}</td>
+        <td class="sl-wrap" title="${slEsc(s.location)}">${n(s.location)}</td>
+        <td>${n(s.clientType)}</td><td class="right">${n(s.boats)}</td>
+        <td class="right mono">${Number(s.value)>0?fmt(s.value):dash}</td>
+        <td><select class="sl-status ${slStatusClass(s.status)}" data-slstatus="${s.id}" aria-label="Status for ${slEsc(s.refNo)}">${SALES_STATUSES.map(st=>`<option ${st===s.status?'selected':''}>${st}</option>`).join('')}</select></td>
+        <td class="sl-stickr right"><span class="btn btn-ghost btn-sm" data-sledit="${s.id}">Edit</span><span class="btn btn-ghost btn-sm" data-sldel="${s.id}" style="color:var(--danger);">Delete</span></td>
+      </tr>`; }).join('')}
+  </tbody></table></div>`;
+}
+
+/* ============================================================
+   ADD / EDIT DIALOG
+   ============================================================ */
+function slNextRef(){
+  const nums = SALES.map(s=>{ const m=/^Q(\d+)-(\d+)/i.exec(s.refNo||''); return m? Number(m[2]) : 0; });
+  const yr = String(new Date().getFullYear()).slice(2);
+  return `Q${yr}-${Math.max(0,...nums)+1}`;
+}
+
+function slOpenEditor(id){
+  const existing = id ? SALES.find(s=>s.id===id) : null;
+  const s = existing ? { ...existing } : { id:uid('s'), refNo:slNextRef(), inquiryDate:todayISO(), draftDate:'', submitDate:'', incharge:'', buildType:'Standard Build', loa:'', boatModel:'', application:'', project:'', client:'', location:'', clientType:'', boats:1, value:'', status:'Pending', notes:'' };
+  let models = []; try{ models = getBoatModelList(); }catch(e){}
+  models = Array.from(new Set([...models, ...SALES.map(x=>x.boatModel).filter(Boolean)]));
+  let apps = []; try{ apps = BOAT_APPLICATIONS.slice(); }catch(e){}
+  apps = Array.from(new Set([...apps, ...SALES.map(x=>x.application).filter(Boolean)]));
+  const people = Array.from(new Set([...(ALL_PROFILES||[]).map(p=>p.full_name).filter(Boolean), ...SALES.map(x=>x.incharge).filter(Boolean)]));
+  const dl = (name, arr) => `<datalist id="${name}">${arr.map(v=>`<option value="${slEsc(v)}">`).join('')}</datalist>`;
+  const sel = (key, arr) => `<select data-f="${key}"><option value="">—</option>${arr.map(v=>`<option ${v===s[key]?'selected':''}>${slEsc(v)}</option>`).join('')}</select>`;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'picker-overlay';
+  overlay.innerHTML = `
+    <div class="picker sl-modal" role="dialog" aria-modal="true" aria-label="${existing?'Edit sale':'Log a sale'}">
+      <div class="picker-head"><div><h3>${existing?'Edit '+slEsc(s.refNo):'Log a sale'}</h3><div class="hint" style="margin:3px 0 0;">Fields marked * are required.</div></div>
+        <button type="button" class="btn btn-ghost btn-sm" data-x="cancel" aria-label="Close">✕</button></div>
+      <div class="sl-form">
+        <div class="field"><label>Quotation ref no. *</label><input data-f="refNo" value="${slEsc(s.refNo)}"></div>
+        <div class="field"><label>Status</label>${`<select data-f="status">${SALES_STATUSES.map(v=>`<option ${v===s.status?'selected':''}>${v}</option>`).join('')}</select>`}</div>
+        <div class="field wide"><label>Client *</label><input data-f="client" value="${slEsc(s.client)}"></div>
+        <div class="field wide"><label>Project title</label><input data-f="project" value="${slEsc(s.project)}" placeholder="e.g. 30ft Dive Boat, Apple Series, single 150hp"></div>
+        <div class="field"><label>Client type</label>${sel('clientType',SALES_CLIENT_TYPES)}</div>
+        <div class="field"><label>Location</label><input data-f="location" value="${slEsc(s.location)}"></div>
+        <div class="field"><label>Boat model</label><input data-f="boatModel" list="slModels" value="${slEsc(s.boatModel)}"></div>
+        <div class="field"><label>Application</label><input data-f="application" list="slApps" value="${slEsc(s.application)}"></div>
+        <div class="field"><label>Build type</label>${sel('buildType',SALES_BUILD_TYPES)}</div>
+        <div class="field"><label>Length overall (ft)</label><input type="number" min="0" step="0.5" data-f="loa" value="${slEsc(s.loa)}"></div>
+        <div class="field"><label>Number of boats</label><input type="number" min="1" step="1" data-f="boats" value="${slEsc(s.boats)}"></div>
+        <div class="field"><label>Quoted value (₱)</label><input type="number" min="0" step="any" data-f="value" value="${slEsc(s.value)}"></div>
+        <div class="field"><label>Quotation in-charge</label><input data-f="incharge" list="slPeople" value="${slEsc(s.incharge)}"></div>
+        <div class="field"><label>Date of inquiry</label><input type="date" data-f="inquiryDate" value="${slEsc(s.inquiryDate)}"></div>
+        <div class="field"><label>Drafting started</label><input type="date" data-f="draftDate" value="${slEsc(s.draftDate)}"></div>
+        <div class="field"><label>Quotation submitted</label><input type="date" data-f="submitDate" value="${slEsc(s.submitDate)}"></div>
+        <div class="field wide"><label>Notes</label><textarea data-f="notes" rows="2">${slEsc(s.notes)}</textarea></div>
+      </div>
+      ${dl('slModels',models)}${dl('slApps',apps)}${dl('slPeople',people)}
+      <div class="picker-foot"><span class="picker-count" id="slErr" style="color:var(--danger);"></span>
+        <div style="display:flex;gap:8px;"><button type="button" class="btn btn-ghost" data-x="cancel">Cancel</button><button type="button" class="btn btn-primary" data-x="ok">${existing?'Save changes':'Log sale'}</button></div></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=>{ overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e=>{ if(e.key==='Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) close(); });
+  overlay.querySelectorAll('[data-x="cancel"]').forEach(b=>b.onclick=close);
+  overlay.querySelector('[data-f="client"]').focus();
+  overlay.querySelector('[data-x="ok"]').onclick = ()=>{
+    const out = { ...s };
+    overlay.querySelectorAll('[data-f]').forEach(el=>{ out[el.dataset.f] = el.value.trim(); });
+    const err = document.getElementById('slErr');
+    if(!out.refNo){ err.textContent='Enter a quotation ref no.'; return; }
+    if(!out.client){ err.textContent='Enter the client name.'; return; }
+    if(SALES.some(x=>x.id!==out.id && (x.refNo||'').toLowerCase()===out.refNo.toLowerCase()) && !confirm(`${out.refNo} is already logged. Save anyway?`)) return;
+    out.value = Number(out.value)||0; out.boats = Math.max(1, Number(out.boats)||1);
+    out.loa = out.loa===''? '' : Number(out.loa)||'';
+    out.updatedAt = Date.now();
+    if(existing) Object.assign(existing, out); else { out.createdAt = Date.now(); SALES.push(out); }
+    save(DB_KEYS.sales, SALES); close(); toast(existing?'Sale updated':'Sale logged'); renderAll();
+  };
+}
+
+/* ============================================================
+   EXPORT / IMPORT
+   ============================================================ */
+function slExportCSV(){
+  const q = v => { v = v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const head = ['Sequence No.','Inquiry Month','Inquiry Day','Inquiry Year','Drafting Month','Drafting Day','Drafting Year','Submission Month','Submission Day','Submission Year','Inquiry to Drafting','Drafting to Submission','Total','Interpretation','Processing Speed','Percentage Output','Quotation In-charge','Type of Project','Length Over-All (ft)','Boat Model','Boat Application','PROJECT TITLE','Client','Location','Client Type','Number of boats','Potential Value','Status','Notes'];
+  const body = [...SALES].sort((a,b)=>(a.refNo||'').localeCompare(b.refNo||'',undefined,{numeric:true})).map(s=>{
+    const a=slParts(s.inquiryDate), b=slParts(s.draftDate), c=slParts(s.submitDate), d=slDerived(s);
+    return [s.refNo,a.m,a.d,a.y,b.m,b.d,b.y,c.m,c.d,c.y,d.d1,d.d2,d.tot,d.interp,d.speed,d.pct==null?'':Math.round(d.pct*1000)/1000,s.incharge,s.buildType,s.loa,s.boatModel,s.application,s.project,s.client,s.location,s.clientType,s.boats,s.value,s.status,s.notes].map(q).join(',');
+  });
+  const blob = new Blob(['\ufeff'+[head.map(q).join(',')].concat(body).join('\r\n')], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `TBSC-quotation-master-data-${todayISO()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  toast('Exported '+SALES.length+' sales');
+}
+
+function slOpenImport(){
+  const overlay = document.createElement('div');
+  overlay.className = 'picker-overlay';
+  overlay.innerHTML = `
+    <div class="picker" role="dialog" aria-modal="true" aria-label="Import sales" style="width:min(480px,100%);">
+      <div class="picker-head"><div><h3>Import sales</h3><div class="hint" style="margin:3px 0 0;">Rows whose ref no. is already logged are skipped, so it is safe to re-import.</div></div>
+        <button type="button" class="btn btn-ghost btn-sm" data-x="cancel" aria-label="Close">✕</button></div>
+      <div class="quick" style="padding-top:10px;">
+        <button class="btn" id="slImpQ">Add from existing quotations</button>
+        <label class="btn" style="cursor:pointer;justify-content:flex-start;">Choose an Excel or CSV file…<input type="file" id="slImpFile" accept=".xlsx,.xls,.csv" style="display:none;"></label>
+        <div class="hint" style="margin:2px 4px 0;">Excel files should use the same columns as your “Quotation Master Data” sheet (Client, Boat Model, Potential Value, Status, Inquiry Month/Day/Year…). A CSV exported from this page also works.</div>
+      </div>
+      <div class="picker-foot"><span class="picker-count" id="slImpMsg"></span><button type="button" class="btn btn-ghost" data-x="cancel">Close</button></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=>overlay.remove();
+  overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) close(); });
+  overlay.querySelectorAll('[data-x="cancel"]').forEach(b=>b.onclick=close);
+  document.getElementById('slImpQ').onclick = ()=>{ close(); slImportFromQuotes(); };
+  document.getElementById('slImpFile').onchange = async e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const msg = document.getElementById('slImpMsg'); msg.textContent = 'Reading file…';
+    try{
+      const n = await slImportFile(f);
+      close();
+      if(n!=null){ renderAll(); }
+    }catch(err){ console.error(err); msg.style.color='var(--danger)'; msg.textContent = 'Could not read that file. '+(err.message||''); }
+  };
+}
+
+function slLoadSheetJS(){
+  if(window.XLSX) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    sc.onload = res; sc.onerror = ()=>rej(new Error('Could not load the spreadsheet reader. Check your connection.'));
+    document.head.appendChild(sc);
+  });
+}
+
+async function slImportFile(file){
+  await slLoadSheetJS();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type:'array' });
+  // prefer the master-data sheet, otherwise the first sheet that has a Client + Status header
+  let rows = null;
+  const names = [...wb.SheetNames].sort((a,b)=> (/master/i.test(b)?1:0)-(/master/i.test(a)?1:0));
+  for(const n of names){
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, defval:'', raw:true });
+    const hi = aoa.findIndex(r=>r.some(c=>/^client$/i.test(String(c).trim())) && r.some(c=>/^status$/i.test(String(c).trim())));
+    if(hi>=0){ rows = { hdr:aoa[hi].map(c=>String(c).trim()), data:aoa.slice(hi+1) }; break; }
+  }
+  if(!rows) throw new Error('No sheet with “Client” and “Status” columns was found.');
+  const idx = (...names) => { for(const nm of names){ const i = rows.hdr.findIndex(h=>h.toLowerCase()===nm.toLowerCase()); if(i>=0) return i; } return -1; };
+  const col = { ref:idx('Sequence No.','Ref No.','Ref No'), client:idx('Client'), project:idx('PROJECT TITLE','Project Title'), loc:idx('Location'), ctype:idx('Client Type'), model:idx('Boat Model'), app:idx('Boat Application'), build:idx('Type of Project'), loa:idx('Length Over-All (ft)'), boats:idx('Number of boats','Number of Boats'), val:idx('Potential Value'), status:idx('Status'), who:idx('Quotation In-charge'), inqM:idx('Inquiry Month'), inqD:idx('Inquiry Day'), inqY:idx('Inquiry Year'), drM:idx('Drafting Month'), drD:idx('Drafting Day'), drY:idx('Drafting Year'), suM:idx('Submission Month'), suD:idx('Submission Day'), suY:idx('Submission Year'), inq:idx('Date of Inquiry'), dr:idx('Drafting Date'), su:idx('Submission Date'), notes:idx('Notes') };
+  const MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+  const get = (r,i) => i<0 ? '' : r[i];
+  const text = v => String(v==null?'':v).trim();
+  const isoFromParts = (m,d,y) => { const mi = typeof m==='number'? m-1 : MONTHS.indexOf(text(m).toLowerCase()); if(mi<0||!d) return ''; let yr = Number(y)||new Date().getFullYear(); return `${yr}-${String(mi+1).padStart(2,'0')}-${String(Number(d)).padStart(2,'0')}`; };
+  const isoFromCell = v => { if(v==null||v==='') return ''; if(typeof v==='number'){ const dt = new Date(Math.round((v-25569)*86400000)); return dt.toISOString().slice(0,10); } const t=text(v); return /^\d{4}-\d{2}-\d{2}/.test(t)? t.slice(0,10) : ''; };
+  const norm = s => text(s).toLowerCase().replace(/\s+/g,'');
+  const have = new Set(SALES.map(s=>norm(s.refNo)));
+  const fresh = [];
+  let skippedDup = 0, skippedBlank = 0;
+  rows.data.forEach(r=>{
+    const client = text(get(r,col.client)), value = Number(get(r,col.val))||0;
+    let ref = text(get(r,col.ref)).replace(/^(Q\d+)\s+(\d)/i,'$1-$2');
+    if(!client && !value){ skippedBlank++; return; }
+    if(!ref){ skippedBlank++; return; }
+    if(have.has(norm(ref))){ skippedDup++; return; }
+    have.add(norm(ref));
+    const st = text(get(r,col.status)).toLowerCase();
+    const rec = {
+      id: uid('s'), refNo: ref, client, project:text(get(r,col.project)), location:text(get(r,col.loc)), clientType:text(get(r,col.ctype)),
+      boatModel:text(get(r,col.model)).replace(/Emabassy/i,'Embassy'), application:text(get(r,col.app)), buildType:text(get(r,col.build)),
+      loa: Number(get(r,col.loa))||'', boats: Math.max(1, Number(get(r,col.boats))||1), value,
+      status: st.startsWith('approv') ? 'Approved' : (st.startsWith('not') || st.startsWith('lost') || st.startsWith('declin') ? 'Not Approved' : 'Pending'),
+      incharge:text(get(r,col.who)),
+      inquiryDate: col.inq>=0 ? isoFromCell(get(r,col.inq)) : isoFromParts(get(r,col.inqM),get(r,col.inqD),get(r,col.inqY)),
+      draftDate:   col.dr>=0  ? isoFromCell(get(r,col.dr))  : isoFromParts(get(r,col.drM),get(r,col.drD),get(r,col.drY)),
+      submitDate:  col.su>=0  ? isoFromCell(get(r,col.su))  : isoFromParts(get(r,col.suM),get(r,col.suD),get(r,col.suY)),
+      notes:text(get(r,col.notes)), createdAt:Date.now(), updatedAt:Date.now()
+    };
+    fresh.push(rec);
+  });
+  if(!fresh.length){ toast(`Nothing new to import (${skippedDup} already logged${skippedBlank?`, ${skippedBlank} blank`:''})`); return null; }
+  if(!confirm(`Import ${fresh.length} new sale${fresh.length===1?'':'s'}?\n${skippedDup} already logged and ${skippedBlank} blank rows will be skipped.`)) return null;
+  fresh.forEach(s=>SALES.push(s));
+  save(DB_KEYS.sales, SALES);
+  toast(`Imported ${fresh.length} sales`);
+  return fresh.length;
+}
+
+function slImportFromQuotes(){
+  const norm = s => String(s||'').trim().toLowerCase();
+  const have = new Set(SALES.map(s=>norm(s.refNo)));
+  const fresh = QUOTES.filter(q=>q.refNo && !have.has(norm(q.refNo)));
+  if(!fresh.length){ toast('Every quotation is already in the Sales Tracker'); return; }
+  if(!confirm(`Add ${fresh.length} quotation${fresh.length===1?'':'s'} to the Sales Tracker?\nApproved quotations become “Approved”; everything else starts as “Pending”.`)) return;
+  fresh.forEach(q=>{
+    const who = profileByEmail(q.createdByEmail);
+    SALES.push({
+      id: uid('s'), refNo:q.refNo, client:customerDisplayName(q.customerSnap)||'', project:'', location:'', clientType:'',
+      boatModel:(q.project&&q.project.boatModel)||'', application:(q.project&&q.project.boatApplication)||'',
+      buildType:(q.hull&&q.hull.boatType)||'', loa:Number(q.hull&&q.hull.loa)||'', boats:1,
+      value: Math.round((computeAll(q).finalTotal||0)*100)/100,
+      status: q.status==='approved' ? 'Approved' : 'Pending',
+      incharge:(who&&who.full_name)||q.createdByEmail||'', inquiryDate:q.date||'', draftDate:'', submitDate:'', notes:'',
+      createdAt:Date.now(), updatedAt:Date.now()
+    });
+  });
+  save(DB_KEYS.sales, SALES);
+  toast(`Added ${fresh.length} from quotations`);
+  renderAll();
+}
