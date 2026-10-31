@@ -141,6 +141,10 @@ a{color:inherit;}
 }
 .who-out:hover{background:#fff;}
 
+.dept-badge{display:inline-block;padding:3px 11px;border-radius:var(--pill);background:var(--yellow);color:var(--ink);font-size:11px;font-weight:600;white-space:nowrap;}
+.dept-switch,.dept-pick{border:none;background:var(--glass-strong);color:var(--ink);padding:7px 12px;border-radius:var(--pill);font-size:12px;font-weight:600;box-shadow:var(--shadow-sm);}
+.dept-pick{min-width:150px;}
+
 .sidebar-overlay{display:none;}
 .menu-btn{display:none;}
 
