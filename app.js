@@ -4556,7 +4556,7 @@ function renderSettings(content, actions){
     const people = [...ALL_PROFILES].sort((a,b)=>String(a.full_name||a.email).localeCompare(String(b.full_name||b.email)));
     tb.innerHTML = people.length ? people.map(p=>`
       <tr>
-        <td>${esc(p.full_name||'—')}${p.is_admin?' <span class="dept-badge">Admin</span>':''}</td>
+        <td>${esc(p.full_name||'—')}${p.is_admin?' <span class="dept-badge admin">Admin</span>':''}</td>
         <td>${esc(p.email)}</td>
         <td><select class="dept-pick" data-email="${esc(p.email)}">
           <option value="">Not assigned</option>
