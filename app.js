@@ -1531,6 +1531,21 @@ function renderDashboard(content, actions){
     return { key, label: statusLabel(key), n: list.length, v: list.reduce((sum,q)=>sum+computeAll(q).finalTotal,0) };
   });
 
+  const qCard = q=>`<button type="button" class="qcard ${q.status}" data-open="${q.id}">
+      <div class="q-top"><span>${esc(q.refNo)}</span><span>${esc(q.date||'')}</span></div>
+      <div class="q-main"><span class="q-av" title="${esc(q.createdByEmail||'')}">${esc((q.createdByEmail||'?').charAt(0).toUpperCase())}</span>
+        <div><div class="q-name">${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</div>
+        <div class="q-client">${esc(customerDisplayName(q.customerSnap))||'No client yet'}</div></div></div>
+      <div class="q-amt">${fmt(computeAll(q).finalTotal)}</div>
+    </button>`;
+  const kanban = QUOTES.length ? `<div class="kbar"><h3>Quotation board</h3><span class="btn btn-ghost btn-sm" id="viewAllQ">View all</span></div>
+    <div class="kanban">${['draft','for_approval','for_revision','approved'].map(key=>{
+      const list = QUOTES.filter(q=>q.status===key).sort((a,b)=>b.updatedAt-a.updatedAt);
+      return `<section class="kcol"><header class="khead"><span>${statusLabel(key)}</span><span class="kcount">${list.length}</span></header>
+        <div class="kbody">${list.slice(0,5).map(qCard).join('') || '<div class="kempty">No quotations</div>'}</div>
+        ${list.length>5?`<div class="kmore">+${list.length-5} more</div>`:''}</section>`;
+    }).join('')}</div>` : `<div class="kbar"><h3>Quotation board</h3></div><div class="empty">No quotations yet. Create your first one to see it here.</div>`;
+
   content.innerHTML = `
     ${needsRevision.length ? `
     <div class="card" style="border:1px solid var(--danger);background:var(--danger-soft);margin-bottom:16px;">
@@ -1560,23 +1575,8 @@ function renderDashboard(content, actions){
         <div class="txt"><div class="val">${approved}${QUOTES.length?`<span class="chip">${Math.round(approved/QUOTES.length*100)}% approved</span>`:''}</div><div class="lbl">Approved quotations</div></div>
       </div>
     </div>
-    <div class="dash-grid">
-      <div class="card">
-        <div class="card-head"><h3>Recent quotations</h3><span class="btn btn-ghost btn-sm" id="viewAllQ">View all</span></div>
-        ${recent.length ? `<div class="qcards">
-          ${recent.map(q=>{
-            const t = computeAll(q).finalTotal;
-            return `<button type="button" class="qcard ${q.status}" data-open="${q.id}">
-              <div class="q-top"><span>${esc(q.refNo)}</span><span>${esc(q.date||'')}</span></div>
-              <div class="q-name">${esc(q.project.boatModel||q.hull.boatType)} · ${q.hull.loa||0}ft</div>
-              <div class="q-client">${esc(customerDisplayName(q.customerSnap))||'No client yet'}</div>
-              <div class="q-amt">${fmt(t)}</div>
-              <div class="q-state">${statusLabel(q.status)}</div>
-            </button>`;
-          }).join('')}
-        </div>` : `<div class="empty">No quotations yet. Create your first one to see it here.</div>`}
-      </div>
-      <div style="display:flex;flex-direction:column;gap:16px;">
+    ${kanban}
+    <div class="grid g2" style="margin-top:22px;">
         <div class="card">
           <div class="card-head"><h3>Status mix</h3><span class="hint" style="margin:0;">${fmt(totalVal)} quoted</span></div>
           ${QUOTES.length ? `<div class="mixbar">${mix.filter(m=>m.n).map(m=>`<span class="${m.key}" style="flex:${m.n};" title="${m.label}: ${m.n}"></span>`).join('')}</div>` : ``}
@@ -1592,11 +1592,10 @@ function renderDashboard(content, actions){
             <button class="btn" id="qaPricing">${icon('db')} Update pricing database</button>
           </div>
         </div>
-      </div>
     </div>
   `;
   document.getElementById('btnNewQ').onclick = ()=>openEditor(null);
-  document.getElementById('viewAllQ').onclick = ()=>{CURRENT.view='quotes'; renderAll();};
+  const vaq = document.getElementById('viewAllQ'); if(vaq) vaq.onclick = ()=>{CURRENT.view='quotes'; renderAll();};
   const viewRevBtn = document.getElementById('btnViewRevisions');
   if(viewRevBtn) viewRevBtn.onclick = ()=>{ openEditor(needsRevision[0].revisionChildId); };
   document.getElementById('qaTemplates').onclick = ()=>{CURRENT.view='templates'; renderAll();};
@@ -2262,7 +2261,7 @@ function renderTemplates(content, actions){
       <div class="card preset-preview-card" draggable="true" data-openmodel="${esc(t.id)}" style="cursor:pointer;transition:box-shadow .15s, transform .15s, opacity .15s;position:relative;">
         <div class="card-body" style="padding-top:26px;">
           <div class="drag-handle" title="Drag to reorder" style="position:absolute;top:8px;right:10px;cursor:grab;color:var(--ink-faint);font-size:13px;letter-spacing:2px;line-height:1;user-select:none;">⠿</div>
-          <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;padding-right:16px;">${esc(t.boatModel)}</div>
+          <div style="font-family:'Inter',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;padding-right:16px;">${esc(t.boatModel)}</div>
           <div style="display:flex;gap:14px;font-size:11.5px;color:var(--ink-soft);">
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">LOA</div><div style="font-weight:600;color:var(--ink);">${t.loa||0} ft</div></div>
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Beam</div><div style="font-weight:600;color:var(--ink);">${t.beam||0} ft</div></div>
@@ -2470,7 +2469,7 @@ function renderTemplates(content, actions){
     grid.innerHTML = list.length ? `<div class="grid g4">${list.map(p=>`
       <div class="card preset-preview-card" data-openaddon="${esc(p.id)}" style="cursor:pointer;transition:box-shadow .15s, transform .15s;">
         <div class="card-body">
-          <div style="font-family:'Sora',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;">${esc(p.name)}</div>
+          <div style="font-family:'Inter',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:10px;">${esc(p.name)}</div>
           <div style="display:flex;gap:14px;font-size:11.5px;color:var(--ink-soft);">
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Teams</div><div style="font-weight:600;color:var(--ink);">${(p.components||[]).reduce((n,c)=>n+((c.laborTeams||[]).length),0)}</div></div>
             <div><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);margin-bottom:2px;">Total cost</div><div style="font-weight:600;color:var(--ink);">${fmt(presetTotalCost(p))}</div></div>
@@ -2489,7 +2488,7 @@ function renderTemplates(content, actions){
       <button class="btn btn-ghost btn-sm" id="btnBackAddon" style="margin-bottom:14px;">← Back to ${esc(meta.label)}</button>
       <div class="card">
         <div class="card-head">
-          <h3 id="addonTitle" style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(t.name)}</h3>
+          <h3 id="addonTitle" style="font-family:'Inter',sans-serif;font-weight:700;font-size:14px;">${esc(t.name)}</h3>
           <button class="btn btn-ghost btn-sm" id="btnDelAddon" style="color:var(--danger);">Remove Preset</button>
         </div>
         <div class="card-body">
@@ -2521,7 +2520,7 @@ function renderTemplates(content, actions){
       <button class="btn btn-ghost btn-sm" id="btnBackToModels" style="margin-bottom:14px;">← Back to Boat Models</button>
       <div class="card" data-model="${esc(m)}">
         <div class="card-head">
-          <h3 id="boatModelTitle" style="font-family:'Sora',sans-serif;font-weight:700;font-size:14px;">${esc(titleTxt())}</h3>
+          <h3 id="boatModelTitle" style="font-family:'Inter',sans-serif;font-weight:700;font-size:14px;">${esc(titleTxt())}</h3>
           <button class="btn btn-ghost btn-sm" data-delmodel="${esc(m)}" style="color:var(--danger);">Remove Model</button>
         </div>
         <div class="card-body">
